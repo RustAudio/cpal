@@ -193,14 +193,14 @@ impl Device {
             )
             .inspect_err(|_| {
                 // Roll back the input stream stored by get_or_create_input_stream.
-                if let Ok(mut streams) = self.asio_streams.lock() {
+                if let Ok(mut streams) = driver.streams().lock() {
                     streams.input = None;
                 }
             })?;
 
         let playback_state_cb = Arc::clone(&playback_state);
         let pending_xrun_cb = Arc::clone(&pending_xrun);
-        let asio_streams = self.asio_streams.clone();
+        let asio_streams = driver.streams();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
 
@@ -446,7 +446,7 @@ impl Device {
         });
 
         let driver = Arc::new(driver);
-        let asio_streams = self.asio_streams.clone();
+        let asio_streams = driver.streams();
 
         if let Err(e) = driver.start() {
             driver.remove_event_callback(driver_event_callback_id);
@@ -549,14 +549,14 @@ impl Device {
             )
             .inspect_err(|_| {
                 // Roll back the output stream stored by get_or_create_output_stream.
-                if let Ok(mut streams) = self.asio_streams.lock() {
+                if let Ok(mut streams) = driver.streams().lock() {
                     streams.output = None;
                 }
             })?;
 
         let playback_state_cb = Arc::clone(&playback_state);
         let pending_xrun_cb = Arc::clone(&pending_xrun);
-        let asio_streams = self.asio_streams.clone();
+        let asio_streams = driver.streams();
         let mut current_buffer_size = buffer_size as i32;
         let mut last_buffer_index: i32 = -1;
 
@@ -852,7 +852,7 @@ impl Device {
         });
 
         let driver = Arc::new(driver);
-        let asio_streams = self.asio_streams.clone();
+        let asio_streams = driver.streams();
 
         if let Err(e) = driver.start() {
             driver.remove_event_callback(driver_event_callback_id);
@@ -888,7 +888,8 @@ impl Device {
         let num_asio_channels = self.default_input_config()?.channels;
         check_config(driver, config, sample_format, num_asio_channels)?;
         let num_channels = config.channels as usize;
-        let mut streams = self.asio_streams.lock().map_err(|_| {
+        let asio_streams = driver.streams();
+        let mut streams = asio_streams.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
 
@@ -930,7 +931,8 @@ impl Device {
         let num_asio_channels = self.default_output_config()?.channels;
         check_config(driver, config, sample_format, num_asio_channels)?;
         let num_channels = config.channels as usize;
-        let mut streams = self.asio_streams.lock().map_err(|_| {
+        let asio_streams = driver.streams();
+        let mut streams = asio_streams.lock().map_err(|_| {
             Error::with_message(ErrorKind::StreamInvalidated, "Stream lock poisoned")
         })?;
 
@@ -981,7 +983,7 @@ impl Device {
             }
         };
         let driver_for_latency = driver.clone();
-        let asio_streams_for_event = self.asio_streams.clone();
+        let asio_streams_for_event = driver.streams();
 
         // Debounce timer: wait for ASIO_EVENT_DEBOUNCE of silence after the most recent event
         // before delivering to the user. Exits when `timer_tx` is dropped, which happens when the

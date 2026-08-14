@@ -1,7 +1,7 @@
 use std::{
     fmt,
     hash::{Hash, Hasher},
-    sync::{Arc, Mutex, atomic::AtomicU32},
+    sync::{Arc, atomic::AtomicU32},
 };
 
 use super::sys;
@@ -27,10 +27,6 @@ pub struct Device {
     output_sample_format: Option<SampleFormat>,
     supported_sample_rates: Box<[SampleRate]>,
 
-    // Input and/or Output stream.
-    // A driver can only have one of each.
-    // They need to be created at the same time.
-    pub(super) asio_streams: Arc<Mutex<sys::AsioStreams>>,
     pub(super) current_callback_flag: Arc<AtomicU32>,
 }
 
@@ -215,11 +211,6 @@ impl Iterator for Devices {
 
                     self.current_driver = Some(driver);
 
-                    let asio_streams = Arc::new(Mutex::new(sys::AsioStreams {
-                        input: None,
-                        output: None,
-                    }));
-
                     return Some(Device {
                         name,
                         channels_in: channels.ins as ChannelCount,
@@ -230,7 +221,6 @@ impl Iterator for Devices {
                         input_sample_format,
                         output_sample_format,
                         supported_sample_rates,
-                        asio_streams,
                         // Initialize with sentinel value so it never matches global flag state (0 or 1).
                         current_callback_flag: Arc::new(AtomicU32::new(u32::MAX)),
                     });
