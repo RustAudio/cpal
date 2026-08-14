@@ -190,6 +190,9 @@ jobs:
       PKG_CONFIG_ALLOW_CROSS: "1"
       PKG_CONFIG_PATH: /usr/lib/mipsel-linux-gnu/pkgconfig/
       CARGO_TARGET_MIPSEL_UNKNOWN_LINUX_GNU_LINKER: mipsel-linux-gnu-gcc
+      # Nightly's default force-frame-pointers setting for this target gets forwarded by cc-rs
+      # to mipsel-linux-gnu-gcc as -mno-omit-leaf-frame-pointer, which it doesn't recognize.
+      RUSTFLAGS: "-C force-frame-pointers=no"
     steps:
       - uses: actions/checkout@v5
 
