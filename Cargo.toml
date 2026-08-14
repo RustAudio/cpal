@@ -47,6 +47,8 @@ audioworklet = [
   "web-sys/AudioWorklet",
   "web-sys/AudioWorkletNode",
   "web-sys/AudioWorkletNodeOptions",
+  "web-sys/ChannelCountMode",
+  "web-sys/Event",
 ]
 
 # Support for user-defined custom hosts, devices, and streams

@@ -4,7 +4,9 @@
 //! See the `audioworklet-beep` example for setup instructions.
 
 use std::{
+    cell::RefCell,
     fmt,
+    rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -72,6 +74,10 @@ const SUPPORTED_SAMPLE_FORMAT: SampleFormat = SampleFormat::F32;
 // https://webaudio.github.io/web-audio-api/#render-quantum-size
 const DEFAULT_RENDER_SIZE: u64 = 128;
 
+// Must match the names passed to `registerProcessor()` in worklet.js.
+const OUTPUT_PROCESSOR_NAME: &str = "CpalProcessor";
+const CAPTURE_PROCESSOR_NAME: &str = "CpalCaptureProcessor";
+
 fn render_quantum_size_supported() -> bool {
     (|| -> Option<bool> {
         let global = js_sys::global();
@@ -95,6 +101,85 @@ fn supported_render_quantum_range(sample_rate: SampleRate) -> SupportedBufferSiz
             max: DEFAULT_RENDER_SIZE as FrameCount,
         }
     }
+}
+
+/// Checks shared by both `build_input_stream_raw` and `build_output_stream_raw`.
+fn validate_config(config: &StreamConfig, sample_format: SampleFormat) -> Result<(), Error> {
+    crate::validate_stream_config(config)?;
+    if config.channels > MAX_CHANNELS {
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!(
+                "Channel count {} exceeds the maximum of {MAX_CHANNELS}",
+                config.channels
+            ),
+        ));
+    }
+    if sample_format != SUPPORTED_SAMPLE_FORMAT {
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!(
+                "Sample format {sample_format} is not supported; required format is {SUPPORTED_SAMPLE_FORMAT}"
+            ),
+        ));
+    }
+    if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&config.sample_rate) {
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!(
+                "Sample rate {} Hz is not in the supported range {MIN_SAMPLE_RATE}..={MAX_SAMPLE_RATE} Hz",
+                config.sample_rate
+            ),
+        ));
+    }
+    if let BufferSize::Fixed(n) = config.buffer_size {
+        if let SupportedBufferSize::Range { min, max } =
+            supported_render_quantum_range(config.sample_rate)
+        {
+            if !(min..=max).contains(&n) {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    format!(
+                        "Buffer size {n} is not in the supported render quantum range {min}..={max}"
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The full matrix of channel counts x sample rates; identical for input and output, since
+/// neither is known ahead of time (see the callers' doc comments).
+fn supported_configs() -> Vec<SupportedStreamConfigRange> {
+    (MIN_CHANNELS..=MAX_CHANNELS)
+        .flat_map(|channels| {
+            crate::COMMON_SAMPLE_RATES
+                .iter()
+                .copied()
+                .filter(|&r| (MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&r))
+                .map(move |rate| SupportedStreamConfigRange {
+                    channels,
+                    min_sample_rate: rate,
+                    max_sample_rate: rate,
+                    buffer_size: supported_render_quantum_range(rate),
+                    sample_format: SUPPORTED_SAMPLE_FORMAT,
+                })
+        })
+        .collect()
+}
+
+/// Picks the best default from a supported-config iterator via the standard heuristics.
+fn default_config(
+    configs: impl Iterator<Item = SupportedStreamConfigRange>,
+    none_supported_message: &'static str,
+) -> Result<SupportedStreamConfig, Error> {
+    let range = configs
+        .max_by(|a, b| a.cmp_default_heuristics(b))
+        .ok_or_else(|| Error::with_message(ErrorKind::UnsupportedConfig, none_supported_message))?;
+    Ok(range
+        .try_with_standard_sample_rate()
+        .unwrap_or_else(|| range.with_max_sample_rate()))
 }
 
 enum Command {
@@ -141,8 +226,11 @@ impl HostTrait for Host {
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        // TODO
-        None
+        if Self::is_available() && crate::host::is_get_user_media_available() {
+            Some(Device)
+        } else {
+            None
+        }
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
@@ -166,8 +254,13 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn description(&self) -> Result<DeviceDescription, Error> {
+        let direction = if crate::host::is_get_user_media_available() {
+            DeviceDirection::Duplex
+        } else {
+            DeviceDirection::Output
+        };
         Ok(DeviceDescriptionBuilder::new("Default Device")
-            .direction(DeviceDirection::Output)
+            .direction(direction)
             .build())
     }
 
@@ -179,72 +272,260 @@ impl DeviceTrait for Device {
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
-        // TODO
-        Ok(Vec::new().into_iter())
+        // The actual channel count and sample rate depend on the microphone getUserMedia()
+        // grants access to, which isn't known ahead of time; WebAudio resamples and up/downmixes
+        // whatever it gets to match, so this reports the same broad matrix as output.
+        Ok(supported_configs().into_iter())
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         // In actuality the number of supported channels cannot be fully known until
-        // the browser attempts to initialized the AudioWorklet.
-
-        let configs: Vec<_> = (MIN_CHANNELS..=MAX_CHANNELS)
-            .flat_map(|channels| {
-                crate::COMMON_SAMPLE_RATES
-                    .iter()
-                    .copied()
-                    .filter(|&r| (MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&r))
-                    .map(move |rate| SupportedStreamConfigRange {
-                        channels,
-                        min_sample_rate: rate,
-                        max_sample_rate: rate,
-                        buffer_size: supported_render_quantum_range(rate),
-                        sample_format: SUPPORTED_SAMPLE_FORMAT,
-                    })
-            })
-            .collect();
-        Ok(configs.into_iter())
+        // the browser attempts to initialize the AudioWorklet.
+        Ok(supported_configs().into_iter())
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Err(Error::with_message(
-            ErrorKind::UnsupportedOperation,
-            "Device does not support input",
-        ))
+        default_config(
+            self.supported_input_configs()?,
+            "No supported input configuration",
+        )
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        let range = self
-            .supported_output_configs()?
-            .max_by(|a, b| a.cmp_default_heuristics(b))
-            .ok_or_else(|| {
-                Error::with_message(
-                    ErrorKind::UnsupportedConfig,
-                    "No supported output configuration",
-                )
-            })?;
-        let config = range
-            .try_with_standard_sample_rate()
-            .unwrap_or_else(|| range.with_max_sample_rate());
-
-        Ok(config)
+        default_config(
+            self.supported_output_configs()?,
+            "No supported output configuration",
+        )
     }
 
+    /// Create an input stream capturing microphone audio via `getUserMedia()`.
+    ///
+    /// # Async completion
+    ///
+    /// This function returns `Ok` synchronously once the [`AudioContext`] is created, before
+    /// microphone access has been granted or denied and before the AudioWorklet module has been
+    /// loaded. Both happen asynchronously via [`wasm_bindgen_futures::spawn_local`]; if the user
+    /// denies access, no microphone is present, or the worklet fails to initialize, the error is
+    /// delivered to `error_callback` after the caller already holds a [`Stream`]. There is no way
+    /// to surface such errors synchronously given the Web Audio API's design.
+    ///
+    /// [`start`](crate::traits::StreamTrait::start) and [`pause`](crate::traits::StreamTrait::pause)
+    /// calls made before initialization completes return `Ok` immediately and are queued. If
+    /// initialization succeeds, the queued commands take effect; if it fails they are discarded
+    /// and the error is delivered to `error_callback`.
+    ///
+    /// [`AudioContext`]: web_sys::AudioContext
     fn build_input_stream_raw<D, E>(
         &self,
-        _config: StreamConfig,
-        _sample_format: SampleFormat,
-        _data_callback: D,
-        _error_callback: E,
+        config: StreamConfig,
+        sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        Err(Error::with_message(
-            ErrorKind::UnsupportedOperation,
-            "Device does not support input",
-        ))
+        validate_config(&config, sample_format)?;
+        let mut data_callback = crate::host::monotonic_input_callback(data_callback);
+
+        let n_channels = config.channels as u32;
+
+        let stream_opts = web_sys::AudioContextOptions::new();
+        stream_opts.set_sample_rate(config.sample_rate as f32);
+        if let BufferSize::Fixed(n) = config.buffer_size {
+            let _ = js_sys::Reflect::set(
+                stream_opts.as_ref(),
+                &JsValue::from_str("renderSizeHint"),
+                &JsValue::from_f64(n as f64),
+            );
+        }
+
+        let audio_context =
+            web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(|_| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "Failed to create audio context",
+                )
+            })?;
+
+        // Chrome rounds renderSizeHint to a power of two; read back the actual quantum.
+        let actual_render_quantum =
+            js_sys::Reflect::get(audio_context.as_ref(), &JsValue::from("renderQuantumSize"))
+                .ok()
+                .and_then(|v| v.as_f64())
+                .map(|v| v as u64);
+
+        let initial_quantum = actual_render_quantum.unwrap_or(match config.buffer_size {
+            BufferSize::Fixed(n) => n as u64,
+            BufferSize::Default => DEFAULT_RENDER_SIZE,
+        });
+        let buffer_size_frames = Arc::new(AtomicU64::new(initial_quantum));
+        let buffer_size_frames_cb = buffer_size_frames.clone();
+
+        let current_time_bits = Arc::new(AtomicU64::new(audio_context.current_time().to_bits()));
+        let current_time_bits_cb = current_time_bits.clone();
+        let current_time_bits_init = current_time_bits.clone();
+
+        let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
+
+        let ctx = audio_context.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let error_callback = Rc::new(RefCell::new(error_callback));
+
+            let media_stream = match crate::host::request_microphone().await {
+                Ok(stream) => stream,
+                Err(js_err) => {
+                    (error_callback.borrow_mut())(crate::host::get_user_media_error(&js_err));
+                    let _ = audio_context.close();
+                    return;
+                }
+            };
+
+            let result: Result<
+                (
+                    web_sys::MediaStreamAudioSourceNode,
+                    web_sys::AudioWorkletNode,
+                    web_sys::GainNode,
+                ),
+                JsValue,
+            > = async {
+                let mod_url = dependent_module!("worklet.js")?;
+                wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
+                    .await?;
+
+                let source = ctx.create_media_stream_source(&media_stream)?;
+
+                let options = web_sys::AudioWorkletNodeOptions::new();
+                options.set_number_of_inputs(1);
+                // A node with zero outputs and nothing downstream has no path to the
+                // destination, so the graph never pulls it for processing (the same class of
+                // bug as ScriptProcessorNode requiring a real output in some browsers). Give it
+                // one silent output, muted below, purely to keep it in the render graph.
+                options.set_number_of_outputs(1);
+                options.set_output_channel_count(&js_sys::Array::of1(&JsValue::from_f64(1.0)));
+                // `config.channels` is a promise to the caller: every callback delivers exactly
+                // that many interleaved channels. Force WebAudio to up/downmix the microphone
+                // track to match, regardless of how many channels it actually carries.
+                options.set_channel_count(n_channels);
+                options.set_channel_count_mode(web_sys::ChannelCountMode::Explicit);
+
+                options.set_processor_options(Some(&js_sys::Array::of3(
+                    &wasm_bindgen::module(),
+                    &wasm_bindgen::memory(),
+                    &WasmAudioCaptureProcessor::new(Box::new(
+                        move |interleaved_data, frame_size, sample_rate, now| {
+                            buffer_size_frames_cb.store(frame_size as u64, Ordering::Relaxed);
+                            current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
+                            let data = interleaved_data.as_ptr() as *mut ();
+                            let data = unsafe {
+                                Data::from_parts(data, interleaved_data.len(), sample_format)
+                            };
+
+                            let callback = StreamInstant::from_secs_f64(now);
+                            let buffer_duration =
+                                frames_to_duration(frame_size as FrameCount, sample_rate);
+                            let device = callback.checked_sub(buffer_duration).unwrap_or(callback);
+                            let timestamp = StreamTimestamp { callback, device };
+                            let info = CallbackInfo {
+                                timestamp,
+                                xrun: false,
+                            };
+                            (data_callback)(&data, &info);
+                        },
+                    ))
+                    .pack()
+                    .into(),
+                )));
+                let audio_worklet_node = web_sys::AudioWorkletNode::new_with_options(
+                    &ctx,
+                    CAPTURE_PROCESSOR_NAME,
+                    &options,
+                )?;
+
+                let error_callback_setup = error_callback.clone();
+                let on_processor_error =
+                    Closure::<dyn FnMut(web_sys::Event)>::new(move |_event: web_sys::Event| {
+                        (error_callback_setup.borrow_mut())(Error::with_message(
+                            ErrorKind::BackendError,
+                            "AudioWorklet capture processor failed to initialize or crashed",
+                        ));
+                    });
+                audio_worklet_node
+                    .set_onprocessorerror(Some(on_processor_error.as_ref().unchecked_ref()));
+                on_processor_error.forget();
+
+                source.connect_with_audio_node(&audio_worklet_node)?;
+
+                // Route the node's silent dummy output through a muted gain to the
+                // destination, keeping it in the render graph without producing audible sound.
+                let mute_gain = web_sys::GainNode::new(&ctx)?;
+                mute_gain.gain().set_value(0.0);
+                audio_worklet_node.connect_with_audio_node(&mute_gain)?;
+                mute_gain.connect_with_audio_node(&ctx.destination())?;
+
+                Ok((source, audio_worklet_node, mute_gain))
+            }
+            .await;
+
+            // Unlike AudioWorkletNode/GainNode, a MediaStreamAudioSourceNode isn't an
+            // AudioScheduledSourceNode with a spec-guaranteed lifetime tied to the render graph:
+            // browsers may garbage-collect it once its last JS reference is dropped, silently
+            // killing the mic connection a few render quanta later. Keep all three alive for as
+            // long as the command loop below runs, i.e. until the Stream is dropped.
+            let (_source, _audio_worklet_node, _mute_gain) = match result {
+                Ok(nodes) => nodes,
+                Err(err) => {
+                    let message = err
+                        .as_string()
+                        .unwrap_or_else(|| "Failed to initialize audio worklet".to_string());
+                    (error_callback.borrow_mut())(Error::with_message(
+                        ErrorKind::HostUnavailable,
+                        message,
+                    ));
+
+                    crate::host::stop_tracks(&media_stream);
+                    let _ = audio_context.close();
+                    return;
+                }
+            };
+
+            current_time_bits_init.store(audio_context.current_time().to_bits(), Ordering::Relaxed);
+
+            // Process play/pause commands from any thread until Stream is dropped.
+            // Dropping Stream closes command_tx, which terminates this loop.
+            while let Some(cmd) = command_rx.next().await {
+                match cmd {
+                    Command::Play => {
+                        if audio_context.resume().is_err() {
+                            (error_callback.borrow_mut())(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "Failed to resume audio context",
+                            ));
+                        }
+                    }
+                    Command::Pause => {
+                        if audio_context.suspend().is_err() {
+                            (error_callback.borrow_mut())(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "Failed to suspend audio context",
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Stream dropped: release the microphone and close the AudioContext.
+            crate::host::stop_tracks(&media_stream);
+            let _ = audio_context.close();
+        });
+
+        Ok(Self::Stream {
+            command_tx,
+            current_time_bits,
+            buffer_size_frames,
+        })
     }
 
     /// Create an output stream.
@@ -276,58 +557,17 @@ impl DeviceTrait for Device {
         config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
-        mut error_callback: E,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        crate::validate_stream_config(&config)?;
+        validate_config(&config, sample_format)?;
         // Keep `device` monotonic: the polled outputLatency can drop when the
         // page calls `setSinkId()` to switch output devices, pulling `device` backward.
         let mut data_callback = crate::host::monotonic_output_callback(data_callback);
-        if config.channels > MAX_CHANNELS {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Channel count {} exceeds the maximum of {MAX_CHANNELS}",
-                    config.channels
-                ),
-            ));
-        }
-        if sample_format != SUPPORTED_SAMPLE_FORMAT {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Sample format {sample_format} is not supported; required format is {SUPPORTED_SAMPLE_FORMAT}"
-                ),
-            ));
-        }
-        if !(MIN_SAMPLE_RATE..=MAX_SAMPLE_RATE).contains(&config.sample_rate) {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Sample rate {} Hz is not in the supported range {MIN_SAMPLE_RATE}..={MAX_SAMPLE_RATE} Hz",
-                    config.sample_rate
-                ),
-            ));
-        }
-
-        if let BufferSize::Fixed(n) = config.buffer_size {
-            if let SupportedBufferSize::Range { min, max } =
-                supported_render_quantum_range(config.sample_rate)
-            {
-                if !(min..=max).contains(&n) {
-                    return Err(Error::with_message(
-                        ErrorKind::UnsupportedConfig,
-                        format!(
-                            "Buffer size {n} is not in the supported render quantum range {min}..={max}"
-                        ),
-                    ));
-                }
-            }
-        }
 
         let stream_opts = web_sys::AudioContextOptions::new();
         stream_opts.set_sample_rate(config.sample_rate as f32);
@@ -386,6 +626,9 @@ impl DeviceTrait for Device {
 
         let ctx = audio_context.clone();
         wasm_bindgen_futures::spawn_local(async move {
+            let error_callback = Rc::new(RefCell::new(error_callback));
+            let error_callback_setup = error_callback.clone();
+
             let result: Result<(), JsValue> = async move {
                 let mod_url = dependent_module!("worklet.js")?;
                 wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
@@ -428,9 +671,22 @@ impl DeviceTrait for Device {
                     .pack()
                     .into(),
                 )));
-                // This name 'CpalProcessor' must match the name registered in worklet.js
-                let audio_worklet_node =
-                    web_sys::AudioWorkletNode::new_with_options(&ctx, "CpalProcessor", &options)?;
+                let audio_worklet_node = web_sys::AudioWorkletNode::new_with_options(
+                    &ctx,
+                    OUTPUT_PROCESSOR_NAME,
+                    &options,
+                )?;
+
+                let on_processor_error =
+                    Closure::<dyn FnMut(web_sys::Event)>::new(move |_event: web_sys::Event| {
+                        (error_callback_setup.borrow_mut())(Error::with_message(
+                            ErrorKind::BackendError,
+                            "AudioWorklet processor failed to initialize or crashed",
+                        ));
+                    });
+                audio_worklet_node
+                    .set_onprocessorerror(Some(on_processor_error.as_ref().unchecked_ref()));
+                on_processor_error.forget();
 
                 audio_worklet_node.connect_with_audio_node(&destination)?;
                 Ok(())
@@ -441,7 +697,10 @@ impl DeviceTrait for Device {
                 let message = err
                     .as_string()
                     .unwrap_or_else(|| "Failed to initialize audio worklet".to_string());
-                error_callback(Error::with_message(ErrorKind::HostUnavailable, message));
+                (error_callback.borrow_mut())(Error::with_message(
+                    ErrorKind::HostUnavailable,
+                    message,
+                ));
 
                 // Close AudioContext and exit; dropping command_rx closes the channel,
                 // so subsequent play()/pause() calls return HostUnavailable.
@@ -479,7 +738,7 @@ impl DeviceTrait for Device {
                 match cmd {
                     Command::Play => {
                         if audio_context.resume().is_err() {
-                            error_callback(Error::with_message(
+                            (error_callback.borrow_mut())(Error::with_message(
                                 ErrorKind::DeviceNotAvailable,
                                 "Failed to resume audio context",
                             ));
@@ -487,7 +746,7 @@ impl DeviceTrait for Device {
                     }
                     Command::Pause => {
                         if audio_context.suspend().is_err() {
-                            error_callback(Error::with_message(
+                            (error_callback.borrow_mut())(Error::with_message(
                                 ErrorKind::DeviceNotAvailable,
                                 "Failed to suspend audio context",
                             ));
@@ -618,6 +877,72 @@ impl WasmAudioProcessor {
     /// [`unpack`] exactly once. Failing to call [`unpack`] will leak the allocation.
     ///
     /// [`unpack`]: Self::unpack
+    pub fn pack(self) -> usize {
+        Box::into_raw(Box::new(self)) as usize
+    }
+    /// # Safety
+    ///
+    /// The `val` parameter must be a value previously returned by `Self::pack`.
+    /// It must not have already been unpacked or deallocated, and must not be used after this call.
+    /// Using an invalid or already-consumed pointer will result in undefined behavior.
+    pub unsafe fn unpack(val: usize) -> Self {
+        unsafe { *Box::from_raw(val as *mut _) }
+    }
+}
+
+type AudioCaptureCallback = Box<dyn FnMut(&[f32], u32, u32, f64)>;
+
+/// WasmAudioCaptureProcessor provides an interface for the JavaScript code running in the
+/// AudioWorklet to hand captured microphone audio to Rust. The mirror image of
+/// [`WasmAudioProcessor`]: JS interleaves the input channels into a Rust-owned buffer instead of
+/// Rust filling a buffer for JS to deinterleave out.
+#[wasm_bindgen]
+pub struct WasmAudioCaptureProcessor {
+    interleaved_buffer: Vec<f32>,
+    // Receives the interleaved captured buffer, frame size, sample rate, and current time.
+    callback: AudioCaptureCallback,
+}
+
+impl WasmAudioCaptureProcessor {
+    pub fn new(callback: AudioCaptureCallback) -> Self {
+        Self {
+            interleaved_buffer: Vec::new(),
+            callback,
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl WasmAudioCaptureProcessor {
+    /// Ensures the capture buffer can hold `channels * frame_size` samples and returns a pointer
+    /// for JS to interleave captured audio into.
+    pub fn capture_buffer_ptr(&mut self, channels: u32, frame_size: u32) -> u32 {
+        let interleaved_buffer_size = channels as usize * frame_size as usize;
+        self.interleaved_buffer.resize(
+            interleaved_buffer_size.max(self.interleaved_buffer.len()),
+            f32::EQUILIBRIUM,
+        );
+        self.interleaved_buffer.as_mut_ptr() as _
+    }
+
+    /// Invokes the Rust callback with the interleaved audio JS wrote via the pointer returned by
+    /// [`capture_buffer_ptr`](Self::capture_buffer_ptr).
+    pub fn process_captured(
+        &mut self,
+        channels: u32,
+        frame_size: u32,
+        sample_rate: u32,
+        current_time: f64,
+    ) {
+        let interleaved_buffer_size = channels as usize * frame_size as usize;
+        (self.callback)(
+            &self.interleaved_buffer[..interleaved_buffer_size],
+            frame_size,
+            sample_rate,
+            current_time,
+        );
+    }
+
     pub fn pack(self) -> usize {
         Box::into_raw(Box::new(self)) as usize
     }
