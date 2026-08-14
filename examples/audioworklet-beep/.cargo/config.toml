@@ -16,6 +16,8 @@ rustflags = [
     "link-arg=--export=__tls_align",
     "-C",
     "link-arg=--export=__tls_base",
+    "-C",
+    "link-arg=--export=__heap_base",
 ]
 
 [unstable]
