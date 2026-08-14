@@ -1,9 +1,13 @@
 use std::{cell::Cell, rc::Rc};
 
 use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
     Device, Error, ErrorKind, FromSample, HostId, Sample, SampleFormat, SizedSample, Stream,
     StreamConfig,
+    traits::{DeviceTrait, HostTrait, StreamTrait},
+};
+use ringbuf::{
+    HeapCons, HeapProd, HeapRb,
+    traits::{Consumer, Producer, Split},
 };
 use wasm_bindgen::prelude::*;
 use web_sys::console;
@@ -19,6 +23,8 @@ pub fn main_js() -> Result<(), JsValue> {
     let document = gloo::utils::document();
     let play_button = document.get_element_by_id("play").unwrap();
     let stop_button = document.get_element_by_id("stop").unwrap();
+    let record_button = document.get_element_by_id("record").unwrap();
+    let stop_record_button = document.get_element_by_id("stop-record").unwrap();
 
     // stream needs to be referenced from the "play" and "stop" closures
     let stream = Rc::new(Cell::new(None));
@@ -45,12 +51,36 @@ pub fn main_js() -> Result<(), JsValue> {
         closure.forget();
     }
 
+    // input stream needs its own slot; recording and playback run independently
+    let record_stream = Rc::new(Cell::new(None));
+
+    // set up record button
+    {
+        let record_stream = record_stream.clone();
+        let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::MouseEvent| {
+            record_stream.set(Some(record()));
+        });
+        record_button
+            .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
+        closure.forget();
+    }
+
+    // set up stop-record button
+    {
+        let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::MouseEvent| {
+            // stop the stream by dropping it; releases the microphone
+            record_stream.take();
+        });
+        stop_record_button
+            .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
+        closure.forget();
+    }
+
     Ok(())
 }
 
 fn beep() -> Stream {
-    let host =
-        cpal::host_from_id(HostId::AudioWorklet).expect("AudioWorklet host not available");
+    let host = cpal::host_from_id(HostId::AudioWorklet).expect("AudioWorklet host not available");
 
     let device = host
         .default_output_device()
@@ -90,6 +120,98 @@ where
         .build_output_stream(
             config,
             move |data: &mut [T], _| write_data(data, channels, &mut next_value),
+            err_fn,
+            None,
+        )
+        .unwrap();
+    stream.start().unwrap();
+    stream
+}
+
+/// Captures microphone input into a ring buffer and immediately plays it back, so you can hear
+/// your own voice. Wear headphones: routing a live mic to speakers risks feedback howl.
+fn record() -> (Stream, Stream) {
+    let host = cpal::host_from_id(HostId::AudioWorklet).expect("AudioWorklet host not available");
+
+    let input_device = host
+        .default_input_device()
+        .expect("failed to find a default input device");
+    let output_device = host
+        .default_output_device()
+        .expect("failed to find a default output device");
+
+    let input_config = input_device.default_input_config().unwrap();
+    let output_config = output_device.default_output_config().unwrap();
+
+    // Bound end-to-end latency; once full, the producer drops the newest samples instead of
+    // blocking.
+    let max_buffered_samples =
+        output_config.sample_rate() as usize * output_config.channels() as usize / 2;
+    let ring = HeapRb::<f32>::new(max_buffered_samples);
+    let (producer, consumer) = ring.split();
+
+    let input_stream = match input_config.sample_format() {
+        SampleFormat::F32 => build_input::<f32>(&input_device, input_config.into(), producer),
+        SampleFormat::I16 => build_input::<i16>(&input_device, input_config.into(), producer),
+        SampleFormat::U16 => build_input::<u16>(&input_device, input_config.into(), producer),
+        _ => panic!("unsupported sample format"),
+    };
+    let output_stream = match output_config.sample_format() {
+        SampleFormat::F32 => build_output::<f32>(&output_device, output_config.into(), consumer),
+        SampleFormat::I16 => build_output::<i16>(&output_device, output_config.into(), consumer),
+        SampleFormat::U16 => build_output::<u16>(&output_device, output_config.into(), consumer),
+        _ => panic!("unsupported sample format"),
+    };
+
+    (input_stream, output_stream)
+}
+
+fn build_input<T>(device: &Device, config: StreamConfig, mut producer: HeapProd<f32>) -> Stream
+where
+    T: Sample + SizedSample,
+    f32: FromSample<T>,
+{
+    let err_fn = |err: Error| match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
+            console::log_1(&format!("{err}").into())
+        }
+        _ => console::error_1(&format!("Stream error: {err}").into()),
+    };
+
+    let stream = device
+        .build_input_stream(
+            config,
+            move |data: &[T], _| {
+                producer.push_iter(data.iter().map(|&s| f32::from_sample(s)));
+            },
+            err_fn,
+            None,
+        )
+        .unwrap();
+    stream.start().unwrap();
+    stream
+}
+
+fn build_output<T>(device: &Device, config: StreamConfig, mut consumer: HeapCons<f32>) -> Stream
+where
+    T: Sample + SizedSample + FromSample<f32>,
+{
+    let err_fn = |err: Error| match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
+            console::log_1(&format!("{err}").into())
+        }
+        _ => console::error_1(&format!("Stream error: {err}").into()),
+    };
+
+    let stream = device
+        .build_output_stream(
+            config,
+            move |data: &mut [T], _| {
+                for sample in data.iter_mut() {
+                    let value = consumer.try_pop().unwrap_or(f32::EQUILIBRIUM);
+                    *sample = T::from_sample(value);
+                }
+            },
             err_fn,
             None,
         )

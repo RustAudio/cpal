@@ -27,6 +27,9 @@ wasm-bindgen = "0.2"
 # logging them with `console.error`.
 console_error_panic_hook = "0.1"
 
+# The `ringbuf` crate provides a lock-free ring buffer for passing audio between streams.
+ringbuf = "0.4"
+
 # The `web-sys` crate allows you to interact with the various browser APIs,
 # like the DOM.
 [dependencies.web-sys]
