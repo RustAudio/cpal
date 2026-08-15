@@ -552,7 +552,10 @@ impl Device {
             DeviceHandle::DefaultInput => Audio::eCapture,
             DeviceHandle::Specific(_) => return Ok(None),
         };
-        let enumerator = get_enumerator().0.clone();
+        let enumerator = get_enumerator()
+            .context("Failed to get device enumerator")?
+            .0
+            .clone();
         DefaultDeviceMonitor::new(enumerator, flow).map(Some)
     }
 
@@ -1142,7 +1145,7 @@ impl Endpoint {
     }
 }
 
-static ENUMERATOR: OnceLock<Enumerator> = OnceLock::new();
+static ENUMERATOR: OnceLock<Result<Enumerator, windows::core::Error>> = OnceLock::new();
 
 /// Returns the current default audio endpoint for `flow`, or `None` if none exists.
 ///
@@ -1155,30 +1158,33 @@ pub(super) fn current_default_endpoint(flow: Audio::EDataFlow) -> Option<Audio::
     // SAFETY: `get_enumerator()` is a thread-safe singleton initialised at first use.
     unsafe {
         get_enumerator()
+            .ok()?
             .0
             .GetDefaultAudioEndpoint(flow, Audio::eConsole)
             .ok()
     }
 }
 
-fn get_enumerator() -> &'static Enumerator {
-    ENUMERATOR.get_or_init(|| {
-        // COM initialization is thread local, but we only need to have COM initialized in the
-        // thread we create the objects in
-        com::com_initialized();
+fn get_enumerator() -> Result<&'static Enumerator, windows::core::Error> {
+    ENUMERATOR
+        .get_or_init(|| {
+            // COM initialization is thread local, but we only need to have COM initialized in the
+            // thread we create the objects in
+            com::com_initialized();
 
-        // building the devices enumerator object
-        unsafe {
-            let enumerator = Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
-                &Audio::MMDeviceEnumerator,
-                None,
-                Com::CLSCTX_ALL,
-            )
-            .unwrap();
-
-            Enumerator(enumerator)
-        }
-    })
+            // SAFETY: `MMDeviceEnumerator` is a well-known in-process COM class; the returned
+            // interface pointer is only read through the safe `IMMDeviceEnumerator` wrapper.
+            unsafe {
+                Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
+                    &Audio::MMDeviceEnumerator,
+                    None,
+                    Com::CLSCTX_ALL,
+                )
+            }
+            .map(Enumerator)
+        })
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 // Helper function to query a DWORD property from a WASAPI device property store
@@ -1260,6 +1266,7 @@ impl Devices {
         unsafe {
             // can fail because of wrong parameters (should never happen) or out of memory
             let collection = get_enumerator()
+                .context("Failed to get device enumerator")?
                 .0
                 .EnumAudioEndpoints(Audio::eAll, Audio::DEVICE_STATE_ACTIVE)
                 .context("Failed to enumerate audio endpoints")?;

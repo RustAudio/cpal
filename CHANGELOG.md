@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
+
 ## [0.18.2] - 2026-08-16
 
 ### Added
@@ -49,7 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PulseAudio**: Build on 32-bit targets without native 64-bit atomics.
 - **visionOS**: The CoreAudio backend now builds.
 - **WASAPI**: `Stream::drop`, `play`, and `pause` no longer panic when the device is lost.
-- **WASAPI**: Output streams no longer reject formats that the built-in resampler can convert.
 - **WASAPI**: Fix 24-bit samples not being packed into the upper bits of their sample container.
 - **WASAPI**: Reported buffer sizes are no longer off by one frame.
 - **WASAPI**: Default device changes no longer report `DeviceChanged`, which wrongly implied the stream had rerouted automatically.
