@@ -8,9 +8,9 @@ use std::fmt;
 
 use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Data, DeviceDescription, DeviceId, Error, ErrorKind, FrameCount, InputCallbackInfo,
-    OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    ChannelDescription, Data, DeviceDescription, DeviceId, Error, ErrorKind, FrameCount,
+    InputCallbackInfo, OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant,
+    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 /// A host that can be used to write custom [`HostTrait`] implementations.
@@ -183,6 +183,8 @@ trait DeviceErased: Send + Sync {
     fn supported_output_configs(&self) -> Result<SupportedConfigs, Error>;
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error>;
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error>;
+    fn input_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error>;
+    fn output_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error>;
     fn build_input_stream_raw(
         &self,
         config: StreamConfig,
@@ -282,6 +284,14 @@ where
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         <T as DeviceTrait>::default_output_config(self)
+    }
+
+    fn input_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        <T as DeviceTrait>::input_channel_descriptions(self)
+    }
+
+    fn output_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        <T as DeviceTrait>::output_channel_descriptions(self)
     }
 
     fn build_input_stream_raw(
@@ -408,6 +418,14 @@ impl DeviceTrait for Device {
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         self.0.default_output_config()
+    }
+
+    fn input_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        self.0.input_channel_descriptions()
+    }
+
+    fn output_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        self.0.output_channel_descriptions()
     }
 
     fn build_input_stream_raw<D, E>(

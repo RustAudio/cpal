@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-08-10
+
+### Added
+- Added `ChannelInfo`, describing a single channel: its index, direction, active flag, channel
+  group, sample type and driver-assigned name. Marked `#[non_exhaustive]` so further fields can
+  be added without a breaking change
+- Added `Driver::input_channel_info()` and `Driver::output_channel_info()` to query one channel,
+  and `Driver::input_channel_infos()` / `Driver::output_channel_infos()` to query every channel in
+  a direction. Channel names are the only stable way to identify a channel on aggregating drivers
+  such as ASIO4ALL, whose channel count and ordering change with its control-panel selection
+- `AsioSampleType` now derives `Clone`, `Copy`, `Eq`, `Hash` and `PartialEq`
+
 ## [0.3.0] - 2026-06-06
 
 ### Added
@@ -125,6 +137,7 @@ Initial release.
 - Support for MSVC toolchain on Windows
 - Basic error types: `AsioError`, `LoadDriverError`
 
+[0.3.1]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.3.0...asio-sys-v0.3.1
 [0.3.0]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.2.6...asio-sys-v0.3.0
 [0.2.6]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.2.5...asio-sys-v0.2.6
 [0.2.5]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.2.4...asio-sys-v0.2.5

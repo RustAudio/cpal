@@ -17,8 +17,8 @@ pub use self::{
 use crate::{
     host::com,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Data, DeviceDescription, DeviceId, Error, FrameCount, InputCallbackInfo, OutputCallbackInfo,
-    SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
+    ChannelDescription, Data, DeviceDescription, DeviceId, Error, FrameCount, InputCallbackInfo,
+    OutputCallbackInfo, SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
 };
 
 mod device;
@@ -98,6 +98,14 @@ impl DeviceTrait for Device {
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         Device::default_output_config(self)
+    }
+
+    fn input_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        Device::input_channel_descriptions(self)
+    }
+
+    fn output_channel_descriptions(&self) -> Result<Vec<ChannelDescription>, Error> {
+        Device::output_channel_descriptions(self)
     }
 
     fn build_input_stream_raw<D, E>(

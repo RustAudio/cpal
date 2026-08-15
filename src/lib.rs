@@ -184,7 +184,8 @@ extern crate wasm_bindgen;
 extern crate web_sys;
 
 pub use device_description::{
-    DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceType, InterfaceType,
+    ChannelDescription, ChannelPosition, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceType, InterfaceType,
 };
 pub use error::*;
 pub use platform::{

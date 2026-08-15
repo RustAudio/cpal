@@ -93,6 +93,33 @@ pub struct Channels {
     pub outs: i32,
 }
 
+/// Information about a single input or output channel of a driver.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
+pub struct ChannelInfo {
+    /// Index of this channel within its direction (0-based).
+    pub channel: i32,
+    /// `true` for an input channel, `false` for an output channel.
+    pub is_input: bool,
+    /// Whether the driver currently has this channel active (buffers created for it).
+    pub is_active: bool,
+    /// Driver-defined grouping; channels of one physical device usually share a group.
+    pub channel_group: i32,
+    /// Sample format of this channel. `None` if the driver reported a value this crate does
+    /// not know — the channel is still usable and still has a name.
+    pub sample_type: Option<AsioSampleType>,
+    /// Human-readable name, e.g. "Realtek HD Audio output 1".
+    ///
+    /// May be empty: a driver is permitted to leave a channel unnamed.
+    ///
+    /// The ASIO SDK does not specify an encoding for this field and drivers write it in the
+    /// system code page, which this crate decodes as UTF-8 with replacement characters. A name
+    /// containing non-ASCII characters is therefore mangled, and two channels whose names differ
+    /// only in such characters can decode to the same string — so do not rely on the name alone
+    /// being unique. ASCII names, which is what drivers overwhelmingly use, are exact.
+    pub name: String,
+}
+
 /// Hardware latency in frames for the input and output streams.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Latencies {
@@ -153,7 +180,7 @@ pub struct AsioStream {
 /// All the possible types from ASIO.
 /// This is a direct copy of the ASIOSampleType
 /// inside ASIO SDK.
-#[derive(Debug, FromPrimitive)]
+#[derive(Clone, Copy, Debug, Eq, FromPrimitive, Hash, PartialEq)]
 #[repr(C)]
 pub enum AsioSampleType {
     ASIOSTInt16MSB = 0,
@@ -518,12 +545,51 @@ impl Driver {
     /// Returns the number of input and output channels available on the driver.
     pub fn channels(&self) -> Result<Channels, AsioError> {
         let _guard = self.inner.lock_state();
-        let mut ins: c_long = 0;
-        let mut outs: c_long = 0;
-        unsafe {
-            asio_result!(ai::ASIOGetChannels(&mut ins, &mut outs))?;
-        }
-        Ok(Channels { ins, outs })
+        asio_channels()
+    }
+
+    /// Information about a single input channel.
+    ///
+    /// Returns `AsioError::InvalidInput` if `index` is not below `channels()?.ins`. That is also
+    /// the error a driver reports for a parameter it rejects, so the two are indistinguishable.
+    ///
+    /// Each call queries the channel count as well as the channel, so prefer
+    /// [`Driver::input_channel_infos`] over calling this in a loop.
+    pub fn input_channel_info(&self, index: i32) -> Result<ChannelInfo, AsioError> {
+        let _guard = self.inner.lock_state();
+        let channels = asio_channels()?;
+        checked_channel_info(index, true, channels.ins)
+    }
+
+    /// Information about a single output channel.
+    ///
+    /// Returns `AsioError::InvalidInput` if `index` is not below `channels()?.outs`. That is also
+    /// the error a driver reports for a parameter it rejects, so the two are indistinguishable.
+    ///
+    /// Each call queries the channel count as well as the channel, so prefer
+    /// [`Driver::output_channel_infos`] over calling this in a loop.
+    pub fn output_channel_info(&self, index: i32) -> Result<ChannelInfo, AsioError> {
+        let _guard = self.inner.lock_state();
+        let channels = asio_channels()?;
+        checked_channel_info(index, false, channels.outs)
+    }
+
+    /// Information for every input channel, in index order.
+    pub fn input_channel_infos(&self) -> Result<Vec<ChannelInfo>, AsioError> {
+        let _guard = self.inner.lock_state();
+        let channels = asio_channels()?;
+        (0..channels.ins)
+            .map(|index| checked_channel_info(index, true, channels.ins))
+            .collect()
+    }
+
+    /// Information for every output channel, in index order.
+    pub fn output_channel_infos(&self) -> Result<Vec<ChannelInfo>, AsioError> {
+        let _guard = self.inner.lock_state();
+        let channels = asio_channels()?;
+        (0..channels.outs)
+            .map(|index| checked_channel_info(index, false, channels.outs))
+            .collect()
     }
 
     /// Get the input and output hardware latency in frames.
@@ -1086,6 +1152,70 @@ fn asio_channel_info(channel: c_long, is_input: bool) -> Result<ai::ASIOChannelI
     unsafe {
         asio_result!(ai::ASIOGetChannelInfo(&mut channel_info))?;
         Ok(channel_info)
+    }
+}
+
+/// Retrieve the number of input and output channels from the currently loaded driver.
+///
+/// The caller must hold the `DriverState` lock.
+fn asio_channels() -> Result<Channels, AsioError> {
+    let mut ins: c_long = 0;
+    let mut outs: c_long = 0;
+    unsafe {
+        asio_result!(ai::ASIOGetChannels(&mut ins, &mut outs))?;
+    }
+    Ok(Channels { ins, outs })
+}
+
+/// Retrieve the `ChannelInfo` for the given channel, having first checked the index against the
+/// number of channels in that direction.
+///
+/// Drivers are not required to validate the index and some read out of range, so the bounds check
+/// must happen before we call into the SDK.
+///
+/// The caller must hold the `DriverState` lock.
+fn checked_channel_info(index: i32, is_input: bool, count: i32) -> Result<ChannelInfo, AsioError> {
+    if index < 0 || index >= count {
+        return Err(AsioError::InvalidInput);
+    }
+    Ok(ChannelInfo::from_raw(
+        index,
+        is_input,
+        asio_channel_info(index, is_input)?,
+    ))
+}
+
+impl ChannelInfo {
+    /// Build a `ChannelInfo` from the struct the driver filled in for channel `index` in the
+    /// direction given by `is_input`.
+    fn from_raw(index: i32, is_input: bool, info: ai::ASIOChannelInfo) -> Self {
+        // The name is NUL-terminated only by convention: a driver may fill all 32 bytes without a
+        // terminator, so stop at the first NUL *or* the end of the array. The SDK does not specify
+        // an encoding and drivers write the system code page, which we decode as UTF-8 lossily:
+        // doing it properly needs `MultiByteToWideChar`, and this crate has no Windows API
+        // dependency. See the caveat on `ChannelInfo::name`. `c_char` is `i8` on the MSVC target,
+        // hence the cast.
+        let bytes: Vec<u8> = info
+            .name
+            .iter()
+            .take_while(|&&c| c != 0)
+            .map(|&c| c as u8)
+            .collect();
+        // Several drivers pad the name with trailing spaces.
+        let name = String::from_utf8_lossy(&bytes).trim_end().to_string();
+        ChannelInfo {
+            // `channel` and `isInput` are inputs to `ASIOGetChannelInfo` that the driver is under
+            // no obligation to preserve, so report what we asked for rather than what came back.
+            channel: index,
+            is_input,
+            // `isActive` is an `ASIOBool`, for which the SDK only guarantees zero/non-zero.
+            is_active: info.isActive != 0,
+            channel_group: info.channelGroup,
+            // Unlike `stream_data_type`, an unrecognised sample type must not panic: the caller is
+            // most likely after the channel's name, which is valid regardless.
+            sample_type: FromPrimitive::from_i32(info.type_),
+            name,
+        }
     }
 }
 
