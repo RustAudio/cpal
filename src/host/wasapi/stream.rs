@@ -672,7 +672,7 @@ fn run_input(
         // The scratch buffer won't be used in this case.
         0 // Vec::with_capacity(0) does not allocate.
     };
-    let mut scratch_buffer = Vec::with_capacity(scratch_len);
+    let mut scratch_buffer = vec![0; scratch_len].into_boxed_slice();
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -829,7 +829,7 @@ fn process_input(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
-    scratch_buffer: &mut Vec<i32>,
+    scratch_buffer: &mut [i32],
 ) -> Result<(), Error> {
     unsafe {
         // Get the available data in the shared buffer.
@@ -871,8 +871,7 @@ fn process_input(
                 let source_data =
                     slice::from_raw_parts(buffer.cast(), byte_count / size_of::<i32>());
                 // use a scratch buffer since the capture buffer isn't meant to be written
-                scratch_buffer.clear();
-                scratch_buffer.extend_from_slice(source_data);
+                scratch_buffer[..source_data.len()].copy_from_slice(source_data);
                 for sample in &mut *scratch_buffer {
                     // On signed integers, >> is an arithmetic shift,
                     // which ensures the correct upper bits get shifted in
