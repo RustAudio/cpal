@@ -1,8 +1,7 @@
-use std::slice;
 use std::{
     mem,
     ops::ControlFlow,
-    ptr,
+    ptr, slice,
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -960,8 +959,7 @@ fn process_output(
                     clippy::cast_ptr_alignment,
                     reason = "WASAPI guarantees the buffer to be aligned to a frame boundary"
                 )]
-                let buffer_slice_i32 =
-                    slice::from_raw_parts_mut(buffer.cast::<i32>(), len);
+                let buffer_slice_i32 = slice::from_raw_parts_mut(buffer.cast::<i32>(), len);
                 for sample in buffer_slice_i32 {
                     *sample <<= 8;
                 }

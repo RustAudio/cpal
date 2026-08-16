@@ -85,7 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Capture streams no longer report a spurious xrun on the first buffer after starting.
 - **WASAPI**: Output streams no longer reject formats that the built-in resampler can convert.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
-- **WASAPI**: Fix 24bit samples not getting shifted from/to MSB.
+- **WASAPI**: Fix 24-bit samples not getting shifted from/to MSB.
 - **WebAudio**: Fix stale audio output when a data callback wrote a partial buffer.
 - **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
 - **WebAudio**: Fix `Host::is_available()` always returning `true`, even in non-window contexts.
