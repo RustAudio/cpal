@@ -1,7 +1,7 @@
 use std::{
     mem,
     ops::ControlFlow,
-    ptr,
+    ptr, slice,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{channel, Receiver, Sender},
@@ -621,6 +621,15 @@ fn run_input(
         emit_error(error_callback, err);
     }
 
+    let stream = &run_ctxt.stream;
+    let scratch_len = if stream.sample_format == SampleFormat::I24 {
+        stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
+    } else {
+        // The scratch buffer won't be used in this case.
+        0 // Vec::with_capacity(0) does not allocate.
+    };
+    let mut scratch_buffer = vec![0; scratch_len].into_boxed_slice();
+
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             ControlFlow::Break(()) => break,
@@ -636,6 +645,7 @@ fn run_input(
             capture_client,
             data_callback,
             error_callback,
+            &mut scratch_buffer,
         ) {
             emit_error(error_callback, err);
             break;
@@ -777,6 +787,7 @@ fn process_input(
     capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
     error_callback: &ErrorCallbackArc,
+    scratch_buffer: &mut [i32],
 ) -> Result<(), Error> {
     unsafe {
         // Get the available data in the shared buffer.
@@ -816,9 +827,26 @@ fn process_input(
 
             debug_assert!(!buffer.is_null());
 
-            let data = buffer as *mut ();
-            let len = frames_available as usize * stream.bytes_per_frame as usize
-                / stream.sample_format.sample_size();
+            let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
+            let data = if stream.sample_format == SampleFormat::I24 {
+                // WASAPI stores i24 in the upper bits
+                let source_data =
+                    slice::from_raw_parts(buffer.cast(), byte_count / size_of::<i32>());
+                // use a scratch buffer since the capture buffer isn't meant to be written
+                let dst = &mut scratch_buffer[..source_data.len()];
+                dst.copy_from_slice(source_data);
+                for sample in dst.iter_mut() {
+                    // On signed integers, >> is an arithmetic shift,
+                    // which ensures the correct upper bits get shifted in
+                    *sample >>= 8;
+                }
+
+                dst.as_mut_ptr().cast()
+            } else {
+                buffer.cast()
+            };
+
+            let len = byte_count / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
 
             // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
@@ -864,6 +892,18 @@ fn process_output(
         let timestamp = output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
         let info = OutputCallbackInfo { timestamp };
         data_callback(&mut data, &info);
+
+        if stream.sample_format == SampleFormat::I24 {
+            // WASAPI stores i24 in the upper bits
+            #[expect(
+                clippy::cast_ptr_alignment,
+                reason = "WASAPI guarantees the buffer to be aligned to a frame boundary"
+            )]
+            let buffer_slice_i32 = slice::from_raw_parts_mut(buffer.cast::<i32>(), len);
+            for sample in buffer_slice_i32 {
+                *sample <<= 8;
+            }
+        }
 
         render_client.ReleaseBuffer(frames_available, 0)?;
 
