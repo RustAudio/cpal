@@ -667,8 +667,12 @@ fn run_input(
     }
 
     let stream = &run_ctxt.stream;
-    let scratch_len =
-        stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>();
+    let scratch_len = if stream.sample_format == SampleFormat::I24 {
+        stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
+    } else {
+        // The scratch buffer won't be used in this case.
+        0 // Vec::with_capacity(0) does not allocate.
+    };
     let mut scratch_buffer = Vec::with_capacity(scratch_len);
 
     loop {
