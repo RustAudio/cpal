@@ -666,9 +666,10 @@ fn run_input(
         emit_error(error_callback, err);
     }
 
+    let stream = &run_ctxt.stream;
     let scratch_len =
-        run_ctxt.stream.max_frames_in_buffer as usize * run_ctxt.stream.bytes_per_frame as usize;
-    let mut scratch_buffer = vec![0_u8; scratch_len];
+        stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>();
+    let mut scratch_buffer = Vec::with_capacity(scratch_len);
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -825,7 +826,7 @@ fn process_input(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
-    scratch_buffer: &mut [u8],
+    scratch_buffer: &mut Vec<i32>,
 ) -> Result<(), Error> {
     unsafe {
         // Get the available data in the shared buffer.
@@ -864,11 +865,15 @@ fn process_input(
             let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
             let data = if stream.sample_format == SampleFormat::I24 {
                 // WASAPI stores i24 in the upper bits
-                let source_data = slice::from_raw_parts(buffer.add(1), byte_count - 1);
+                let source_data =
+                    slice::from_raw_parts(buffer.cast(), byte_count / size_of::<i32>());
                 // use a scratch buffer since the capture buffer isn't meant to be written
-                scratch_buffer[..(byte_count - 1)].copy_from_slice(source_data);
-                for chunk in scratch_buffer.chunks_mut(4) {
-                    chunk[3] = (chunk[2] >= 0x80) as u8 * 0xFF;
+                scratch_buffer.clear();
+                scratch_buffer.extend_from_slice(source_data);
+                for sample in &mut *scratch_buffer {
+                    // On signed integers, >> is an arithmetic shift,
+                    // which ensures the correct upper bits get shifted in
+                    *sample >>= 8;
                 }
 
                 scratch_buffer.as_mut_ptr().cast()
@@ -947,9 +952,14 @@ fn process_output(
 
             if stream.sample_format == SampleFormat::I24 {
                 // WASAPI stores i24 in the upper bits
-                buffer_slice.copy_within(0..byte_count - 1, 1);
-                for chunk in buffer_slice.chunks_mut(4) {
-                    chunk[0] = 0x00;
+                #[expect(
+                    clippy::cast_ptr_alignment,
+                    reason = "WASAPI guarantees the buffer to be aligned to a frame boundary"
+                )]
+                let buffer_slice_i32 =
+                    slice::from_raw_parts_mut(buffer.cast::<i32>(), len / size_of::<i32>());
+                for sample in buffer_slice_i32 {
+                    *sample <<= 8;
                 }
             }
         }
