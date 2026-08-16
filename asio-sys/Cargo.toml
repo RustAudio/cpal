@@ -1,14 +1,19 @@
 [package]
 name = "asio-sys"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Tom Gowan <tomrgowan@gmail.com>"]
 description = "Low-level interface and binding generation for the steinberg ASIO SDK."
-repository = "https://github.com/RustAudio/cpal/"
+repository = "https://github.com/RustAudio/cpal"
 documentation = "https://docs.rs/asio-sys"
 license = "Apache-2.0"
-keywords = ["audio", "sound", "asio", "steinberg"]
+keywords = ["audio", "sound", "asio", "steinberg", "windows"]
+categories = ["external-ffi-bindings", "os::windows-apis", "multimedia::audio"]
 edition = "2021"
 rust-version = "1.82"
+links = "asio"
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [build-dependencies]
 bindgen = "0.72"

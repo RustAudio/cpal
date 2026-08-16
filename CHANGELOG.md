@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.18.2] - 2026-08-16
 
 ### Added
 
@@ -18,9 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BSD**: Clarify that `realtime-dbus` has no effect there.
 - **CoreAudio**: Bump `objc2-core-foundation` dependency lower bound to 0.3.1.
-- **Linux**: Clarify that `realtime` alone is a no-op without `realtime-dbus`.
 - **iOS**: Timestamps now include hardware latency and update when the audio route changes.
 - **JACK**: Timestamps now include port latency.
+- **Linux**: Clarify that `realtime` alone is a no-op without `realtime-dbus`.
 - **PipeWire**: Devices with multiple ports now get distinct, localized, per-port names.
 - **WASAPI**: The `windows` and `windows-core` dependencies are now both pinned to 0.62.
 
@@ -32,15 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix duplex streams silently dropping audio when built from separate `Device` handles.
 - **AudioWorklet**: Fix `Stream` operations to work when called from any thread.
 - **AudioWorklet**: Fix stale audio output when a data callback wrote a partial buffer.
-- **CoreAudio**: Default-output streams now report xrun status.
 - **CoreAudio**: Fix stale audio output when a data callback wrote a partial buffer.
+- **CoreAudio**: Default-output streams now report xrun status.
 - **iOS**: Streams now resume automatically when an audio session interruption ends.
 - **JACK**: Streams with more channels than physical system ports no longer fail to build.
 - **JACK**: Channel enumeration is no longer capped at the physical system port count.
 - **JACK**: `Device::id` no longer embeds the process ID, so `DeviceId` is now stable across application restarts.
 - **PipeWire**: Fix streams starting audio before `play()` is called.
-- **PipeWire**: Fix rtkit burst limit errors from repeated real-time promotion on quantum jitter.
 - **PipeWire**: Fix real-time promotion blocking the audio callback thread on Linux.
+- **PipeWire**: Fix rtkit burst limit errors from repeated real-time promotion on quantum jitter.
 - **PipeWire**: Fix 24-bit sample format mapping.
 - **PipeWire**: Nodes with an `/Internal` media class are now enumerated as devices.
 - **PipeWire**: Streams for a specific device no longer auto-reroute if it disappears.
@@ -48,11 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PulseAudio**: `NoData` errors are no longer misreported as buffer xruns.
 - **PulseAudio**: Build on 32-bit targets without native 64-bit atomics.
 - **visionOS**: The CoreAudio backend now builds.
-- **WASAPI**: Default device changes no longer report `DeviceChanged`, which wrongly implied the stream had rerouted automatically.
-- **WASAPI**: Reported buffer sizes are no longer off by one frame.
 - **WASAPI**: `Stream::drop`, `play`, and `pause` no longer panic when the device is lost.
 - **WASAPI**: Output streams no longer reject formats that the built-in resampler can convert.
 - **WASAPI**: Fix 24-bit samples not being packed into the upper bits of their sample container.
+- **WASAPI**: Reported buffer sizes are no longer off by one frame.
+- **WASAPI**: Default device changes no longer report `DeviceChanged`, which wrongly implied the stream had rerouted automatically.
 - **WebAudio**: Fix stale audio output when a data callback wrote a partial buffer.
 - **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
 - **WebAudio**: Fix `Host::is_available()` always returning `true`, even in non-window contexts.
@@ -1337,7 +1337,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
-[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.18.1...HEAD
+[0.18.2]: https://github.com/RustAudio/cpal/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/RustAudio/cpal/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/RustAudio/cpal/compare/v0.17.3...v0.18.0
 [0.17.3]: https://github.com/RustAudio/cpal/compare/v0.17.2...v0.17.3
