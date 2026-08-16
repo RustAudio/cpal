@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] (v0.19)
+## [Unreleased]
 
 ### Added
 
@@ -35,8 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **ALSA**: Fix a remaining timestamp segfault on 32-bit platforms with a 64-bit kernel `time_t`.
+- **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
 
-## [Unreleased] (v0.18.2)
+## [0.18.2] - 2026-08-16
 
 ### Added
 
@@ -84,7 +85,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: `Stream::drop`, `play`, and `pause` no longer panic when the device is lost.
 - **WASAPI**: Capture streams no longer report a spurious xrun on the first buffer after starting.
 - **WASAPI**: Output streams no longer reject formats that the built-in resampler can convert.
-- **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
 - **WASAPI**: Fix 24-bit samples not being packed into the upper bits of their sample container.
 - **WebAudio**: Fix stale audio output when a data callback wrote a partial buffer.
 - **WebAudio**: Fix unsound `Send + Sync` on `Stream` when compiled with `+atomics`.
@@ -1371,7 +1371,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial commit.
 
-[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.18.1...HEAD
+[Unreleased]: https://github.com/RustAudio/cpal/compare/v0.18.2...HEAD
+[0.18.2]: https://github.com/RustAudio/cpal/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/RustAudio/cpal/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/RustAudio/cpal/compare/v0.17.3...v0.18.0
 [0.17.3]: https://github.com/RustAudio/cpal/compare/v0.17.2...v0.17.3

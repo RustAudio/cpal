@@ -5,13 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-06-06
-
-### Changed
-- Bumped MSRV to 1.85.
-- Migrated to Rust 2024.
-
-## [0.3.0] - YYYY-MM-DD
+## [Unreleased]
 
 ### Added
 - Added `Driver::latencies()` to query input and output stream latencies
@@ -53,6 +47,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Removed unused `SampleRate` struct
 - Removed `DriverState` from the public API
+
+## [0.4.0] - 2026-08-16
+
+### Added
+- Added `Driver::streams()` to access a driver's shared input/output buffer state
+- Derived `Debug` on `AsioStreams` and `AsioStream`
+
+## [0.3.0] - 2026-06-06
+
+### Changed
+- Bumped MSRV to 1.85.
+- Migrated to Rust 2024.
 
 ## [0.2.6] - 2026-02-18
 
@@ -131,7 +137,8 @@ Initial release.
 - Support for MSVC toolchain on Windows
 - Basic error types: `AsioError`, `LoadDriverError`
 
-[Unreleased]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.3.0...HEAD
+[Unreleased]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.4.0...HEAD
+[0.4.0]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.3.0...asio-sys-v0.4.0
 [0.3.0]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.2.6...asio-sys-v0.3.0
 [0.2.6]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.2.5...asio-sys-v0.2.6
 [0.2.5]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.2.4...asio-sys-v0.2.5
