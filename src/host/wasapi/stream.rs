@@ -1,3 +1,4 @@
+use std::slice;
 use std::{
     mem,
     ops::ControlFlow,
@@ -850,10 +851,14 @@ fn process_input(
                 && flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0;
 
             debug_assert!(!buffer.is_null());
+            let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
+            if stream.sample_format == SampleFormat::I24 {
+                // WASAPI stores i24 in the upper bits
+                slice::from_raw_parts_mut(buffer, byte_count).copy_within(1.., 0);
+            }
 
             let data = buffer as *mut ();
-            let len = frames_available as usize * stream.bytes_per_frame as usize
-                / stream.sample_format.sample_size();
+            let len = byte_count / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
 
             if !stream.draining.load(Ordering::Relaxed) {
@@ -921,6 +926,11 @@ fn process_output(
                     xrun: false,
                 },
             );
+
+            if stream.sample_format == SampleFormat::I24 {
+                // WASAPI stores i24 in the upper bits
+                buffer_slice.copy_within(0..byte_count - 1, 1);
+            }
         }
 
         render_client.ReleaseBuffer(frames_available, 0)?;
