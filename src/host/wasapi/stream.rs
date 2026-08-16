@@ -666,6 +666,10 @@ fn run_input(
         emit_error(error_callback, err);
     }
 
+    let scratch_len =
+        run_ctxt.stream.max_frames_in_buffer as usize * run_ctxt.stream.bytes_per_frame as usize;
+    let mut scratch_buffer = vec![0_u8; scratch_len];
+
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             ControlFlow::Break(()) => break,
@@ -676,7 +680,12 @@ fn run_input(
             AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
             _ => unreachable!(),
         };
-        if let Err(err) = process_input(&run_ctxt.stream, capture_client, data_callback) {
+        if let Err(err) = process_input(
+            &run_ctxt.stream,
+            capture_client,
+            data_callback,
+            &mut scratch_buffer,
+        ) {
             emit_error(error_callback, err);
             break;
         }
@@ -816,6 +825,7 @@ fn process_input(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
+    scratch_buffer: &mut [u8],
 ) -> Result<(), Error> {
     unsafe {
         // Get the available data in the shared buffer.
@@ -852,12 +862,17 @@ fn process_input(
 
             debug_assert!(!buffer.is_null());
             let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
-            if stream.sample_format == SampleFormat::I24 {
+            let data = if stream.sample_format == SampleFormat::I24 {
                 // WASAPI stores i24 in the upper bits
-                slice::from_raw_parts_mut(buffer, byte_count).copy_within(1.., 0);
-            }
+                let source_data = slice::from_raw_parts(buffer.add(1), byte_count - 1);
+                // use a scratch buffer since the capture buffer isn't meant to be written
+                scratch_buffer[..(byte_count - 1)].copy_from_slice(source_data);
 
-            let data = buffer as *mut ();
+                scratch_buffer.as_mut_ptr().cast()
+            } else {
+                buffer.cast()
+            };
+
             let len = byte_count / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
 
