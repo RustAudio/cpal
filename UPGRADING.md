@@ -11,6 +11,8 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Replace `InputCallbackInfo`/`OutputCallbackInfo` with `CallbackInfo`.
 - [ ] Replace `InputStreamTimestamp`/`OutputStreamTimestamp` with `StreamTimestamp`; `capture`/`playback` is now `device`.
 - [ ] Remove `ErrorKind::Xrun` match arms; read `CallbackInfo::xrun()` instead.
+- [ ] Replace `available_hosts`, `host_from_id`, and `ALL_HOSTS` with `HostId::iter_available`, `Host::try_from`, and 
+      `HostId::SUPPORTED_HOSTS` respectively.
 
 ## 1. `DeviceTrait` and `StreamTrait` require `Send + Sync`
 

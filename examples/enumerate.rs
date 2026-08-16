@@ -19,13 +19,13 @@ fn main() -> Result<(), anyhow::Error> {
     #[cfg(target_os = "linux")]
     let _silence_alsa_errors = alsa::Output::local_error_handler()?;
 
-    println!("Supported hosts:\n  {:?}", cpal::ALL_HOSTS);
-    let available_hosts = cpal::available_hosts();
+    println!("Supported hosts:\n  {:?}", cpal::HostId::SUPPORTED_HOSTS);
+    let available_hosts = cpal::HostId::available_hosts().collect::<Vec<_>>();
     println!("Available hosts:\n  {available_hosts:?}");
 
     for host_id in available_hosts {
         println!("{}", host_id.name());
-        let host = cpal::host_from_id(host_id)?;
+        let host = cpal::Host::try_from(host_id)?;
 
         let default_in = host
             .default_input_device()
