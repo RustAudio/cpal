@@ -871,14 +871,15 @@ fn process_input(
                 let source_data =
                     slice::from_raw_parts(buffer.cast(), byte_count / size_of::<i32>());
                 // use a scratch buffer since the capture buffer isn't meant to be written
-                scratch_buffer[..source_data.len()].copy_from_slice(source_data);
-                for sample in &mut *scratch_buffer {
+                let dst = &mut scratch_buffer[..source_data.len()];
+                dst.copy_from_slice(source_data);
+                for sample in dst.iter_mut() {
                     // On signed integers, >> is an arithmetic shift,
                     // which ensures the correct upper bits get shifted in
                     *sample >>= 8;
                 }
 
-                scratch_buffer.as_mut_ptr().cast()
+                dst.as_mut_ptr().cast()
             } else {
                 buffer.cast()
             };
