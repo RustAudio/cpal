@@ -367,7 +367,7 @@ jobs:
         run: cargo +${{ env.MSRV_AAUDIO }} check --verbose --target ${{ env.TARGET }}
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: platforms;android-${{ env.ANDROID_COMPILE_SDK }} build-tools;${{ env.ANDROID_BUILD_TOOLS }}
 
