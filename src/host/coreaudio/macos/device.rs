@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    mem::{self, size_of},
+    mem::{self, ManuallyDrop, size_of},
     ptr::{NonNull, null},
     sync::{
         Arc, Mutex,
@@ -46,9 +46,9 @@ use super::{
 };
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceId, Error, ErrorKind, FrameCount, InterfaceType, ResultExt, SampleFormat, SampleRate,
-    StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind, FrameCount, InterfaceType,
+    ResultExt, SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
         ErrorCallbackArc,
         coreaudio::macos::{StreamInner, loopback::LoopbackDevice},
@@ -91,7 +91,7 @@ fn set_physical_format(
 ///
 /// Unlike [`set_physical_format`], this only changes the device clock rate. The AudioUnit bridges
 /// any remaining format difference to the virtual stream format seen by the callback.
-fn set_sample_rate(
+pub(super) fn set_sample_rate(
     audio_device_id: AudioObjectID,
     target_sample_rate: SampleRate,
     timeout: Option<Duration>,
@@ -285,6 +285,51 @@ fn get_io_buffer_frame_size_range(device_id: AudioDeviceID) -> Result<SupportedB
     })
 }
 
+/// Compute the capture-side timestamp from a callback instant and the input latency.
+///
+/// Falls back to `callback` and reports a [`ErrorKind::BackendError`] via `error_callback` if
+/// `callback - delay` would underflow. `callback` is a monotonic clock that starts before the
+/// stream opens, so underflow indicates a pathological latency value and should not happen in
+/// practice.
+pub(super) fn estimate_capture_instant(
+    callback: StreamInstant,
+    delay: Duration,
+    error_callback: &ErrorCallbackArc,
+) -> StreamInstant {
+    callback.checked_sub(delay).unwrap_or_else(|| {
+        let _ = try_emit_error(
+            error_callback,
+            Error::with_message(
+                ErrorKind::BackendError,
+                "timestamp underflow computing capture instant",
+            ),
+        );
+        callback
+    })
+}
+
+/// Compute the playback-side timestamp from a callback instant and the output latency.
+///
+/// Falls back to `callback` and reports a [`ErrorKind::BackendError`] via `error_callback` if
+/// `callback + delay` would overflow. The representation supports ~585 billion years of stream
+/// uptime, so overflow indicates a pathological latency value and should not happen in practice.
+pub(super) fn estimate_playback_instant(
+    callback: StreamInstant,
+    delay: Duration,
+    error_callback: &ErrorCallbackArc,
+) -> StreamInstant {
+    callback.checked_add(delay).unwrap_or_else(|| {
+        let _ = try_emit_error(
+            error_callback,
+            Error::with_message(
+                ErrorKind::BackendError,
+                "timestamp overflow computing playback instant",
+            ),
+        );
+        callback
+    })
+}
+
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
@@ -352,6 +397,43 @@ impl DeviceTrait for Device {
             self,
             config,
             sample_format,
+            data_callback,
+            error_callback,
+            timeout,
+        )
+    }
+
+    fn supports_duplex(&self) -> bool {
+        // Any `AudioDeviceID` that exposes both directions can be driven by a single HALOutput
+        // AudioUnit, which delivers input and output to one render callback.
+        //
+        // For non-aggregate devices the clock is shared by construction (one piece of hardware).
+        // For aggregate devices, CoreAudio drift-corrects across sub-device clocks — drift
+        // correction is configured per-aggregate in Audio MIDI Setup and is enabled by default.
+        // The resulting callback is sample-aligned (any drift between physical clocks is
+        // absorbed by the aggregate). We trust that user-configured aggregates are what the
+        // user wants and accept them here.
+        self.supports_input() && self.supports_output()
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        config: DuplexStreamConfig,
+        input_sample_format: SampleFormat,
+        output_sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
+    {
+        Device::build_duplex_stream_raw(
+            self,
+            config,
+            input_sample_format,
+            output_sample_format,
             data_callback,
             error_callback,
             timeout,
@@ -809,9 +891,10 @@ impl Device {
 
         let inner_arc = Arc::new(Mutex::new(StreamInner {
             playing: false,
-            audio_unit,
+            audio_unit: ManuallyDrop::new(audio_unit),
             _device_id: self.audio_device_id,
             _loopback_device: loopback_aggregate,
+            duplex_callback_ptr: None,
         }));
         let weak_inner = Arc::downgrade(&inner_arc);
         let monitor: Box<dyn Monitor> = Box::new(DisconnectManager::new(
@@ -819,6 +902,7 @@ impl Device {
             weak_inner,
             error_callback_disconnect,
             pending_xrun_overload,
+            false,
         )?);
         let stream = Stream::new(inner_arc, monitor, draining, Duration::ZERO);
         stream.signal_ready();
@@ -956,9 +1040,10 @@ impl Device {
 
         let inner_arc = Arc::new(Mutex::new(StreamInner {
             playing: false,
-            audio_unit,
+            audio_unit: ManuallyDrop::new(audio_unit),
             _device_id: self.audio_device_id,
             _loopback_device: None,
+            duplex_callback_ptr: None,
         }));
         let weak_inner = Arc::downgrade(&inner_arc);
         let monitor: Box<dyn Monitor> = if matches!(mode, AudioUnitMode::DefaultOutput) {
@@ -975,6 +1060,7 @@ impl Device {
                 weak_inner,
                 error_callback,
                 pending_xrun_overload,
+                false,
             )?)
         };
         let stream = Stream::new(inner_arc, monitor, draining, drain_window);

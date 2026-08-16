@@ -1,4 +1,5 @@
 use std::{
+    mem::ManuallyDrop,
     sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -10,9 +11,9 @@ use std::{
 use coreaudio::audio_unit::{AudioUnit, Scope};
 use objc2_core_audio::{
     AudioDeviceID, AudioObjectID, AudioObjectPropertyAddress, kAudioDeviceProcessorOverload,
-    kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyNominalSampleRate,
-    kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
+    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyDeviceIsAlive,
+    kAudioDevicePropertyNominalSampleRate, kAudioHardwarePropertyDefaultOutputDevice,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
 };
 use property_listener::AudioObjectPropertyListener;
 
@@ -25,6 +26,7 @@ use crate::{
 };
 
 mod device;
+mod duplex;
 pub mod enumerate;
 mod loopback;
 mod property_listener;
@@ -112,11 +114,17 @@ pub(super) trait Monitor: Send + Sync {
 /// AudioObjectPropertyListener is always created and dropped on the same thread.
 /// This avoids potential threading issues with CoreAudio APIs.
 ///
-/// When a device disconnects, this manager:
-/// 1. Attempts to pause the stream to stop audio I/O
-/// 2. Calls the error callback with `ErrorKind::DeviceNotAvailable`
+/// Always listens for:
+/// - device disconnection (`kAudioDevicePropertyDeviceIsAlive`) → `DeviceNotAvailable`
+/// - sample rate changes (`kAudioDevicePropertyNominalSampleRate`) → `StreamInvalidated`
 ///
-/// The dedicated thread architecture ensures `Stream` can implement `Send`.
+/// Optionally (when `listen_buffer_size = true`) also listens for:
+/// - buffer-size changes (`kAudioDevicePropertyBufferFrameSize`) → `StreamInvalidated`
+///   Duplex streams enable this because their input scratch buffer is sized exactly to the
+///   negotiated frame count; any runtime change would invalidate the buffer.
+///
+/// On any of these events the manager attempts to pause the stream and fires the error
+/// callback. The dedicated thread architecture ensures `Stream` can implement `Send`.
 struct DisconnectManager {
     latch: Latch,
     _shutdown_tx: mpsc::Sender<()>,
@@ -128,6 +136,7 @@ impl DisconnectManager {
         stream_weak: Weak<Mutex<StreamInner>>,
         error_callback: Arc<Mutex<ErrorCallback>>,
         pending_xrun: Arc<AtomicBool>,
+        listen_buffer_size: bool,
     ) -> Result<Self, Error> {
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
         let (disconnect_tx, disconnect_rx) = mpsc::channel::<Error>();
@@ -136,7 +145,8 @@ impl DisconnectManager {
         // Spawn a dedicated thread to own all listeners. CoreAudio requires that
         // AudioObjectPropertyListeners are added and removed on the same thread.
         let disconnect_tx_alive = disconnect_tx.clone();
-        let disconnect_tx_rate = disconnect_tx;
+        let disconnect_tx_rate = disconnect_tx.clone();
+        let disconnect_tx_buffer = disconnect_tx;
         std::thread::spawn(move || {
             let alive_address = AudioObjectPropertyAddress {
                 mSelector: kAudioDevicePropertyDeviceIsAlive,
@@ -175,13 +185,47 @@ impl DisconnectManager {
                     pending_xrun.store(true, Ordering::Relaxed);
                 });
 
-            match (alive_listener, rate_listener, overload_listener) {
-                (Ok(_alive), Ok(_rate), Ok(_overload)) => {
+            // Only registered when callers opt in. Held in an `Option` to keep the listener
+            // alive (or not) for the duration of the same shutdown loop below.
+            let buffer_size_listener = if listen_buffer_size {
+                let buffer_size_address = AudioObjectPropertyAddress {
+                    mSelector: kAudioDevicePropertyBufferFrameSize,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain,
+                };
+                Some(AudioObjectPropertyListener::new(
+                    device_id,
+                    buffer_size_address,
+                    move || {
+                        let _ = disconnect_tx_buffer.send(Error::with_message(
+                            ErrorKind::StreamInvalidated,
+                            "Device buffer size changed",
+                        ));
+                    },
+                ))
+            } else {
+                None
+            };
+
+            // Tease out the registration results: any failure aborts.
+            let buffer_result: Result<Option<_>, Error> = match buffer_size_listener {
+                Some(Ok(listener)) => Ok(Some(listener)),
+                Some(Err(e)) => Err(e),
+                None => Ok(None),
+            };
+
+            match (
+                alive_listener,
+                rate_listener,
+                overload_listener,
+                buffer_result,
+            ) {
+                (Ok(_alive), Ok(_rate), Ok(_overload), Ok(_buf)) => {
                     let _ = ready_tx.send(Ok(()));
                     // Block until the stream is dropped; listeners are removed on drop.
                     let _ = shutdown_rx.recv();
                 }
-                (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+                (Err(e), _, _, _) | (_, Err(e), _, _) | (_, _, Err(e), _) | (_, _, _, Err(e)) => {
                     let _ = ready_tx.send(Err(e));
                 }
             }
@@ -379,13 +423,36 @@ impl Monitor for DefaultOutputMonitor {
     }
 }
 
+/// Owning pointer to a duplex callback wrapper, shared with CoreAudio's render thread.
+///
+/// SAFETY: The pointer originates from `Box::into_raw` in `Device::build_duplex_stream_raw`
+/// and is registered with CoreAudio via `inputProcRefCon`.
+/// CoreAudio dereferences it from its single render thread for the lifetime of the audio unit.
+/// `StreamInner::drop` stops the audio unit (by dropping `audio_unit`) *before* reclaiming the
+/// box, which guarantees the render thread cannot observe a freed pointer. There is no other
+/// concurrent access — the build/drop thread never touches the pointer while the audio unit is
+/// running.
+struct DuplexCallbackPtr(*mut duplex::DuplexProcWrapper);
+
+// SAFETY: see `DuplexCallbackPtr`. The pointer is shared with CoreAudio's audio thread but is
+// never accessed concurrently from another thread; the audio unit is stopped before the pointer
+// is reclaimed in `StreamInner::drop`.
+unsafe impl Send for DuplexCallbackPtr {}
+
 struct StreamInner {
     playing: bool,
-    audio_unit: AudioUnit,
+    /// Wrapped in [`ManuallyDrop`] so `Drop for StreamInner` can stop the audio unit *before*
+    /// reclaiming [`duplex_callback_ptr`](Self::duplex_callback_ptr). Dropping the inner
+    /// `AudioUnit` stops it, which is what guarantees CoreAudio will not invoke the duplex
+    /// render callback after we free the boxed closure.
+    audio_unit: ManuallyDrop<AudioUnit>,
     // Track the device with which the audio unit was spawned
     _device_id: AudioDeviceID,
     /// Manage the lifetime of the aggregate device used for loopback recording
     _loopback_device: Option<LoopbackDevice>,
+    /// Boxed duplex render callback, owned by this `StreamInner`. `None` for simplex (input or
+    /// output only) streams, populated by the duplex build path.
+    duplex_callback_ptr: Option<DuplexCallbackPtr>,
 }
 
 impl StreamInner {
@@ -407,6 +474,29 @@ impl StreamInner {
             self.playing = false;
         }
         Ok(())
+    }
+}
+
+impl Drop for StreamInner {
+    fn drop(&mut self) {
+        // SAFETY: This is the sole owning instance of `audio_unit` (wrapped in `ManuallyDrop`
+        // so we control drop order). Dropping it stops the audio unit, which guarantees
+        // CoreAudio will not invoke the render callback after this point. That makes it safe
+        // to reclaim the duplex callback box below. `audio_unit` is not accessed afterwards.
+        unsafe {
+            ManuallyDrop::drop(&mut self.audio_unit);
+        }
+
+        if let Some(DuplexCallbackPtr(ptr)) = self.duplex_callback_ptr.take() {
+            if !ptr.is_null() {
+                // SAFETY: `ptr` was produced by `Box::into_raw` in the duplex build path.
+                // The audio unit was stopped above, so the render thread no longer references
+                // it. We are the sole owner, so reclaiming and dropping is sound.
+                unsafe {
+                    drop(Box::from_raw(ptr));
+                }
+            }
+        }
     }
 }
 
