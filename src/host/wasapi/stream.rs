@@ -867,6 +867,9 @@ fn process_input(
                 let source_data = slice::from_raw_parts(buffer.add(1), byte_count - 1);
                 // use a scratch buffer since the capture buffer isn't meant to be written
                 scratch_buffer[..(byte_count - 1)].copy_from_slice(source_data);
+                for chunk in scratch_buffer.chunks_mut(4) {
+                    chunk[3] = (chunk[2] >= 0x80) as u8 * 0xFF;
+                }
 
                 scratch_buffer.as_mut_ptr().cast()
             } else {
@@ -945,6 +948,9 @@ fn process_output(
             if stream.sample_format == SampleFormat::I24 {
                 // WASAPI stores i24 in the upper bits
                 buffer_slice.copy_within(0..byte_count - 1, 1);
+                for chunk in buffer_slice.chunks_mut(4) {
+                    chunk[0] = 0x00;
+                }
             }
         }
 
