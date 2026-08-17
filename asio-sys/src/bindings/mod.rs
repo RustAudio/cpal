@@ -31,10 +31,8 @@ use self::asio_import as ai;
 /// There should only be one instance of this type at any point in time.
 #[derive(Debug, Default)]
 pub struct Asio {
-    // Keeps track of whether or not a driver is already loaded.
-    //
-    // This is necessary as ASIO only supports one `Driver` at a time.
-    loaded_driver: Mutex<Weak<DriverInner>>,
+    // Guards driver load and teardown. ASIO only supports one driver at a time.
+    loaded_driver: Arc<Mutex<Weak<DriverInner>>>,
 }
 
 /// A handle to a single ASIO driver.
@@ -74,6 +72,9 @@ struct DriverInner {
     // In the case that the driver has been manually destroyed this flag will be set to `true`
     // indicating to the `drop` implementation that there is nothing to be done.
     destroyed: bool,
+    // Shared with the owning `Asio`; locked during teardown so a concurrent `load_driver`
+    // can't start `ASIOInit` before this driver's `ASIOExit` finishes.
+    loaded_driver: Arc<Mutex<Weak<DriverInner>>>,
 }
 
 /// All possible states of an ASIO `Driver` instance.
@@ -486,6 +487,7 @@ impl Asio {
                         state,
                         streams,
                         destroyed,
+                        loaded_driver: self.loaded_driver.clone(),
                     });
                     *loaded = Arc::downgrade(&inner);
                     let driver = Driver { inner };
@@ -1025,6 +1027,13 @@ impl DriverInner {
 
     fn destroy_inner(&mut self) -> Result<(), AsioError> {
         {
+            // Held so a concurrent `load_driver` can't start ASIOInit before this
+            // driver's ASIOExit finishes.
+            let _loaded_driver_guard = self
+                .loaded_driver
+                .lock()
+                .expect("failed to acquire loaded driver lock");
+
             let mut state = self.lock_state();
             state.destroy()?;
 
