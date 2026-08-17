@@ -901,14 +901,16 @@ impl Driver {
     /// Remove the callback with the given ID.
     pub fn remove_callback(&self, rem_id: BufferCallbackId) {
         let mut bc = BUFFER_CALLBACK.lock().unwrap();
-        let pos = bc
+        // `remove` (not `swap_remove`) to preserve the insertion order that
+        // `add_callback` relies on for generating the next ID.
+        let removed = bc
             .iter()
             .position(|&(id, _)| id == rem_id)
-            .expect("rem_id should be valid");
-        let _removed = bc.swap_remove(pos);
+            .map(|pos| bc.remove(pos));
         // the lock must be dropped first, as the removed callback could
         // be owning another stream, which would result in a deadlock
         drop(bc);
+        drop(removed);
     }
 
     /// Consumes and destroys the `Driver`, stopping the streams if they are running and releasing
