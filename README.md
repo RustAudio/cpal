@@ -74,6 +74,16 @@ The `audioworklet` backend additionally requires `-Zbuild-std` with atomics supp
 
 See the [beep example](examples/beep.rs) for selecting the backend at runtime.
 
+## Compiling for Android
+
+Package and build with [`cargo-apk`](https://github.com/rust-mobile/cargo-apk); see `examples/android` for a working `Cargo.toml` and entry point.
+
+CPAL embedded via JNI, `flutter_rust_bridge`, or another harness outside `cargo-apk` needs the AAudio backend's `JavaVM`/`Activity` context set manually. Set it before any CPAL call, from`JNI_OnLoad` or equivalent, to prevent a panic:
+
+```rust
+ndk_context::initialize_android_context(vm_ptr, activity_ptr);
+```
+
 ## Compiling for ASIO
 
 ### Locating the ASIO SDK
