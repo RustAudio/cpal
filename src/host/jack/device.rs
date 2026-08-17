@@ -14,14 +14,12 @@ use crate::{
 
 const DEFAULT_NUM_CHANNELS: ChannelCount = 2;
 
-// 64 = AES10 (MADI) maximum; JACK itself imposes no per-client channel limit.
-const MAX_CHANNELS: ChannelCount = 64;
-
 #[derive(Clone, Debug)]
 pub struct Device {
     name: String,
     sample_rate: SampleRate,
     buffer_size: SupportedBufferSize,
+    max_channels: ChannelCount,
     direction: DeviceDirection,
     start_server_automatically: bool,
     connect_ports_automatically: bool,
@@ -41,12 +39,24 @@ impl Device {
         // making the stream. This is a hack due to the fact that the Client must be moved to
         // create the AsyncClient.
         let client = super::get_client(&name, client_options)?;
-        if !matches!(direction, DeviceDirection::Input | DeviceDirection::Output) {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedOperation,
-                format!("JACK does not support {direction:?} direction"),
-            ));
-        }
+        let port_pattern = match direction {
+            DeviceDirection::Input => "system:capture_.*",
+            DeviceDirection::Output => "system:playback_.*",
+            _ => {
+                return Err(Error::with_message(
+                    ErrorKind::UnsupportedOperation,
+                    format!("JACK does not support {direction:?} direction"),
+                ));
+            }
+        };
+        // Enumeration reflects the routed system ports; build_*_stream_raw allows more
+        // channels than this for patching to an unrouted or downstream JACK client.
+        let max_channels = client
+            .ports(Some(port_pattern), None, jack::PortFlags::empty())
+            .len()
+            .try_into()
+            .unwrap_or(DEFAULT_NUM_CHANNELS)
+            .max(DEFAULT_NUM_CHANNELS);
         Ok(Self {
             // The name given to the client by JACK, could potentially be different from the name
             // supplied e.g. if there is a name collision
@@ -56,6 +66,7 @@ impl Device {
                 min: client.buffer_size(),
                 max: client.buffer_size(),
             },
+            max_channels,
             direction,
             start_server_automatically,
             connect_ports_automatically,
@@ -121,7 +132,7 @@ impl Device {
             Ok(f) => f,
         };
 
-        (1..=MAX_CHANNELS)
+        (1..=self.max_channels)
             .map(|channels| SupportedStreamConfigRange {
                 channels,
                 min_sample_rate: f.sample_rate,
