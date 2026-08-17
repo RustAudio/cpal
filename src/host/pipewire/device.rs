@@ -808,10 +808,10 @@ impl DeviceTrait for Device {
         let device = self.clone();
         let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
-            BufferSize::Fixed(n) => n as u64,
-            BufferSize::Default => self.quantum as u64,
+            BufferSize::Fixed(n) => n,
+            BufferSize::Default => self.quantum,
         };
-        let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
+        let last_quantum = Arc::new(AtomicU32::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
         let draining = Arc::new(AtomicBool::new(false));
         let draining_clone = draining.clone();

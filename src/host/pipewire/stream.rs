@@ -484,16 +484,13 @@ where
         xrun: bool,
     ) {
         #[cfg(feature = "realtime")]
-        {
-            let prev = self.last_quantum.swap(frames as u64, Ordering::Relaxed);
-            if !self.rt_promoted || frames as u64 != prev {
-                self.promote_realtime(frames as FrameCount);
-            }
+        if frames as u32 > self.rt_promoted_frames {
+            self.promote_realtime(frames as FrameCount);
         }
 
         let mut data_callback = self.data_callback.lock().unwrap_or_else(|e| e.into_inner());
         #[cfg(not(feature = "realtime"))]
-        self.last_quantum.store(frames as u64, Ordering::Relaxed);
+        self.last_quantum.store(frames as u32, Ordering::Relaxed);
 
         if !self.draining.load(Ordering::Relaxed) {
             let (callback, playback) = match pw_stream_time(stream) {
@@ -737,7 +734,7 @@ pub struct ConnectDuplexParams {
     pub properties: PropertiesBox,
     pub sample_format_in: SampleFormat,
     pub sample_format_out: SampleFormat,
-    pub last_quantum: Arc<AtomicU64>,
+    pub last_quantum: Arc<AtomicU32>,
     pub start: Instant,
     pub connect_automatically: bool,
     pub draining: Arc<AtomicBool>,
@@ -1314,6 +1311,8 @@ where
     let error_callback_2 = error_callback.clone();
     let error_callback_out = error_callback.clone();
     let data_callback_2 = data_callback.clone();
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback.clone(), config.sample_rate);
     let data_in = UserData {
         data_callback,
         error_callback,
@@ -1329,7 +1328,9 @@ where
         spa_io_clock: std::ptr::null(),
         xrun_recovering: false,
         #[cfg(feature = "realtime")]
-        rt_promoted: false,
+        rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
 
     let channels = config.input_channels as _;
@@ -1462,6 +1463,8 @@ where
             }
         })
         .register()?;
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback_out.clone(), config.sample_rate);
     let data_out = UserData {
         data_callback: data_callback_2,
         error_callback: error_callback_2,
@@ -1477,7 +1480,9 @@ where
         spa_io_clock: std::ptr::null(),
         xrun_recovering: false,
         #[cfg(feature = "realtime")]
-        rt_promoted: false,
+        rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
     let channels = config.output_channels as _;
     let rate = config.sample_rate as _;
