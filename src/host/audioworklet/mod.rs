@@ -4,7 +4,9 @@
 //! See the `audioworklet-beep` example for setup instructions.
 
 use std::{
+    cell::RefCell,
     fmt,
+    rc::Rc,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -268,7 +270,7 @@ impl DeviceTrait for Device {
         config: StreamConfig,
         sample_format: SampleFormat,
         data_callback: D,
-        mut error_callback: E,
+        error_callback: E,
         _timeout: Option<Duration>,
     ) -> Result<Self::Stream, Error>
     where
@@ -378,6 +380,9 @@ impl DeviceTrait for Device {
         let latency_nanos_cb = latency_nanos.clone();
         let ctx = audio_context.clone();
         wasm_bindgen_futures::spawn_local(async move {
+            let error_callback = Rc::new(RefCell::new(error_callback));
+            let error_callback_setup = error_callback.clone();
+
             let result: Result<(), JsValue> = async move {
                 let mod_url = dependent_module!("worklet.js")?;
                 wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
@@ -421,6 +426,17 @@ impl DeviceTrait for Device {
                 let audio_worklet_node =
                     web_sys::AudioWorkletNode::new_with_options(&ctx, "CpalProcessor", &options)?;
 
+                let on_processor_error =
+                    Closure::<dyn FnMut(web_sys::Event)>::new(move |_event: web_sys::Event| {
+                        (error_callback_setup.borrow_mut())(Error::with_message(
+                            ErrorKind::BackendError,
+                            "AudioWorklet processor failed to initialize or crashed",
+                        ));
+                    });
+                audio_worklet_node
+                    .set_onprocessorerror(Some(on_processor_error.as_ref().unchecked_ref()));
+                on_processor_error.forget();
+
                 audio_worklet_node.connect_with_audio_node(&destination)?;
                 Ok(())
             }
@@ -430,7 +446,7 @@ impl DeviceTrait for Device {
                 let message = err
                     .as_string()
                     .unwrap_or_else(|| "Failed to initialize audio worklet".to_string());
-                error_callback(Error::with_message(
+                (error_callback.borrow_mut())(Error::with_message(
                     ErrorKind::UnsupportedOperation,
                     message,
                 ));
@@ -471,7 +487,7 @@ impl DeviceTrait for Device {
                 match cmd {
                     Command::Play => {
                         if audio_context.resume().is_err() {
-                            error_callback(Error::with_message(
+                            (error_callback.borrow_mut())(Error::with_message(
                                 ErrorKind::DeviceNotAvailable,
                                 "Failed to resume audio context",
                             ));
@@ -479,7 +495,7 @@ impl DeviceTrait for Device {
                     }
                     Command::Pause => {
                         if audio_context.suspend().is_err() {
-                            error_callback(Error::with_message(
+                            (error_callback.borrow_mut())(Error::with_message(
                                 ErrorKind::DeviceNotAvailable,
                                 "Failed to suspend audio context",
                             ));
