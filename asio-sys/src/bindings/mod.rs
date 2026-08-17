@@ -1028,10 +1028,14 @@ impl DriverInner {
             let mut state = self.lock_state();
             state.destroy()?;
 
-            // Clear any existing stream callbacks.
-            if let Ok(mut bcs) = BUFFER_CALLBACK.lock() {
-                bcs.clear();
-            }
+            // Clear any existing stream callbacks. Take the callbacks out and drop the
+            // lock before dropping them, as a callback could be owning another stream,
+            // which would result in a deadlock.
+            let cleared = BUFFER_CALLBACK
+                .lock()
+                .ok()
+                .map(|mut bcs| std::mem::take(&mut *bcs));
+            drop(cleared);
         }
 
         // Signal that the driver has been destroyed.
