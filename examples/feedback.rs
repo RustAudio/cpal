@@ -247,7 +247,7 @@ where
     output_stream.start()?;
 
     // Run for 10 seconds before closing.
-    println!("Playing for 10 seconds... ");
+    println!("Playing for 10 seconds...");
     std::thread::sleep(std::time::Duration::from_secs(10));
     drop(input_stream);
     drop(output_stream);
