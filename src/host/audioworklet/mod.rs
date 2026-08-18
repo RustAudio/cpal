@@ -21,9 +21,9 @@ use wasm_bindgen::prelude::*;
 
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceDirection, DeviceId, Error, ErrorKind, FrameCount, Sample, SampleFormat, SampleRate,
-    StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    DeviceDirection, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,
+    FrameCount, Sample, SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     host::frames_to_duration,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -77,6 +77,7 @@ const DEFAULT_RENDER_SIZE: u64 = 128;
 // Must match the names passed to `registerProcessor()` in worklet.js.
 const OUTPUT_PROCESSOR_NAME: &str = "CpalProcessor";
 const CAPTURE_PROCESSOR_NAME: &str = "CpalCaptureProcessor";
+const DUPLEX_PROCESSOR_NAME: &str = "CpalDuplexProcessor";
 
 fn render_quantum_size_supported() -> bool {
     (|| -> Option<bool> {
@@ -147,6 +148,21 @@ fn validate_config(config: &StreamConfig, sample_format: SampleFormat) -> Result
         }
     }
     Ok(())
+}
+
+/// Applies [`validate_config`] to each direction of a duplex configuration.
+fn validate_duplex_config(
+    config: &DuplexStreamConfig,
+    input_sample_format: SampleFormat,
+    output_sample_format: SampleFormat,
+) -> Result<(), Error> {
+    let per_direction = |channels| StreamConfig {
+        channels,
+        sample_rate: config.sample_rate,
+        buffer_size: config.buffer_size,
+    };
+    validate_config(&per_direction(config.input_channels), input_sample_format)?;
+    validate_config(&per_direction(config.output_channels), output_sample_format)
 }
 
 /// The full matrix of channel counts x sample rates; identical for input and output, since
@@ -269,6 +285,11 @@ impl DeviceTrait for Device {
             crate::platform::HostId::AudioWorklet,
             "default",
         ))
+    }
+
+    /// One `AudioWorkletNode` renders both directions from a single `process()` call per quantum.
+    fn supports_duplex(&self) -> bool {
+        crate::host::is_get_user_media_available()
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
@@ -765,6 +786,293 @@ impl DeviceTrait for Device {
             buffer_size_frames,
         })
     }
+
+    /// Create a duplex stream.
+    ///
+    /// # Async completion
+    ///
+    /// Behaves like [`build_input_stream_raw`](Self::build_input_stream_raw): this returns `Ok`
+    /// once the [`AudioContext`] exists, before microphone permission has been resolved and
+    /// before the worklet module has loaded. Failures after that point are delivered to
+    /// `error_callback`, and [`start`](crate::traits::StreamTrait::start) /
+    /// [`pause`](crate::traits::StreamTrait::pause) calls made in the meantime are queued.
+    ///
+    /// [`AudioContext`]: web_sys::AudioContext
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        config: DuplexStreamConfig,
+        input_sample_format: SampleFormat,
+        output_sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
+    {
+        validate_duplex_config(&config, input_sample_format, output_sample_format)?;
+        // Keep both `device` timestamps monotonic: the polled outputLatency can drop when the
+        // page calls `setSinkId()` to switch output devices, pulling `device` backward.
+        let mut data_callback = crate::host::monotonic_duplex_callback(data_callback);
+
+        let input_channels = config.input_channels as u32;
+        let output_channels = config.output_channels as u32;
+
+        let stream_opts = web_sys::AudioContextOptions::new();
+        stream_opts.set_sample_rate(config.sample_rate as f32);
+        if let BufferSize::Fixed(n) = config.buffer_size {
+            let _ = js_sys::Reflect::set(
+                stream_opts.as_ref(),
+                &JsValue::from_str("renderSizeHint"),
+                &JsValue::from_f64(n as f64),
+            );
+        }
+
+        let audio_context =
+            web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(|_| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "Failed to create audio context",
+                )
+            })?;
+
+        let destination = audio_context.destination();
+        if output_channels > destination.max_channel_count() {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Output channel count {} exceeds the destination's maximum of {}",
+                    config.output_channels,
+                    destination.max_channel_count()
+                ),
+            ));
+        }
+        destination.set_channel_count(output_channels);
+
+        // Chrome rounds renderSizeHint to a power of two; read back the actual quantum.
+        let actual_render_quantum =
+            js_sys::Reflect::get(audio_context.as_ref(), &JsValue::from("renderQuantumSize"))
+                .ok()
+                .and_then(|v| v.as_f64())
+                .map(|v| v as u64);
+
+        let initial_quantum = actual_render_quantum.unwrap_or(match config.buffer_size {
+            BufferSize::Fixed(n) => n as u64,
+            BufferSize::Default => DEFAULT_RENDER_SIZE,
+        });
+        let buffer_size_frames = Arc::new(AtomicU64::new(initial_quantum));
+        let buffer_size_frames_cb = buffer_size_frames.clone();
+
+        let current_time_bits = Arc::new(AtomicU64::new(audio_context.current_time().to_bits()));
+        let current_time_bits_cb = current_time_bits.clone();
+        let current_time_bits_init = current_time_bits.clone();
+
+        let latency_nanos = Arc::new(AtomicU64::new(total_latency_nanos(&audio_context)));
+        let latency_nanos_cb = latency_nanos.clone();
+
+        let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
+
+        let ctx = audio_context.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let error_callback = Rc::new(RefCell::new(error_callback));
+
+            let media_stream = match crate::host::request_microphone().await {
+                Ok(stream) => stream,
+                Err(js_err) => {
+                    (error_callback.borrow_mut())(crate::host::get_user_media_error(&js_err));
+                    let _ = audio_context.close();
+                    return;
+                }
+            };
+
+            let result: Result<
+                (
+                    web_sys::MediaStreamAudioSourceNode,
+                    web_sys::AudioWorkletNode,
+                ),
+                JsValue,
+            > = async {
+                let mod_url = dependent_module!("worklet.js")?;
+                wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
+                    .await?;
+
+                let source = ctx.create_media_stream_source(&media_stream)?;
+
+                let options = web_sys::AudioWorkletNodeOptions::new();
+                options.set_number_of_inputs(1);
+                options.set_number_of_outputs(1);
+                options.set_output_channel_count(&js_sys::Array::of1(&JsValue::from_f64(
+                    output_channels as f64,
+                )));
+                // `config.input_channels` is a promise to the caller: every callback delivers
+                // exactly that many interleaved channels. Force WebAudio to up/downmix the
+                // microphone track to match, regardless of how many channels it actually carries.
+                options.set_channel_count(input_channels);
+                options.set_channel_count_mode(web_sys::ChannelCountMode::Explicit);
+
+                options.set_processor_options(Some(&js_sys::Array::of3(
+                    &wasm_bindgen::module(),
+                    &wasm_bindgen::memory(),
+                    &WasmAudioDuplexProcessor::new(Box::new(
+                        move |input_interleaved,
+                              output_interleaved,
+                              frame_size,
+                              sample_rate,
+                              now| {
+                            buffer_size_frames_cb.store(frame_size as u64, Ordering::Relaxed);
+                            current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
+
+                            let input = unsafe {
+                                Data::from_parts(
+                                    input_interleaved.as_ptr() as *mut (),
+                                    input_interleaved.len(),
+                                    input_sample_format,
+                                )
+                            };
+                            let mut output = unsafe {
+                                Data::from_parts(
+                                    output_interleaved.as_mut_ptr() as *mut (),
+                                    output_interleaved.len(),
+                                    output_sample_format,
+                                )
+                            };
+
+                            // One clock: both directions share the same `callback` instant.
+                            let callback = StreamInstant::from_secs_f64(now);
+                            let buffer_duration =
+                                frames_to_duration(frame_size as FrameCount, sample_rate);
+                            let latency =
+                                Duration::from_nanos(latency_nanos_cb.load(Ordering::Relaxed));
+
+                            let info = DuplexCallbackInfo::new(
+                                CallbackInfo {
+                                    timestamp: StreamTimestamp {
+                                        callback,
+                                        device: callback
+                                            .checked_sub(buffer_duration)
+                                            .unwrap_or(callback),
+                                    },
+                                    xrun: false,
+                                },
+                                CallbackInfo {
+                                    timestamp: StreamTimestamp {
+                                        callback,
+                                        device: callback + (buffer_duration + latency),
+                                    },
+                                    xrun: false,
+                                },
+                            );
+                            (data_callback)(&input, &mut output, &info);
+                        },
+                    ))
+                    .pack()
+                    .into(),
+                )));
+                let audio_worklet_node = web_sys::AudioWorkletNode::new_with_options(
+                    &ctx,
+                    DUPLEX_PROCESSOR_NAME,
+                    &options,
+                )?;
+
+                let error_callback_setup = error_callback.clone();
+                let on_processor_error =
+                    Closure::<dyn FnMut(web_sys::Event)>::new(move |_event: web_sys::Event| {
+                        (error_callback_setup.borrow_mut())(Error::with_message(
+                            ErrorKind::BackendError,
+                            "AudioWorklet duplex processor failed to initialize or crashed",
+                        ));
+                    });
+                audio_worklet_node
+                    .set_onprocessorerror(Some(on_processor_error.as_ref().unchecked_ref()));
+                on_processor_error.forget();
+
+                // Unlike the capture-only path, the node's output is the real playback signal,
+                // so it goes straight to the destination rather than through a muted gain.
+                source.connect_with_audio_node(&audio_worklet_node)?;
+                audio_worklet_node.connect_with_audio_node(&destination)?;
+
+                Ok((source, audio_worklet_node))
+            }
+            .await;
+
+            // Keep both alive until the Stream is dropped, or the source may be garbage-collected
+            // and silently kill the mic connection; see `build_input_stream_raw`.
+            let (_source, _audio_worklet_node) = match result {
+                Ok(nodes) => nodes,
+                Err(err) => {
+                    let message = err
+                        .as_string()
+                        .unwrap_or_else(|| "Failed to initialize audio worklet".to_string());
+                    (error_callback.borrow_mut())(Error::with_message(
+                        ErrorKind::HostUnavailable,
+                        message,
+                    ));
+
+                    crate::host::stop_tracks(&media_stream);
+                    let _ = audio_context.close();
+                    return;
+                }
+            };
+
+            current_time_bits_init.store(audio_context.current_time().to_bits(), Ordering::Relaxed);
+
+            // outputLatency can change at runtime (e.g. an output-device switch) but is only
+            // readable on the main thread, so poll it here and publish it to the worklet via the
+            // shared atomic.
+            let _latency_poller = web_sys::window().and_then(|window| {
+                let poll_ctx = audio_context.clone();
+                let poll_latency = latency_nanos.clone();
+                let closure = Closure::<dyn FnMut()>::new(move || {
+                    poll_latency.store(total_latency_nanos(&poll_ctx), Ordering::Relaxed);
+                });
+                window
+                    .set_interval_with_callback_and_timeout_and_arguments_0(
+                        closure.as_ref().unchecked_ref(),
+                        LATENCY_POLL_INTERVAL.as_millis() as i32,
+                    )
+                    .ok()
+                    .map(|interval_id| LatencyPoller {
+                        window,
+                        interval_id,
+                        _closure: closure,
+                    })
+            });
+
+            // Process play/pause commands from any thread until Stream is dropped.
+            // Dropping Stream closes command_tx, which terminates this loop.
+            while let Some(cmd) = command_rx.next().await {
+                match cmd {
+                    Command::Play => {
+                        if audio_context.resume().is_err() {
+                            (error_callback.borrow_mut())(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "Failed to resume audio context",
+                            ));
+                        }
+                    }
+                    Command::Pause => {
+                        if audio_context.suspend().is_err() {
+                            (error_callback.borrow_mut())(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "Failed to suspend audio context",
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Stream dropped: release the microphone and close the AudioContext.
+            crate::host::stop_tracks(&media_stream);
+            let _ = audio_context.close();
+        });
+
+        Ok(Self::Stream {
+            command_tx,
+            current_time_bits,
+            buffer_size_frames,
+        })
+    }
 }
 
 impl StreamTrait for Stream {
@@ -939,6 +1247,86 @@ impl WasmAudioCaptureProcessor {
     pub fn pack(self) -> usize {
         Box::into_raw(Box::new(self)) as usize
     }
+    /// # Safety
+    ///
+    /// The `val` parameter must be a value previously returned by `Self::pack`.
+    /// It must not have already been unpacked or deallocated, and must not be used after this call.
+    /// Using an invalid or already-consumed pointer will result in undefined behavior.
+    pub unsafe fn unpack(val: usize) -> Self {
+        unsafe { *Box::from_raw(val as *mut _) }
+    }
+}
+
+// The interleaved captured buffer and an interleaved buffer to render into, plus frame size,
+// sample rate, and current time.
+type AudioDuplexCallback = Box<dyn FnMut(&[f32], &mut [f32], u32, u32, f64)>;
+
+/// WasmAudioDuplexProcessor provides an interface for the JavaScript code running in the
+/// AudioWorklet to hand captured audio to Rust and take rendered audio back in one call.
+#[wasm_bindgen]
+pub struct WasmAudioDuplexProcessor {
+    input_buffer: Vec<f32>,
+    output_buffer: Vec<f32>,
+    callback: AudioDuplexCallback,
+}
+
+impl WasmAudioDuplexProcessor {
+    pub fn new(callback: AudioDuplexCallback) -> Self {
+        Self {
+            input_buffer: Vec::new(),
+            output_buffer: Vec::new(),
+            callback,
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl WasmAudioDuplexProcessor {
+    /// Sizes both buffers for this quantum and returns a pointer for JS to interleave captured
+    /// audio into. Must be called to grow Wasm memory before [`process`](Self::process) runs.
+    pub fn prepare(&mut self, input_channels: u32, output_channels: u32, frame_size: u32) -> u32 {
+        resize_interleaved(&mut self.input_buffer, input_channels, frame_size);
+        resize_interleaved(&mut self.output_buffer, output_channels, frame_size);
+        self.input_buffer.as_mut_ptr() as _
+    }
+
+    /// Pointer for JS to deinterleave out. Valid only once [`prepare`](Self::prepare) has run.
+    pub fn output_buffer_ptr(&mut self) -> u32 {
+        self.output_buffer.as_mut_ptr() as _
+    }
+
+    /// Invokes the Rust callback with the captured audio, plus the output buffer to fill.
+    pub fn process(
+        &mut self,
+        input_channels: u32,
+        output_channels: u32,
+        frame_size: u32,
+        sample_rate: u32,
+        current_time: f64,
+    ) {
+        let input_len = input_channels as usize * frame_size as usize;
+        let output_len = output_channels as usize * frame_size as usize;
+
+        // Destructured so the callback can hold both buffers at once.
+        let Self {
+            input_buffer,
+            output_buffer,
+            callback,
+        } = self;
+        output_buffer[..output_len].fill(f32::EQUILIBRIUM);
+        callback(
+            &input_buffer[..input_len],
+            &mut output_buffer[..output_len],
+            frame_size,
+            sample_rate,
+            current_time,
+        );
+    }
+
+    pub fn pack(self) -> usize {
+        Box::into_raw(Box::new(self)) as usize
+    }
+
     /// # Safety
     ///
     /// The `val` parameter must be a value previously returned by `Self::pack`.

@@ -121,3 +121,43 @@ registerProcessor("CpalCaptureProcessor", class WasmCaptureProcessor extends Cpa
         return true;
     }
 });
+
+registerProcessor("CpalDuplexProcessor", class WasmDuplexProcessor extends CpalProcessorBase {
+    constructor(options) {
+        super(options, bindgen.WasmAudioDuplexProcessor);
+    }
+
+    process(inputs, outputs) {
+        const output_channels = outputs[0];
+        const output_channels_count = output_channels.length;
+        const frame_size = output_channels[0].length;
+
+        // inputs[0] is empty until the microphone source is connected. Keep rendering output
+        // with a zero-channel input rather than stalling the graph waiting for it.
+        const input_channels = inputs[0];
+        const input_channels_count = input_channels.length;
+
+        const input_ptr = this.processor.prepare(
+            input_channels_count,
+            output_channels_count,
+            frame_size
+        );
+        if (!this.interleave(input_channels, input_ptr, frame_size)) {
+            return false; // Safely stop the node
+        }
+
+        // prepare() sized both buffers, so this cannot grow Wasm memory again. Read it before
+        // process() runs the user callback, which can.
+        const output_ptr = this.processor.output_buffer_ptr();
+
+        this.processor.process(
+            input_channels_count,
+            output_channels_count,
+            frame_size,
+            sampleRate,
+            currentTime
+        );
+
+        return this.deinterleave(output_channels, output_ptr, frame_size);
+    }
+});
