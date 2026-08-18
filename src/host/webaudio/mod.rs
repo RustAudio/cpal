@@ -25,11 +25,13 @@ use futures_util::StreamExt as _;
 
 type OutputDataCallbackArc = Arc<Mutex<dyn FnMut(&mut Data, &CallbackInfo) + Send>>;
 type InputDataCallbackArc = Arc<Mutex<dyn FnMut(&Data, &CallbackInfo) + Send>>;
+type DuplexDataCallbackArc = Arc<Mutex<dyn FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send>>;
 type CaptureGraphResult = Result<
     (
         MediaStreamAudioSourceNode,
         ScriptProcessorNode,
-        GainNode,
+        // Needed by capture-only paths.
+        Option<GainNode>,
         Closure<dyn FnMut(AudioProcessingEvent)>,
     ),
     JsValue,
@@ -46,9 +48,9 @@ use self::{
 };
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceDirection, DeviceId, Error, ErrorKind, FrameCount, Sample, SampleFormat, SampleRate,
-    StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    DeviceDirection, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,
+    FrameCount, Sample, SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     host::ErrorCallbackArc,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -109,15 +111,15 @@ unsafe impl Send for Stream {}
 unsafe impl Sync for Stream {}
 // With atomics, all Stream fields auto-derive Send+Sync.
 
-/// Keeps the getUserMedia() capture graph alive for the lifetime of an input [`Stream`].
-/// Stopping the underlying tracks on drop releases the microphone and turns off the browser's
-/// capture indicator; merely disconnecting the WebAudio graph does not.
+/// Keeps the getUserMedia() capture graph alive for the lifetime of an input or duplex
+/// [`Stream`], and calls [`stop_tracks`](crate::host::stop_tracks) on drop.
 #[cfg(not(target_feature = "atomics"))]
 struct CaptureHandles {
     media_stream: MediaStream,
     _source: MediaStreamAudioSourceNode,
     _processor: ScriptProcessorNode,
-    _mute_gain: GainNode,
+    /// `None` on the duplex path, whose output goes straight to the destination.
+    _mute_gain: Option<GainNode>,
     _on_audio_process: Closure<dyn FnMut(AudioProcessingEvent)>,
 }
 
@@ -275,6 +277,11 @@ impl DeviceTrait for Device {
         Self::default_output_config(self)
     }
 
+    /// One `ScriptProcessorNode` renders both directions from a single `onaudioprocess` event.
+    fn supports_duplex(&self) -> bool {
+        is_get_user_media_available()
+    }
+
     /// Create an input stream capturing microphone audio via `getUserMedia()`.
     ///
     /// # Async completion
@@ -306,18 +313,7 @@ impl DeviceTrait for Device {
 
         let n_channels = config.channels as usize;
 
-        let buffer_size_frames = match config.buffer_size {
-            BufferSize::Fixed(v) => v as usize,
-            BufferSize::Default => DEFAULT_BUFFER_SIZE,
-        };
-        if !SCRIPT_PROCESSOR_VALID_BUFFER_SIZES.contains(&buffer_size_frames) {
-            return Err(Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                format!(
-                    "Buffer size {buffer_size_frames} is not supported; must be one of {SCRIPT_PROCESSOR_VALID_BUFFER_SIZES:?}"
-                ),
-            ));
-        }
+        let buffer_size_frames = script_processor_buffer_size(config.buffer_size)?;
         let buffer_duration_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
 
         let data_callback = crate::host::monotonic_input_callback(data_callback);
@@ -465,7 +461,7 @@ impl DeviceTrait for Device {
 
                 processor.set_onaudioprocess(Some(on_audio_process.as_ref().unchecked_ref()));
 
-                Ok((source, processor, mute_gain, on_audio_process))
+                Ok((source, processor, Some(mute_gain), on_audio_process))
             };
 
             let (source, processor, mute_gain, on_audio_process) = match build_graph() {
@@ -946,6 +942,375 @@ impl DeviceTrait for Device {
             })
         }
     }
+
+    /// Create a duplex stream.
+    ///
+    /// # Async completion
+    ///
+    /// Behaves like [`build_input_stream_raw`](Self::build_input_stream_raw): this returns `Ok`
+    /// once the [`AudioContext`] exists, before the browser has granted or denied microphone
+    /// access. Failures after that point are delivered to `error_callback`.
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        config: DuplexStreamConfig,
+        input_sample_format: SampleFormat,
+        output_sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        _timeout: Option<Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
+    {
+        validate_duplex_config(&config, input_sample_format, output_sample_format)?;
+
+        let input_channels = config.input_channels as usize;
+        let output_channels = config.output_channels as usize;
+        let buffer_size_frames = script_processor_buffer_size(config.buffer_size)?;
+        let buffer_duration_secs = buffer_time_step_secs(buffer_size_frames, config.sample_rate);
+
+        // Keep both `device` timestamps monotonic: outputLatency can drop (e.g. the page calls
+        // `setSinkId()` to switch output devices), which would pull `device` backward.
+        let data_callback = crate::host::monotonic_duplex_callback(data_callback);
+        let data_callback: DuplexDataCallbackArc = Arc::new(Mutex::new(data_callback));
+        let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+
+        let stream_opts = AudioContextOptions::new();
+        stream_opts.set_sample_rate(config.sample_rate as f32);
+        let ctx = AudioContext::new_with_context_options(&stream_opts).map_err(|_| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "Failed to create audio context",
+            )
+        })?;
+
+        let destination = ctx.destination();
+        if config.output_channels as u32 > destination.max_channel_count() {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "Output channel count {} exceeds the destination's maximum of {}",
+                    config.output_channels,
+                    destination.max_channel_count()
+                ),
+            ));
+        }
+        destination.set_channel_count(config.output_channels as u32);
+
+        // baseLatency is fixed for the lifetime of the AudioContext.
+        let base_latency_secs = js_sys::Reflect::get(ctx.as_ref(), &JsValue::from("baseLatency"))
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+
+        // SAFETY: see the SAFETY note in `build_output_stream_raw`; the same single-thread
+        // (or task-confined) reasoning applies here.
+        #[allow(clippy::arc_with_non_send_sync)]
+        let ctx = Arc::new(ctx);
+        let ctx_task = ctx.clone();
+
+        #[cfg(not(target_feature = "atomics"))]
+        let is_started = Arc::new(AtomicBool::new(false));
+        #[cfg(not(target_feature = "atomics"))]
+        let capture: Rc<Cell<Option<CaptureHandles>>> = Rc::new(Cell::new(None));
+        #[cfg(not(target_feature = "atomics"))]
+        let capture_weak = Rc::downgrade(&capture);
+        #[cfg(not(target_feature = "atomics"))]
+        let stream_config = StreamConfig {
+            channels: config.output_channels,
+            sample_rate: config.sample_rate,
+            buffer_size: config.buffer_size,
+        };
+
+        #[cfg(target_feature = "atomics")]
+        let current_time_bits = Arc::new(AtomicU64::new(ctx.current_time().to_bits()));
+        #[cfg(target_feature = "atomics")]
+        let current_time_bits_stream = current_time_bits.clone();
+        #[cfg(target_feature = "atomics")]
+        let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
+
+        wasm_bindgen_futures::spawn_local(async move {
+            let media_stream = match request_microphone().await {
+                Ok(stream) => stream,
+                Err(js_err) => {
+                    error_callback.lock().unwrap_or_else(|e| e.into_inner())(
+                        crate::host::get_user_media_error(&js_err),
+                    );
+                    return;
+                }
+            };
+
+            #[cfg(not(target_feature = "atomics"))]
+            let capture = match capture_weak.upgrade() {
+                Some(capture) => capture,
+                None => {
+                    // The Stream was dropped while permission was pending; release the
+                    // microphone instead of leaving a live capture session behind.
+                    stop_tracks(&media_stream);
+                    return;
+                }
+            };
+
+            let build_graph = || -> CaptureGraphResult {
+                let source = ctx_task.create_media_stream_source(&media_stream)?;
+                let processor = ctx_task
+                    .create_script_processor_with_buffer_size_and_number_of_input_channels_and_number_of_output_channels(
+                        buffer_size_frames as u32,
+                        input_channels as u32,
+                        output_channels as u32,
+                    )?;
+                source.connect_with_audio_node(&processor)?;
+                processor.connect_with_audio_node(&ctx_task.destination())?;
+
+                let mut input_buffer_interleaved =
+                    vec![f32::EQUILIBRIUM; input_channels * buffer_size_frames];
+                let mut output_buffer_interleaved =
+                    vec![f32::EQUILIBRIUM; output_channels * buffer_size_frames];
+                let mut temporary_channel_buffer = vec![f32::EQUILIBRIUM; buffer_size_frames];
+                let ctx_cb = ctx_task.clone();
+                let data_callback_cb = data_callback.clone();
+                let error_callback_cb = error_callback.clone();
+                #[cfg(target_feature = "atomics")]
+                let current_time_bits_cb = current_time_bits.clone();
+
+                #[cfg(target_feature = "atomics")]
+                let temporary_channel_array_view = {
+                    let temporary_channel_array = js_sys::ArrayBuffer::new(
+                        (std::mem::size_of::<f32>() * buffer_size_frames) as u32,
+                    );
+                    js_sys::Float32Array::new(&temporary_channel_array)
+                };
+
+                let on_audio_process = Closure::wrap(Box::new(move |event: AudioProcessingEvent| {
+                    let now = ctx_cb.current_time();
+                    #[cfg(target_feature = "atomics")]
+                    current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
+
+                    let (input_buffer, output_buffer) =
+                        match (event.input_buffer(), event.output_buffer()) {
+                            (Ok(input), Ok(output)) => (input, output),
+                            _ => {
+                                (error_callback_cb.lock().unwrap_or_else(|e| e.into_inner()))(
+                                    Error::with_message(
+                                        ErrorKind::StreamInvalidated,
+                                        "Failed to access the duplex audio buffers",
+                                    ),
+                                );
+                                return;
+                            }
+                        };
+
+                    // Deinterleave from the browser's per-channel buffers into our interleaved
+                    // scratch buffer.
+                    for channel in 0..input_channels {
+                        if input_buffer
+                            .copy_from_channel(&mut temporary_channel_buffer, channel as i32)
+                            .is_err()
+                        {
+                            (error_callback_cb.lock().unwrap_or_else(|e| e.into_inner()))(
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    "Failed to copy captured audio",
+                                ),
+                            );
+                            return;
+                        }
+                        for i in 0..buffer_size_frames {
+                            input_buffer_interleaved[input_channels * i + channel] =
+                                temporary_channel_buffer[i];
+                        }
+                    }
+
+                    output_buffer_interleaved.fill(f32::EQUILIBRIUM);
+
+                    let input = unsafe {
+                        Data::from_parts(
+                            input_buffer_interleaved.as_mut_ptr() as *mut (),
+                            input_buffer_interleaved.len(),
+                            input_sample_format,
+                        )
+                    };
+                    let mut output = unsafe {
+                        Data::from_parts(
+                            output_buffer_interleaved.as_mut_ptr() as *mut (),
+                            output_buffer_interleaved.len(),
+                            output_sample_format,
+                        )
+                    };
+
+                    // outputLatency can change at runtime, so read it each callback.
+                    let output_latency_secs =
+                        js_sys::Reflect::get(ctx_cb.as_ref(), &JsValue::from("outputLatency"))
+                            .ok()
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                    let total_hw_latency_secs = {
+                        let sum = base_latency_secs + output_latency_secs;
+                        if sum.is_finite() { sum.max(0.0) } else { 0.0 }
+                    };
+
+                    // One clock: both directions share the same `callback` instant.
+                    let callback = StreamInstant::from_secs_f64(now);
+                    let info = DuplexCallbackInfo::new(
+                        CallbackInfo {
+                            timestamp: StreamTimestamp {
+                                callback,
+                                device: StreamInstant::from_secs_f64(
+                                    (now - buffer_duration_secs).max(0.0),
+                                ),
+                            },
+                            xrun: false,
+                        },
+                        CallbackInfo {
+                            timestamp: StreamTimestamp {
+                                callback,
+                                device: StreamInstant::from_secs_f64(
+                                    event.playback_time() + total_hw_latency_secs,
+                                ),
+                            },
+                            xrun: false,
+                        },
+                    );
+
+                    match data_callback_cb.lock() {
+                        Ok(mut data_callback) => {
+                            (data_callback.deref_mut())(&input, &mut output, &info)
+                        }
+                        Err(_) => {
+                            (error_callback_cb.lock().unwrap_or_else(|e| e.into_inner()))(
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    "Stream lock poisoned",
+                                ),
+                            );
+                            return;
+                        }
+                    }
+
+                    // Interleaved scratch back out into the browser's per-channel buffers.
+                    for channel in 0..output_channels {
+                        for i in 0..buffer_size_frames {
+                            temporary_channel_buffer[i] =
+                                output_buffer_interleaved[output_channels * i + channel];
+                        }
+
+                        #[cfg(not(target_feature = "atomics"))]
+                        let copied = output_buffer
+                            .copy_to_channel(&temporary_channel_buffer, channel as i32);
+
+                        // copyToChannel cannot be directly copied into from a SharedArrayBuffer,
+                        // which WASM memory is backed by if the 'atomics' flag is enabled.
+                        #[cfg(target_feature = "atomics")]
+                        let copied = {
+                            temporary_channel_array_view.copy_from(&temporary_channel_buffer);
+                            output_buffer
+                                .unchecked_ref::<ExternalArrayAudioBuffer>()
+                                .copy_to_channel(&temporary_channel_array_view, channel as i32)
+                        };
+
+                        if copied.is_err() {
+                            (error_callback_cb.lock().unwrap_or_else(|e| e.into_inner()))(
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    "Failed to copy rendered audio",
+                                ),
+                            );
+                            return;
+                        }
+                    }
+                })
+                    as Box<dyn FnMut(AudioProcessingEvent)>);
+
+                processor.set_onaudioprocess(Some(on_audio_process.as_ref().unchecked_ref()));
+
+                // The processor's output is the playback signal, so it needs no muted gain.
+                Ok((source, processor, None, on_audio_process))
+            };
+
+            let (source, processor, _mute_gain, on_audio_process) = match build_graph() {
+                Ok(handles) => handles,
+                Err(js_err) => {
+                    stop_tracks(&media_stream);
+                    error_callback.lock().unwrap_or_else(|e| e.into_inner())(Error::with_message(
+                        ErrorKind::UnsupportedConfig,
+                        format!("Failed to initialize duplex graph: {js_err:?}"),
+                    ));
+                    return;
+                }
+            };
+
+            #[cfg(not(target_feature = "atomics"))]
+            {
+                capture.set(Some(CaptureHandles {
+                    media_stream,
+                    _source: source,
+                    _processor: processor,
+                    _mute_gain,
+                    _on_audio_process: on_audio_process,
+                }));
+            }
+
+            #[cfg(target_feature = "atomics")]
+            {
+                let _source = source;
+                let _processor = processor;
+                let _on_audio_process = on_audio_process;
+                // Process play/pause commands from any thread until Stream is dropped.
+                // Dropping Stream closes command_tx, which terminates this loop.
+                while let Some(cmd) = command_rx.next().await {
+                    match cmd {
+                        Command::Play => {
+                            if ctx_task.resume().is_err() {
+                                error_callback.lock().unwrap_or_else(|e| e.into_inner())(
+                                    Error::with_message(
+                                        ErrorKind::DeviceNotAvailable,
+                                        "Failed to resume audio context",
+                                    ),
+                                );
+                            }
+                        }
+                        Command::Pause => {
+                            if ctx_task.suspend().is_err() {
+                                error_callback.lock().unwrap_or_else(|e| e.into_inner())(
+                                    Error::with_message(
+                                        ErrorKind::DeviceNotAvailable,
+                                        "Failed to suspend audio context",
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+                // Stream dropped: release the microphone and close the AudioContext.
+                stop_tracks(&media_stream);
+                let _ = ctx_task.close();
+            }
+        });
+
+        #[cfg(not(target_feature = "atomics"))]
+        {
+            Ok(Self::Stream {
+                ctx,
+                // The ScriptProcessorNode fires on its own once the context is running, so the
+                // buffer-source scheduling the output path needs has no counterpart here.
+                on_ended_closures: Vec::new(),
+                config: stream_config,
+                buffer_size_frames,
+                is_started,
+                _capture: capture,
+            })
+        }
+
+        #[cfg(target_feature = "atomics")]
+        {
+            Ok(Self::Stream {
+                command_tx,
+                current_time_bits: current_time_bits_stream,
+                buffer_size_frames,
+            })
+        }
+    }
 }
 
 // Without atomics: AudioContext is accessible directly from Stream.
@@ -1088,6 +1453,38 @@ fn validate_config(config: &StreamConfig, sample_format: SampleFormat) -> Result
         ));
     }
     Ok(())
+}
+
+/// Gets a configured buffer size that `createScriptProcessor()` accepts.
+fn script_processor_buffer_size(buffer_size: BufferSize) -> Result<usize, Error> {
+    let frames = match buffer_size {
+        BufferSize::Fixed(v) => v as usize,
+        BufferSize::Default => DEFAULT_BUFFER_SIZE,
+    };
+    if !SCRIPT_PROCESSOR_VALID_BUFFER_SIZES.contains(&frames) {
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!(
+                "Buffer size {frames} is not supported; must be one of {SCRIPT_PROCESSOR_VALID_BUFFER_SIZES:?}"
+            ),
+        ));
+    }
+    Ok(frames)
+}
+
+/// Applies [`validate_config`] to each direction of a duplex configuration.
+fn validate_duplex_config(
+    config: &DuplexStreamConfig,
+    input_sample_format: SampleFormat,
+    output_sample_format: SampleFormat,
+) -> Result<(), Error> {
+    let per_direction = |channels| StreamConfig {
+        channels,
+        sample_rate: config.sample_rate,
+        buffer_size: config.buffer_size,
+    };
+    validate_config(&per_direction(config.input_channels), input_sample_format)?;
+    validate_config(&per_direction(config.output_channels), output_sample_format)
 }
 
 /// The full matrix of channel counts x sample rates for a given buffer-size range.
