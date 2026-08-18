@@ -237,6 +237,9 @@ name = "beep"
 name = "enumerate"
 
 [[example]]
+name = "duplex"
+
+[[example]]
 name = "feedback"
 
 [[example]]
