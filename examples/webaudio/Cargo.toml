@@ -1,10 +1,9 @@
 [package]
-name = "audioworklet-beep"
-description = "cpal beep example for WebAssembly on an AudioWorklet"
+name = "webaudio"
+description = "cpal Web Audio example for WebAssembly"
 version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
-authors = ["Ian Kettlewell <ian.kettlewell@gmail.com>"]
 
 [lib]
 crate-type = ["cdylib"]
@@ -15,7 +14,8 @@ crate-type = ["cdylib"]
 lto = true
 
 [dependencies]
-cpal = { path = "../..", features = ["wasm-bindgen", "audioworklet"] }
+cpal = { path = "../..", features = ["wasm-bindgen"] }
+
 # `gloo` is a utility crate which improves ergonomics over direct `web-sys` usage.
 gloo = "0.12"
 

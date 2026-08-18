@@ -476,8 +476,8 @@ jobs:
       - name: Check all features (no atomics)
         run: cargo +${{ env.MSRV_WASM }} check --workspace --all-features --verbose --target ${{ env.TARGET }}
 
-      - name: Build wasm-beep example
-        working-directory: ./examples/wasm-beep
+      - name: Build webaudio example
+        working-directory: ./examples/webaudio
         run: trunk build
         env:
           RUSTUP_TOOLCHAIN: ${{ env.MSRV_WASM }}
@@ -516,8 +516,8 @@ jobs:
       - name: Check all features
         run: cargo +nightly check --workspace --all-features --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
 
-      - name: Build audioworklet-beep example
-        working-directory: ./examples/audioworklet-beep
+      - name: Build audioworklet example
+        working-directory: ./examples/audioworklet
         run: trunk build
         env:
           RUSTUP_TOOLCHAIN: nightly
