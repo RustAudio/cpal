@@ -307,6 +307,26 @@ where
     }
 }
 
+/// Wraps a duplex data callback so neither direction's `device` timestamp regresses across
+/// callbacks. The two directions are clamped independently.
+#[allow(dead_code)]
+pub(crate) fn monotonic_duplex_callback<D>(
+    mut data_callback: D,
+) -> impl FnMut(&crate::Data, &mut crate::Data, &crate::DuplexCallbackInfo) + Send + 'static
+where
+    D: FnMut(&crate::Data, &mut crate::Data, &crate::DuplexCallbackInfo) + Send + 'static,
+{
+    let mut input_floor = 0u64;
+    let mut output_floor = 0u64;
+    move |input, output, info| {
+        let mut info = *info;
+        info.input.timestamp.device = non_decreasing(&mut input_floor, info.input.timestamp.device);
+        info.output.timestamp.device =
+            non_decreasing(&mut output_floor, info.output.timestamp.device);
+        data_callback(input, output, &info);
+    }
+}
+
 /// Maps a rejected `getUserMedia()` promise to a [`crate::Error`], based on the DOMException
 /// `name` the browser rejects with.
 ///
