@@ -1,7 +1,7 @@
 //! Audio Worklet backend implementation.
 //!
 //! Available on WebAssembly with the `audioworklet` feature. Requires atomics support.
-//! See the `audioworklet-beep` example for setup instructions.
+//! See the `audioworklet` example for setup instructions.
 
 use std::{
     cell::RefCell,

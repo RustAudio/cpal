@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>cpal Web Audio example</title>
+</head>
+
+<body>
+  <p>
+    <input id="play" type="button" value="beep" />
+    <input id="stop" type="button" value="stop" />
+  </p>
+  <p>
+    <input id="record" type="button" value="loopback (two streams)" />
+    <input id="stop-record" type="button" value="stop" />
+  </p>
+  <p>
+    <input id="duplex" type="button" value="loopback (duplex)" />
+    <input id="stop-duplex" type="button" value="stop" />
+  </p>
+  <p>Both loopback modes play your microphone back live. Wear headphones to avoid feedback howl.</p>
+  <p>The two-stream mode bridges an independent input and output stream with a ring buffer. The
+    duplex mode runs both directions from one callback on one clock, so it needs no ring buffer
+    and the round trip is audibly shorter.</p>
+</body>
+
+</html>

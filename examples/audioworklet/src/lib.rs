@@ -1,7 +1,8 @@
 use std::{cell::Cell, rc::Rc};
 
 use cpal::{
-    Device, Error, ErrorKind, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
+    BufferSize, Device, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind, FromSample,
+    HostId, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use ringbuf::{
@@ -24,6 +25,8 @@ pub fn main_js() -> Result<(), JsValue> {
     let stop_button = document.get_element_by_id("stop").unwrap();
     let record_button = document.get_element_by_id("record").unwrap();
     let stop_record_button = document.get_element_by_id("stop-record").unwrap();
+    let duplex_button = document.get_element_by_id("duplex").unwrap();
+    let stop_duplex_button = document.get_element_by_id("stop-duplex").unwrap();
 
     // stream needs to be referenced from the "play" and "stop" closures
     let stream = Rc::new(Cell::new(None));
@@ -75,11 +78,37 @@ pub fn main_js() -> Result<(), JsValue> {
         closure.forget();
     }
 
+    // duplex loopback is a single stream, so one slot holds the whole thing
+    let duplex_stream = Rc::new(Cell::new(None));
+
+    // set up duplex button
+    {
+        let duplex_stream = duplex_stream.clone();
+        let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::MouseEvent| {
+            duplex_stream.set(Some(duplex()));
+        });
+        duplex_button
+            .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
+        closure.forget();
+    }
+
+    // set up stop-duplex button
+    {
+        let closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::MouseEvent| {
+            // stop the stream by dropping it; releases the microphone
+            duplex_stream.take();
+        });
+        stop_duplex_button
+            .add_event_listener_with_callback("mousedown", closure.as_ref().unchecked_ref())?;
+        closure.forget();
+    }
+
     Ok(())
 }
 
 fn beep() -> Stream {
-    let host = cpal::default_host();
+    let host = cpal::host_from_id(HostId::AudioWorklet).expect("AudioWorklet host not available");
+
     let device = host
         .default_output_device()
         .expect("failed to find a default output device");
@@ -129,7 +158,8 @@ where
 /// Captures microphone input into a ring buffer and immediately plays it back, so you can hear
 /// your own voice. Wear headphones: routing a live mic to speakers risks feedback howl.
 fn record() -> (Stream, Stream) {
-    let host = cpal::default_host();
+    let host = cpal::host_from_id(HostId::AudioWorklet).expect("AudioWorklet host not available");
+
     let input_device = host
         .default_input_device()
         .expect("failed to find a default input device");
@@ -161,6 +191,63 @@ fn record() -> (Stream, Stream) {
     };
 
     (input_stream, output_stream)
+}
+
+/// The same live microphone loopback as [`record`], but as one duplex stream instead of two
+/// independent ones. `AudioWorkletProcessor.process(inputs, outputs)` hands both directions to a
+/// single callback on a single clock, so no ring buffer is needed to bridge them and the round
+/// trip is a callback rather than a delay line. Wear headphones: routing a live mic to speakers
+/// risks feedback howl.
+fn duplex() -> Stream {
+    let host = cpal::host_from_id(HostId::AudioWorklet).expect("AudioWorklet host not available");
+
+    let device = host
+        .default_output_device()
+        .expect("failed to find a default output device");
+    assert!(
+        device.supports_duplex(),
+        "duplex streams need `navigator.mediaDevices`, which browsers expose only in a \
+         secure context: serve this page over HTTPS or from localhost"
+    );
+
+    let input_config = device.default_input_config().unwrap();
+    let output_config = device.default_output_config().unwrap();
+    let config = DuplexStreamConfig {
+        input_channels: input_config.channels(),
+        output_channels: output_config.channels(),
+        sample_rate: output_config.sample_rate(),
+        buffer_size: BufferSize::Default,
+    };
+
+    let err_fn = |err: Error| match err.kind() {
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
+            console::log_1(&format!("{err}").into())
+        }
+        _ => console::error_1(&format!("Stream error: {err}").into()),
+    };
+
+    // WebAudio processes exclusively in f32, so there is no sample format to match on here.
+    let input_channels = config.input_channels as usize;
+    let output_channels = config.output_channels as usize;
+    let stream = device
+        .build_duplex_stream(
+            config,
+            move |input: &[f32], output: &mut [f32], _: &DuplexCallbackInfo| {
+                // The two directions can carry different channel counts, so mix each captured
+                // frame down to mono and fan it back out across the output frame.
+                for (captured, rendered) in input
+                    .chunks(input_channels)
+                    .zip(output.chunks_mut(output_channels))
+                {
+                    rendered.fill(captured.iter().sum::<f32>() / input_channels as f32);
+                }
+            },
+            err_fn,
+            None,
+        )
+        .unwrap();
+    stream.start().unwrap();
+    stream
 }
 
 fn build_input<T>(device: &Device, config: StreamConfig, mut producer: HeapProd<f32>) -> Stream
