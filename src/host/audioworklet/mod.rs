@@ -814,6 +814,15 @@ impl Iterator for Devices {
     }
 }
 
+/// Grows `buffer` so it can hold `channels * frame_size` interleaved samples, never shrinking it,
+/// and returns the length of the region actually in use.
+fn resize_interleaved(buffer: &mut Vec<f32>, channels: u32, frame_size: u32) -> usize {
+    let len = channels as usize * frame_size as usize;
+    buffer.resize(len.max(buffer.len()), f32::EQUILIBRIUM);
+    len
+}
+
+// The interleaved buffer, plus frame size, sample rate, and current time.
 type AudioProcessorCallback = Box<dyn FnMut(&mut [f32], u32, u32, f64)>;
 
 /// WasmAudioProcessor provides an interface for the JavaScript code
@@ -843,31 +852,19 @@ impl WasmAudioProcessor {
         sample_rate: u32,
         current_time: f64,
     ) -> u32 {
-        let frame_size = frame_size as usize;
-
-        // Ensure there's enough space in the output buffer
-        // This likely only occurs once, or very few times.
-        let interleaved_buffer_size = channels as usize * frame_size;
-        self.interleaved_buffer.resize(
-            interleaved_buffer_size.max(self.interleaved_buffer.len()),
-            f32::EQUILIBRIUM,
-        );
+        let interleaved_buffer_size =
+            resize_interleaved(&mut self.interleaved_buffer, channels, frame_size);
         self.interleaved_buffer[..interleaved_buffer_size].fill(f32::EQUILIBRIUM);
 
         (self.callback)(
             &mut self.interleaved_buffer[..interleaved_buffer_size],
-            frame_size as u32,
+            frame_size,
             sample_rate,
             current_time,
         );
 
         // Returns a pointer to the raw interleaved buffer to Javascript so
         // it can deinterleave it into the output buffers.
-        //
-        // Deinterleaving is done on the Javascript side because it's simpler and it may be faster.
-        // Doing it this way avoids an extra copy and the JS deinterleaving code
-        // is likely heavily optimized by the browser's JS engine,
-        // although I have not tested that assumption.
         self.interleaved_buffer.as_mut_ptr() as _
     }
 
@@ -917,11 +914,7 @@ impl WasmAudioCaptureProcessor {
     /// Ensures the capture buffer can hold `channels * frame_size` samples and returns a pointer
     /// for JS to interleave captured audio into.
     pub fn capture_buffer_ptr(&mut self, channels: u32, frame_size: u32) -> u32 {
-        let interleaved_buffer_size = channels as usize * frame_size as usize;
-        self.interleaved_buffer.resize(
-            interleaved_buffer_size.max(self.interleaved_buffer.len()),
-            f32::EQUILIBRIUM,
-        );
+        resize_interleaved(&mut self.interleaved_buffer, channels, frame_size);
         self.interleaved_buffer.as_mut_ptr() as _
     }
 

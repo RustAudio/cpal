@@ -1,61 +1,105 @@
-registerProcessor("CpalProcessor", class WasmProcessor extends AudioWorkletProcessor {
-    constructor(options) {
+// Shared plumbing for the cpal processors. Interleaving and deinterleaving are done here rather
+// than in Rust because it avoids an extra copy and the JS engine optimizes these loops well.
+class CpalProcessorBase extends AudioWorkletProcessor {
+    constructor(options, ProcessorClass) {
         super();
         let [module, memory, handle] = options.processorOptions;
         bindgen.initSync({ module, memory });
-        this.processor = bindgen.WasmAudioProcessor.unpack(handle);
+        this.processor = ProcessorClass.unpack(handle);
+        this.name = ProcessorClass.name;
         this.memory = memory;
         this.wasm_memory = new Float32Array(memory.buffer);
     }
 
-    process(inputs, outputs) {
-        // Check if memory grew and update view
+    // Growing Wasm memory detaches the old view, so it has to be re-taken after any call into
+    // Rust that may have allocated. Both accessors below do this for their caller.
+    refresh_memory() {
         if (this.wasm_memory.buffer !== this.memory.buffer) {
             this.wasm_memory = new Float32Array(this.memory.buffer);
         }
+    }
 
-        const channels = outputs[0];
+    // Resolves `ptr` against the current Wasm memory, or returns -1 (having logged) if the range
+    // it addresses does not fit.
+    sample_offset(ptr, samples) {
+        this.refresh_memory();
+        const start = ptr / Float32Array.BYTES_PER_ELEMENT;
+        if (start + samples > this.wasm_memory.length) {
+            console.error(`${this.name}: Audio buffer out of bounds! Ptr:`, ptr, "Len:", samples);
+            return -1;
+        }
+        return start;
+    }
+
+    // Reads sequentially from `channels` and writes strided into Wasm at byte pointer `ptr`.
+    // Returns false if the buffer does not fit in Wasm memory.
+    interleave(channels, ptr, frame_size) {
         const channels_count = channels.length;
-        const frame_size = channels[0].length;
-        const interleaved_ptr = this.processor.process(
-            channels_count,
-            frame_size,
-            sampleRate,
-            currentTime
-        );
-
-        const interleaved_start = interleaved_ptr / Float32Array.BYTES_PER_ELEMENT;
-        const interleaved = this.wasm_memory;
-
-        const total_samples = frame_size * channels_count;
-        if (interleaved_start + total_samples > this.wasm_memory.length) {
-            console.error("CpalProcessor: Audio buffer out of bounds! Ptr:", interleaved_ptr, "Len:", total_samples);
-            return false; // Safely stop the node
+        const start = this.sample_offset(ptr, frame_size * channels_count);
+        if (start < 0) {
+            return false;
         }
 
-        // Deinterleave: read strided from Wasm, write sequential to output
+        const interleaved = this.wasm_memory;
         for (let ch = 0; ch < channels_count; ch++) {
             const channel = channels[ch];
-            let read_pos = interleaved_start + ch;
+            let write_pos = start + ch;
+
+            for (let i = 0; i < frame_size; i++) {
+                interleaved[write_pos] = channel[i];
+                write_pos += channels_count;
+            }
+        }
+        return true;
+    }
+
+    // Reads strided from Wasm at byte pointer `ptr` and writes sequentially into `channels`.
+    // Returns false if the buffer does not fit in Wasm memory.
+    deinterleave(channels, ptr, frame_size) {
+        const channels_count = channels.length;
+        const start = this.sample_offset(ptr, frame_size * channels_count);
+        if (start < 0) {
+            return false;
+        }
+
+        const interleaved = this.wasm_memory;
+        for (let ch = 0; ch < channels_count; ch++) {
+            const channel = channels[ch];
+            let read_pos = start + ch;
 
             for (let i = 0; i < frame_size; i++) {
                 channel[i] = interleaved[read_pos];
                 read_pos += channels_count;
             }
         }
-
         return true;
+    }
+}
+
+registerProcessor("CpalProcessor", class WasmProcessor extends CpalProcessorBase {
+    constructor(options) {
+        super(options, bindgen.WasmAudioProcessor);
+    }
+
+    process(inputs, outputs) {
+        const channels = outputs[0];
+        const frame_size = channels[0].length;
+
+        const interleaved_ptr = this.processor.process(
+            channels.length,
+            frame_size,
+            sampleRate,
+            currentTime
+        );
+
+        // Safely stop the node if the buffer does not fit.
+        return this.deinterleave(channels, interleaved_ptr, frame_size);
     }
 });
 
-registerProcessor("CpalCaptureProcessor", class WasmCaptureProcessor extends AudioWorkletProcessor {
+registerProcessor("CpalCaptureProcessor", class WasmCaptureProcessor extends CpalProcessorBase {
     constructor(options) {
-        super();
-        let [module, memory, handle] = options.processorOptions;
-        bindgen.initSync({ module, memory });
-        this.processor = bindgen.WasmAudioCaptureProcessor.unpack(handle);
-        this.memory = memory;
-        this.wasm_memory = new Float32Array(memory.buffer);
+        super(options, bindgen.WasmAudioCaptureProcessor);
     }
 
     process(inputs) {
@@ -68,28 +112,8 @@ registerProcessor("CpalCaptureProcessor", class WasmCaptureProcessor extends Aud
         const frame_size = channels[0].length;
 
         const interleaved_ptr = this.processor.capture_buffer_ptr(channels_count, frame_size);
-
-        // capture_buffer_ptr() may have grown Wasm memory; refresh the view before writing.
-        if (this.wasm_memory.buffer !== this.memory.buffer) {
-            this.wasm_memory = new Float32Array(this.memory.buffer);
-        }
-
-        const interleaved_start = interleaved_ptr / Float32Array.BYTES_PER_ELEMENT;
-        const total_samples = frame_size * channels_count;
-        if (interleaved_start + total_samples > this.wasm_memory.length) {
-            console.error("CpalCaptureProcessor: Audio buffer out of bounds! Ptr:", interleaved_ptr, "Len:", total_samples);
+        if (!this.interleave(channels, interleaved_ptr, frame_size)) {
             return false; // Safely stop the node
-        }
-
-        // Interleave: read sequential from the input channels, write strided into Wasm
-        for (let ch = 0; ch < channels_count; ch++) {
-            const channel = channels[ch];
-            let write_pos = interleaved_start + ch;
-
-            for (let i = 0; i < frame_size; i++) {
-                this.wasm_memory[write_pos] = channel[i];
-                write_pos += channels_count;
-            }
         }
 
         this.processor.process_captured(channels_count, frame_size, sampleRate, currentTime);
