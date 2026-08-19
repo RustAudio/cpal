@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -18,27 +18,32 @@ mod utils;
 ///
 /// # PipeWire-Specific Configuration
 ///
-/// PipeWire provides a configuration option to control graph connection behavior:
+/// PipeWire provides configuration options specific to this backend:
 /// - Port auto-connection via [`set_connect_automatically`](Host::set_connect_automatically)
+/// - Custom stream node properties via [`set_stream_properties`](Host::set_stream_properties)
 pub struct Host {
     // Keeps PipeWire initialized for the lifetime of the host, preventing
     // pw_deinit() from running between device enumeration and stream creation.
     _pw: PwInitGuard,
     devices: Vec<Device>,
     connect_automatically: Arc<AtomicBool>,
+    stream_properties: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 impl Host {
     pub fn new() -> Result<Self, Error> {
         let _pw = PwInitGuard::new();
         let connect_automatically = Arc::new(AtomicBool::new(true));
-        let devices = init_devices(connect_automatically.clone()).ok_or_else(|| {
-            Error::with_message(ErrorKind::HostUnavailable, "PipeWire is not available")
-        })?;
+        let stream_properties = Arc::new(Mutex::new(Vec::new()));
+        let devices = init_devices(connect_automatically.clone(), stream_properties.clone())
+            .ok_or_else(|| {
+                Error::with_message(ErrorKind::HostUnavailable, "PipeWire is not available")
+            })?;
         Ok(Self {
             _pw,
             devices,
             connect_automatically,
+            stream_properties,
         })
     }
 
@@ -53,6 +58,21 @@ impl Host {
     /// Default: `true`
     pub fn set_connect_automatically(&mut self, connect: bool) {
         self.connect_automatically.store(connect, Ordering::Relaxed);
+    }
+
+    /// Sets custom properties on stream nodes created by this host.
+    ///
+    /// User properties override cpal's defaults for matching keys (e.g. `node.name`, `media.name`).
+    /// Calling this replaces any properties set by a previous call.
+    pub fn set_stream_properties<I: IntoIterator<Item = (String, String)>>(
+        &mut self,
+        properties: I,
+    ) {
+        let mut guard = self
+            .stream_properties
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *guard = properties.into_iter().collect();
     }
 }
 
