@@ -4,7 +4,7 @@ use std::{
     hash::{Hash, Hasher},
     rc::Rc,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, Ordering},
         mpsc,
     },
@@ -88,6 +88,7 @@ pub struct Device {
     address: Option<String>,
     driver: Option<String>,
     connect_automatically: Arc<AtomicBool>,
+    stream_properties: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 impl Device {
@@ -181,6 +182,16 @@ impl Device {
                 *pw::keys::NODE_LATENCY,
                 format!("{buffer_size}/{rate}", rate = config.sample_rate),
             );
+        }
+
+        // Apply user-configured properties last so they override cpal's defaults
+        // (see `Host::set_stream_properties`).
+        let extra = self
+            .stream_properties
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        for (key, value) in extra.iter() {
+            properties.insert(key.as_str(), value.as_str());
         }
         properties
     }
@@ -785,7 +796,10 @@ fn remote_props() -> Option<PropertiesBox> {
     Some(props)
 }
 
-pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device>> {
+pub fn init_devices(
+    connect_automatically: Arc<AtomicBool>,
+    stream_properties: Arc<Mutex<Vec<(String, String)>>>,
+) -> Option<Vec<Device>> {
     let _pw = PwInitGuard::new();
     let mainloop = MainLoopRc::new(None).ok()?;
     let context = ContextRc::new(&mainloop, None).ok()?;
@@ -1102,6 +1116,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
         device.min_quantum = settings.min_quantum;
         device.max_quantum = settings.max_quantum;
         device.connect_automatically = connect_automatically.clone();
+        device.stream_properties = stream_properties.clone();
     }
 
     // Resolve each discovered hardware node: global settings apply unless the node
@@ -1117,6 +1132,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                 device.min_quantum = settings.min_quantum;
                 device.max_quantum = settings.max_quantum;
                 device.connect_automatically = connect_automatically.clone();
+                device.stream_properties = stream_properties.clone();
                 device
             }),
     );
