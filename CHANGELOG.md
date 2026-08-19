@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `StreamTrait::stop` ends a stream gracefully, draining buffered audio before halting (blocking up to a caller-supplied timeout). Dropping a stream still halts immediately without draining.
 - `CallbackInfo::xrun()` reports buffer over/underruns via the data callback.
+- `DeviceTrait::build_duplex_stream()`, `build_duplex_stream_raw()`, and `supports_duplex()` for capture and playback from one device-level callback.
 - **AudioWorklet**: Input and duplex streams are now supported.
 - **WebAudio**: Input and duplex streams are now supported.
 
@@ -117,7 +118,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `realtime` feature for real-time audio thread scheduling without a D-Bus build dependency.
 - `StreamTrait::now()` to query the current instant on the stream's clock.
 - `StreamTrait::buffer_size()` to query the stream's current buffer size in frames per callback.
-- `DeviceTrait::build_duplex_stream()`, `build_duplex_stream_raw()`, and `supports_duplex()` for synchronized capture and playback on a shared clock (no backend support yet).
 - `SAMPLE_RATE_CD` (44100 Hz) and `SAMPLE_RATE_48K` (48000 Hz) constants.
 - `SupportedStreamConfigRange::try_with_standard_sample_rate()` and `with_standard_sample_rate()`
   to select 48 kHz or 44.1 kHz from a range.
