@@ -143,6 +143,9 @@ pub enum DeviceDirection {
     Output,
 
     /// Both input and output
+    ///
+    /// The device has endpoints in both directions. This does not automatically mean that both can
+    /// run from a single stream; see [`DeviceTrait::supports_duplex`](crate::traits::DeviceTrait::supports_duplex).
     Duplex,
 
     /// Direction unknown or not yet determined
