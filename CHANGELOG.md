@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `StreamTrait::stop` ends a stream gracefully, draining buffered audio before halting (blocking up to a caller-supplied timeout). Dropping a stream still halts immediately without draining.
 - `CallbackInfo::xrun()` reports buffer over/underruns via the data callback.
+- **PipeWire**: Add `Host::set_stream_properties` to set identifying node properties
+  (e.g. `node.name`, `media.name`) on streams created by the host.
 - **AudioWorklet**: Input streams are now supported.
 - **WebAudio**: Input streams are now supported.
 
