@@ -2,10 +2,9 @@ use crate::{BufferSize, CallbackInfo, ChannelCount, SampleRate};
 
 /// Information relevant to a single call to the user's duplex stream data callback.
 ///
-/// Because a duplex stream's input and output share a single clock, `input.timestamp()` and
-/// `output.timestamp()` are drawn from the same time source. The two directions have independent
-/// buffers, so `input.xrun()` and `output.xrun()` can each report a glitch independently for the
-/// same invocation.
+/// `input.timestamp()` and `output.timestamp()` come from the same callback, so they are directly
+/// comparable. Both directions should run on one synchronized clock, but have independent buffers,
+/// so `input.xrun()` and `output.xrun()` can each report a glitch for the same invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DuplexCallbackInfo {
     pub(crate) input: CallbackInfo,

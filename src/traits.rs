@@ -178,14 +178,11 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
             .is_ok_and(|mut iter| iter.next().is_some())
     }
 
-    /// True if the device can build a synchronized duplex stream where the captured input and
-    /// rendered output share a single clock.
+    /// True if the device supports audio input and output from one device-level callback,
+    /// otherwise false
     ///
-    /// Returning `true` is a contract that input and output sides will run from one device-level
-    /// callback, or an OS driver aggregate (such as an Aggregate Device on macOS).
-    ///
-    /// The default implementation returns `false`; hosts that can guarantee a shared clock should
-    /// override.
+    /// This is stricter than [`DeviceDirection::Duplex`](crate::DeviceDirection::Duplex), which
+    /// only means the device has both directions.
     fn supports_duplex(&self) -> bool {
         false
     }
