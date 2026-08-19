@@ -7,6 +7,9 @@ use windows::Win32::{
     System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize},
 };
 
+#[cfg(feature = "asio-new")]
+pub mod worker;
+
 thread_local!(static COM_INITIALIZED: ComInitialized = {
     unsafe {
         // Try to initialize COM with STA by default to avoid compatibility issues with the ASIO
