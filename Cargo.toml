@@ -33,6 +33,9 @@ realtime-dbus = ["realtime", "audio_thread_priority/with_dbus"]
 # See README for detailed setup instructions
 asio = ["dep:asio-sys", "dep:num-traits"]
 
+
+asio-new = ["dep:azo", "dep:closure-ffi"]
+
 # Audio Worklet backend for WebAssembly
 # Provides lower-latency web audio processing compared to default Web Audio API
 # Requires: Build with atomics support and Cross-Origin headers for SharedArrayBuffer
@@ -104,6 +107,10 @@ wasm-bindgen = [
 
 [dependencies]
 dasp_sample = "0.11"
+itertools = "0.15.0"
+oneshot = { version = "0.2.1", features = ["std"] }
+smallvec = "1.15.2"
+tap = "1.0.1"
 
 [dev-dependencies]
 anyhow = "1.0"
@@ -131,6 +138,8 @@ windows = { version = "0.62", features = [
 ] }
 audio_thread_priority = { version = "0.36", optional = true, default-features = false }
 asio-sys = { version = "0.5.0", path = "asio-sys", optional = true }
+azo = { version = "0.0.9", optional = true }
+closure-ffi = { version = "5.1.2", optional = true }
 num-traits = { version = "0.2", optional = true }
 jack = { version = "0.13.5", optional = true }
 
