@@ -79,7 +79,6 @@ impl Stream {
             Some(Box::new(data_callback)),
             None,
             state.clone(),
-            #[cfg(feature = "realtime")]
             error_callback_ptr.clone(),
         );
 
@@ -135,7 +134,6 @@ impl Stream {
             None,
             Some(Box::new(data_callback)),
             state.clone(),
-            #[cfg(feature = "realtime")]
             error_callback_ptr.clone(),
         );
 
@@ -258,8 +256,8 @@ struct LocalProcessHandler {
     temp_input_buffer: Vec<f32>,
     temp_output_buffer: Vec<f32>,
     state: Arc<AtomicU8>,
-    #[cfg(feature = "realtime")]
     error_callback: ErrorCallbackArc,
+    oversized_reported: bool,
     #[cfg(feature = "realtime")]
     rt_checked: bool,
 }
@@ -274,7 +272,7 @@ impl LocalProcessHandler {
         input_data_callback: Option<InputDataCallback>,
         output_data_callback: Option<OutputDataCallback>,
         state: Arc<AtomicU8>,
-        #[cfg(feature = "realtime")] error_callback: ErrorCallbackArc,
+        error_callback: ErrorCallbackArc,
     ) -> Self {
         let temp_input_buffer = vec![f32::EQUILIBRIUM; in_ports.len() * buffer_size];
         let temp_output_buffer = vec![f32::EQUILIBRIUM; out_ports.len() * buffer_size];
@@ -289,8 +287,8 @@ impl LocalProcessHandler {
             temp_input_buffer,
             temp_output_buffer,
             state,
-            #[cfg(feature = "realtime")]
             error_callback,
+            oversized_reported: false,
             #[cfg(feature = "realtime")]
             rt_checked: false,
         }
@@ -385,9 +383,21 @@ impl jack::ProcessHandler for LocalProcessHandler {
             }
         }
 
-        // This should be equal to self.buffer_size, but the implementation will
-        // work even if it is less. Will panic in `temp_buffer_to_data` if greater.
-        let current_frame_count = process_scope.n_frames() as usize;
+        // This should be equal to self.buffer_size, but the implementation will work even if
+        // it is less. A greater count is truncated to the temp buffers' capacity.
+        let requested_frame_count = process_scope.n_frames() as usize;
+        let current_frame_count = requested_frame_count.min(self.buffer_size);
+        if requested_frame_count > self.buffer_size && !self.oversized_reported {
+            let message = format!(
+                "JACK delivered a {requested_frame_count}-frame period, exceeding the configured buffer size of {}; truncated",
+                self.buffer_size
+            );
+            self.oversized_reported = try_emit_error(
+                &self.error_callback,
+                Error::with_message(ErrorKind::BackendError, message),
+            )
+            .is_ok();
+        }
 
         // Get timestamp data
         let (current_start_usecs, next_usecs_opt) = match process_scope.cycle_times() {
@@ -480,6 +490,8 @@ impl jack::ProcessHandler for LocalProcessHandler {
                 for i in 0..current_frame_count {
                     output_channel[i] = self.temp_output_buffer[ch_ix + i * num_out_channels];
                 }
+                // A truncated cycle leaves the tail of JACK's port buffer unwritten.
+                output_channel[current_frame_count..requested_frame_count].fill(f32::EQUILIBRIUM);
             }
         }
 
