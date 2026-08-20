@@ -2,7 +2,6 @@ use crate::ErrorKind::*;
 use crate::*;
 use azo::Driver;
 use azo::dto::{ChannelCounts, ChannelId};
-use smallvec::SmallVec;
 use std::fmt::{self, Debug};
 use std::hash::{Hash, Hasher};
 use std::pin::Pin;
@@ -275,7 +274,7 @@ impl Stream {
             .filter_map(|(option, direction)|
                 option.map(|args| args.validate(&device.driver, direction))
             )
-            .collect::<CpalResult<SmallVec<[_; 2]>>>()?;
+            .collect::<CpalResult<Vec<_>>>()?; // not a hot path, so should be fine
 
         let buffer_size_final = match buffer_size {
             BufferSize::Fixed(n) => n,

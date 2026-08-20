@@ -108,7 +108,6 @@ wasm-bindgen = [
 [dependencies]
 dasp_sample = "0.11"
 oneshot = { version = "0.2.1", features = ["std"] }
-smallvec = "1.15.2"
 tap = "1.0.1"
 
 [dev-dependencies]
