@@ -216,7 +216,6 @@ pub(crate) use error_emit::emit_error;
     target_os = "android",
     all(
         feature = "jack",
-        feature = "realtime",
         any(
             target_os = "linux",
             target_os = "dragonfly",
