@@ -110,8 +110,6 @@ wasm-bindgen = [
 
 [dependencies]
 dasp_sample = "0.11"
-oneshot = { version = "0.2.1", features = ["std"] }
-tap = "1.0.1"
 
 [dev-dependencies]
 anyhow = "1.0"
@@ -142,6 +140,8 @@ asio-sys = { version = "0.5.0", path = "asio-sys", optional = true }
 azo = { version = "0.0.9", optional = true }
 closure-ffi = { version = "5.1.2", optional = true }
 num-traits = { version = "0.2", optional = true }
+oneshot = { version = "0.2.1", features = ["std"] }
+tap = "1.0.1"
 jack = { version = "0.13.5", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
