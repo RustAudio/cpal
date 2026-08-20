@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AudioWorklet**: Fix dropouts in output streams when the callback buffer grows.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
 - **PipeWire**: Fix an empty chunk being emitted when a cycle requests no frames.
+- **PipeWire**: Fix capture reading from the wrong offset in the buffer on some devices.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
 - **WASAPI**: Revert "Default device changes no longer report `DeviceChanged`" as it was misinformed.
 
