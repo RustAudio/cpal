@@ -1,8 +1,9 @@
+use std::collections::HashSet;
 use crate::ErrorKind::*;
 use crate::*;
+use super::super::utils::create_report;
 use azo::Driver;
 use azo::dto::{ChannelCounts, ChannelId};
-use itertools::Itertools;
 use tap::Pipe;
 
 use super::{CpalResult, err, sample_format_azo2cpal};
@@ -58,12 +59,15 @@ pub fn buffer_size_preferred(driver: &Driver) -> CpalResult<u32> {
     Ok(value as _)
 }
 
-pub fn sample_formats<const INPUT: bool>(driver: &Driver, ch_count: i32) -> Result<impl Iterator<Item=SampleFormat>, Error> {
+pub fn sample_formats<const INPUT: bool>(driver: &Driver, ch_count: i32) -> CpalResult<impl Iterator<Item=SampleFormat>> {
     (0..ch_count)
-        .map(move |index| driver.channel_info(ChannelId { index, input: INPUT }))
-        .filter_map(Result::ok)
-        .map(|ch_info| ch_info.sample_type)
-        .unique()
+        .map(move |index| driver
+            .channel_info(ChannelId { index, input: INPUT })
+            .map(|ch_info| ch_info.sample_type)
+            .map_err(|error| create_report(driver, error, "channel_info"))
+        )
+        .collect::<CpalResult<HashSet<_>>>()? // aggregates errors and deduplicates the values
+        .into_iter()
         .filter_map(sample_format_azo2cpal)
         .pipe(Ok)
 }
