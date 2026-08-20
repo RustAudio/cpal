@@ -223,8 +223,9 @@ impl Device {
             }
             last_buffer_index = callback_info.buffer_index;
 
-            // There is 0% chance of lock contention the host only locks when recreating streams.
-            let stream_lock = asio_streams.lock().unwrap();
+            let Ok(stream_lock) = asio_streams.lock() else {
+                return;
+            };
             let asio_stream = match stream_lock.input {
                 Some(ref asio_stream) => asio_stream,
                 None => return,
@@ -577,8 +578,9 @@ impl Device {
             }
             last_buffer_index = callback_info.buffer_index;
 
-            // There is 0% chance of lock contention the host only locks when recreating streams.
-            let mut stream_lock = asio_streams.lock().unwrap();
+            let Ok(mut stream_lock) = asio_streams.lock() else {
+                return;
+            };
             let asio_stream = match stream_lock.output {
                 Some(ref mut asio_stream) => asio_stream,
                 None => return,
