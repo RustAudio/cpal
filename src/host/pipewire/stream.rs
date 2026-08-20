@@ -816,8 +816,12 @@ where
             }
 
             if let Some(mut buffer) = stream.dequeue_buffer() {
-                // Read the requested frame count before mutably borrowing datas_mut().
-                let requested = buffer.requested() as usize;
+                // Read the requested frame count before mutably borrowing datas_mut(); fall back
+                // to the last negotiated quantum when a cycle outside the driver's schedule reports 0.
+                let requested = match buffer.requested() as usize {
+                    0 => user_data.last_quantum.load(Ordering::Relaxed) as usize,
+                    requested => requested,
+                };
                 let datas = buffer.datas_mut();
                 if datas.is_empty() {
                     return;
