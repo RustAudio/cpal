@@ -30,10 +30,13 @@ realtime-dbus = ["realtime", "audio_thread_priority/with_dbus"]
 # ASIO backend for Windows
 # Provides low-latency audio I/O by bypassing the Windows audio stack
 # Requires: ASIO drivers and LLVM/Clang for build-time bindings
+# Platform: Windows
 # See README for detailed setup instructions
 asio = ["dep:asio-sys", "dep:num-traits"]
 
-
+# Experimental ASIO implementation with multi-driver support and no external build requirements.
+# Requires: ASIO drivers
+# Platform: Windows
 asio-new = ["dep:azo", "dep:closure-ffi"]
 
 # Audio Worklet backend for WebAssembly

@@ -1,3 +1,7 @@
+//! Experimental ASIO backend implementation.
+//!
+//! Available on Windows with the `asio-new` feature.
+
 use crate::traits::*;
 use crate::*;
 use r#impl::{Device, DeviceIter, Stream, StreamDirectionalArgs, SupportedConfigs};
