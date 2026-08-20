@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **ALSA**: Fix a remaining timestamp segfault on 32-bit platforms with a 64-bit kernel `time_t`.
+- **ALSA**: Improved enumeration accuracy for supported format, channel and rate combinations.
 - **ASIO**: Fix a deadlock when dropping a `Stream` that owns another ASIO `Stream`.
 - **ASIO**: Fix loading a driver while a previous driver was still unloading.
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.

@@ -535,70 +535,80 @@ impl Device {
             //SND_PCM_FORMAT_U18_3BE,
         ];
 
-        let min_rate = hw_params.get_rate_min()?;
-        let max_rate = hw_params.get_rate_max()?;
-
-        let sample_rates = if min_rate == max_rate || hw_params.test_rate(min_rate + 1).is_ok() {
-            // Fixed rate or continuous range.
-            vec![(min_rate, max_rate)]
-        } else {
-            // Discrete rates: probe the standard list plus the hardware's own min and max so
-            // that rates outside `COMMON_SAMPLE_RATES` are not missed.
-            let mut probe: Vec<SampleRate> = COMMON_SAMPLE_RATES.to_vec();
-            probe.push(min_rate);
-            probe.push(max_rate);
-            probe.sort_unstable();
-            probe.dedup();
-            probe
-                .into_iter()
-                .filter(|&r| (min_rate..=max_rate).contains(&r) && hw_params.test_rate(r).is_ok())
-                .map(|r| (r, r))
-                .collect()
-        };
-
-        let min_channels = hw_params.get_channels_min()?;
         // 64 = AES10 (MADI) maximum; also prevents spinning on plugins like plughw that report u32::MAX.
         const CHANNEL_ENUM_CAP: u32 = 64;
-        let max_channels = hw_params
-            .get_channels_max()?
-            .min(CHANNEL_ENUM_CAP)
-            .min(ChannelCount::MAX as u32);
 
-        let supported_channels: Vec<ChannelCount> =
-            if min_channels == max_channels || hw_params.test_channels(min_channels + 1).is_ok() {
-                (min_channels..=max_channels)
-                    .map(|c| c as ChannelCount)
-                    .collect()
-            } else {
-                (min_channels..=max_channels)
-                    .filter(|&c| hw_params.test_channels(c).is_ok())
-                    .map(|c| c as ChannelCount)
-                    .collect()
-            };
-
-        let mut output =
-            Vec::with_capacity(FORMATS.len() * supported_channels.len() * sample_rates.len());
+        let mut output = Vec::new();
         let mut seen_formats: Vec<SampleFormat> = Vec::with_capacity(FORMATS.len());
 
         // Key: (channels, physical width in bits) with 4 physical widths (8/16/32/64 bits)
         let mut buffer_size_cache: HashMap<(ChannelCount, u32), SupportedBufferSize> =
-            HashMap::with_capacity(supported_channels.len() * 4);
+            HashMap::new();
 
+        // `test_*` checks a value, it doesn't apply it, so format/channels/rate are each set on a
+        // clone in sequence rather than tested independently against the same unconstrained params.
         for &(sample_format, alsa_format) in FORMATS.iter() {
-            if seen_formats.contains(&sample_format) || hw_params.test_format(alsa_format).is_err()
-            {
+            if seen_formats.contains(&sample_format) {
+                continue;
+            }
+            let format_params = hw_params.clone();
+            if format_params.set_format(alsa_format).is_err() {
                 continue;
             }
             seen_formats.push(sample_format);
             let width = alsa_format.physical_width().unwrap_or(0) as u32;
 
-            for &channels in &supported_channels {
+            let (Ok(min_channels), Ok(max_channels)) = (
+                format_params.get_channels_min(),
+                format_params.get_channels_max(),
+            ) else {
+                continue;
+            };
+            let max_channels = max_channels
+                .min(CHANNEL_ENUM_CAP)
+                .min(ChannelCount::MAX as u32);
+
+            for raw_channels in min_channels..=max_channels {
+                let channel_params = format_params.clone();
+                if channel_params.set_channels(raw_channels).is_err() {
+                    continue;
+                }
+                let channels = raw_channels as ChannelCount;
+
                 let buffer_size =
                     *buffer_size_cache
                         .entry((channels, width))
                         .or_insert_with(|| {
                             supported_period_size_range(&hw_params, alsa_format, channels)
                         });
+
+                let (Ok(min_rate), Ok(max_rate)) =
+                    (channel_params.get_rate_min(), channel_params.get_rate_max())
+                else {
+                    continue;
+                };
+
+                let sample_rates =
+                    if min_rate == max_rate || channel_params.test_rate(min_rate + 1).is_ok() {
+                        // Fixed rate or continuous range.
+                        vec![(min_rate, max_rate)]
+                    } else {
+                        // Discrete rates: probe the standard list plus the hardware's own min and max
+                        // so that rates outside `COMMON_SAMPLE_RATES` are not missed.
+                        let mut probe: Vec<SampleRate> = COMMON_SAMPLE_RATES.to_vec();
+                        probe.push(min_rate);
+                        probe.push(max_rate);
+                        probe.sort_unstable();
+                        probe.dedup();
+                        probe
+                            .into_iter()
+                            .filter(|&r| {
+                                (min_rate..=max_rate).contains(&r)
+                                    && channel_params.test_rate(r).is_ok()
+                            })
+                            .map(|r| (r, r))
+                            .collect()
+                    };
 
                 for &(min_rate, max_rate) in sample_rates.iter() {
                     output.push(SupportedStreamConfigRange {
