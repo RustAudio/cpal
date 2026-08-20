@@ -629,7 +629,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        if StreamState::load(&self.playback_state, Ordering::Relaxed) != StreamState::Starting {
+        if StreamState::load(&self.playback_state, Ordering::Relaxed) == StreamState::Playing {
             self.pending_xrun.store(true, Ordering::Relaxed);
         }
         jack::Control::Continue
