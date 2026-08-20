@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **ALSA**: Fix a remaining timestamp segfault on 32-bit platforms with a 64-bit kernel `time_t`.
 - **ALSA**: Improved enumeration accuracy for supported format, channel and rate combinations.
+- **ASIO**: `Stream` no longer risks blocking or panicking in the driver callback while another stream is being created or destroyed.
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
 - **JACK**: Streams no longer panic when the server delivers a larger period than the negotiated buffer size.
