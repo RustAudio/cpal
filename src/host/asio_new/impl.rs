@@ -347,6 +347,7 @@ impl Stream {
             .pipe(StreamInstant::from_millis)
     }
 
+    #[expect(clippy::unnecessary_wraps, reason = "consistency")]
     pub const fn buffer_size(&self) -> CpalResult<FrameCount> {
         Ok(self.buffer_size)
     }

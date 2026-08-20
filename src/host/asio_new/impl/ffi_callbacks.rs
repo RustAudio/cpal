@@ -1,5 +1,4 @@
 use super::super::*;
-use super::Device;
 use crate::ErrorKind::*;
 use azo::sys::*;
 use closure_ffi::BareFnMutSync;
