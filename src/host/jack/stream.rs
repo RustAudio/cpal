@@ -594,7 +594,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        if StreamState::load(&self.state, Ordering::Acquire) != StreamState::Starting {
+        if StreamState::load(&self.state, Ordering::Acquire) == StreamState::Playing {
             let _ = try_emit_error(&self.error_callback_ptr, ErrorKind::Xrun.into());
         }
         jack::Control::Continue
