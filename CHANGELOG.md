@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
 - **WASAPI**: Revert "Default device changes no longer report `DeviceChanged`" as it was misinformed.
 - **WASAPI**: Output streams now start with silence instead of undefined content in the render buffer.
+- **WASAPI**: Fix `I64` and `F64` incorrectly reported as supported output formats.
 
 ## [0.18.2] - 2026-08-16
 
