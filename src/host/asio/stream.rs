@@ -449,6 +449,8 @@ impl Device {
         let driver = Arc::new(driver);
         let asio_streams = driver.streams();
 
+        prefill_output_silence(&driver, &asio_streams);
+
         if let Err(e) = driver.start() {
             driver.remove_event_callback(driver_event_callback_id);
             driver.remove_callback(callback_id);
@@ -855,6 +857,8 @@ impl Device {
 
         let driver = Arc::new(driver);
         let asio_streams = driver.streams();
+
+        prefill_output_silence(&driver, &asio_streams);
 
         if let Err(e) = driver.start() {
             driver.remove_event_callback(driver_event_callback_id);
@@ -1273,6 +1277,27 @@ unsafe fn asio_channel_slice_mut<T>(
     let channel_length = requested_channel_length.unwrap_or(asio_stream.buffer_size as usize);
     let buff_ptr: *mut T = asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *mut _;
     unsafe { std::slice::from_raw_parts_mut(buff_ptr, channel_length) }
+}
+
+// ASIOStart() plays buffer half 1 immediately, before the first bufferSwitch can fill it;
+// half 0 is covered by that first callback.
+fn prefill_output_silence(driver: &sys::Driver, asio_streams: &Mutex<sys::AsioStreams>) {
+    if let Ok(mut streams) = asio_streams.lock() {
+        if let Some(ref mut output) = streams.output {
+            if let Some(sample_format) = driver
+                .output_data_type()
+                .ok()
+                .and_then(|ty| super::device::convert_data_type(&ty))
+            {
+                let byte_len = output.buffer_size as usize * sample_format.sample_size();
+                for ch_ix in 0..output.buffer_infos.len() {
+                    let channel =
+                        unsafe { asio_channel_slice_mut::<u8>(output, 1, ch_ix, Some(byte_len)) };
+                    fill_equilibrium(channel, sample_format);
+                }
+            }
+        }
+    }
 }
 
 fn load_driver_err(e: sys::LoadDriverError) -> Error {
