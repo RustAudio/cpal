@@ -1351,14 +1351,12 @@ const OUTPUT_MAX_SAMPLE_RATE: SampleRate = 384_000;
 // Formats encodable as WAVEFORMATEXTENSIBLE. U8/I16 map to WAVE_FORMAT_PCM; the rest use
 // WAVE_FORMAT_EXTENSIBLE. Unsigned formats wider than 8 bits are omitted: KSDATAFORMAT_SUBTYPE_PCM
 // is always signed for 16-bit and wider, so submitting unsigned data would produce a DC offset.
-const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 7] = [
+const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 5] = [
     SampleFormat::U8,
     SampleFormat::I16,
     SampleFormat::I24,
     SampleFormat::I32,
-    SampleFormat::I64,
     SampleFormat::F32,
-    SampleFormat::F64,
 ];
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
