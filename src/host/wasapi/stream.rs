@@ -577,6 +577,19 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
         match command {
             Command::PlayStream => unsafe {
                 if !run_context.stream.playing {
+                    // Start() needs a primed buffer, or there's an audible gap until the engine
+                    // gets real data from the first callback.
+                    if let AudioClientFlow::Render { ref render_client } =
+                        run_context.stream.client_flow
+                    {
+                        // PlayStream also fires on resume from pause, where the buffer wasn't
+                        // reset and may already be full.
+                        let frames = get_available_frames(&run_context.stream)?;
+                        if frames > 0 {
+                            write_silence(render_client, &run_context.stream, frames)?;
+                        }
+                    }
+
                     run_context
                         .stream
                         .audio_client
@@ -649,6 +662,22 @@ fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
             .GetCurrentPadding()
             .context("Failed to get current padding")?;
         Ok(stream.max_frames_in_buffer - padding)
+    }
+}
+
+// Fills `frames` of the render buffer with silence and releases it.
+unsafe fn write_silence(
+    render_client: &Audio::IAudioRenderClient,
+    stream: &StreamInner,
+    frames: FrameCount,
+) -> Result<(), Error> {
+    unsafe {
+        let buffer = render_client.GetBuffer(frames)?;
+        debug_assert!(!buffer.is_null());
+        let byte_count = frames as usize * stream.bytes_per_frame as usize;
+        let buffer_slice = std::slice::from_raw_parts_mut(buffer, byte_count);
+        fill_equilibrium(buffer_slice, stream.sample_format);
+        render_client.ReleaseBuffer(frames, 0).map_err(Into::into)
     }
 }
 
