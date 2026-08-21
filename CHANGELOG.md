@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.
 - **AudioWorklet**: Fix stale output when the data callback grows Wasm memory.
 - **CoreAudio**: Fix the device running at a different sample rate from the stream on hardware that reports a continuous rate range.
+- **CoreAudio**: Fix `supported_configs()` only reporting `F32`, even on hardware that also supports other sample formats.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
 - **JACK**: Streams no longer panic when the server delivers a larger period than the negotiated buffer size.
 - **JACK**: Xruns that happened while a stream was paused are no longer reported.
