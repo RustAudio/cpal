@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: `Stream` no longer risks blocking or panicking in the driver callback while another stream is being created or destroyed.
 - **ASIO**: Output streams now start with silence instead of undefined content in the first buffer period.
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.
+- **CoreAudio**: Fix the device running at a different sample rate from the stream on hardware that reports a continuous rate range.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
 - **JACK**: Streams no longer panic when the server delivers a larger period than the negotiated buffer size.
 - **PipeWire**: Fix an empty chunk being emitted when a cycle requests no frames.

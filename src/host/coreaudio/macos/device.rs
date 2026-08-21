@@ -711,14 +711,15 @@ impl Device {
 
         // Set the physical stream format (bit depth + sample rate) on the hardware device.
         // This avoids unnecessary format conversions, which is especially important on aggregate
-        // devices. Falls back to sample-rate-only if no matching physical format is available.
-        if set_physical_format(
+        // devices. Falls back to sample-rate-only if no matching physical format is available, or
+        // if the closest match found doesn't actually run at the requested rate.
+        if !set_physical_format(
             self.audio_device_id,
             config.sample_rate,
             config.channels,
             sample_format,
         )
-        .is_err()
+        .is_ok_and(|asbd| (asbd.mSampleRate - config.sample_rate as f64).abs() < 1.0)
         {
             set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
         }
@@ -845,14 +846,15 @@ impl Device {
 
         // Best-effort: set the physical stream format (bit depth + sample rate) on the hardware.
         // This avoids unnecessary conversions, especially on aggregate devices. Not an error if
-        // it fails — the AudioUnit will handle format conversion as before.
-        if set_physical_format(
+        // it fails: the AudioUnit will handle format conversion as before. Also falls back if the
+        // closest match found doesn't actually run at the requested rate.
+        if !set_physical_format(
             self.audio_device_id,
             config.sample_rate,
             config.channels,
             sample_format,
         )
-        .is_err()
+        .is_ok_and(|asbd| (asbd.mSampleRate - config.sample_rate as f64).abs() < 1.0)
         {
             set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
         }
