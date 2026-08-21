@@ -63,6 +63,7 @@ The `audioworklet` backend additionally requires `-Zbuild-std` with atomics supp
 | Feature | Platform | Description |
 | ------- | -------- | ----------- |
 | `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#compiling-for-asio). |
+| `asio-new` | Windows | Experimental ASIO implementation with multi-driver support and no external build requirements. |
 | `audioworklet` | WebAssembly (`wasm32-unknown-unknown`) | Audio Worklet backend for lower-latency web audio than the default Web Audio API, running audio on a dedicated thread. Requires atomics support (`RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`) and `Cross-Origin` headers for `SharedArrayBuffer`. See the `audioworklet-beep` example. |
 | `custom` | All | User-defined backend implementations for audio systems not natively supported by CPAL. See `examples/custom.rs`. |
 | `jack` | Linux, BSD, macOS, Windows | JACK Audio Connection Kit backend for pro-audio routing and inter-application connectivity. Requires `libjack-jackd2-dev` (Debian/Ubuntu) or `jack-devel` (Fedora). |
