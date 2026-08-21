@@ -14,7 +14,7 @@ rust-version = "1.85"
 maintenance = { status = "actively-developed" }
 
 [features]
-default = []
+default = ["custom", "asio-new"]
 
 # Real-time audio thread scheduling
 # Applies platform-specific real-time scheduling and performance modes to audio threads.
@@ -37,7 +37,7 @@ asio = ["dep:asio-sys", "dep:num-traits"]
 # Experimental ASIO implementation with multi-driver support and no external build requirements.
 # Requires: ASIO drivers
 # Platform: Windows
-asio-new = ["dep:azo", "dep:closure-ffi"]
+asio-new = ["dep:azo", "dep:closure-ffi", "dep:tap", "dep:oneshot"]
 
 # Audio Worklet backend for WebAssembly
 # Provides lower-latency web audio processing compared to default Web Audio API
@@ -140,8 +140,8 @@ asio-sys = { version = "0.5.0", path = "asio-sys", optional = true }
 azo = { version = "0.0.9", optional = true }
 closure-ffi = { version = "5.1.2", optional = true }
 num-traits = { version = "0.2", optional = true }
-oneshot = { version = "0.2.1", features = ["std"] }
-tap = "1.0.1"
+oneshot = { version = "0.2.1", features = ["std"], optional = true }
+tap = { version = "1.0.1", optional = true }
 jack = { version = "0.13.5", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
