@@ -970,7 +970,16 @@ impl Driver {
     /// Remove the event callback with the given ID.
     pub fn remove_event_callback(&self, rem_id: DriverEventCallbackId) {
         let mut dcb = DRIVER_EVENT_CALLBACKS.lock().unwrap();
-        dcb.retain(|&(id, _)| id != rem_id);
+        // `remove` (not `swap_remove`) to preserve the insertion order that
+        // `add_event_callback` relies on for generating the next ID.
+        let removed = dcb
+            .iter()
+            .position(|&(id, _)| id == rem_id)
+            .map(|pos| dcb.remove(pos));
+        // the lock must be dropped first, as the removed callback could
+        // be owning another stream, which would result in a deadlock
+        drop(dcb);
+        drop(removed);
     }
 }
 
