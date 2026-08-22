@@ -1,8 +1,8 @@
 use std::{cell::Cell, rc::Rc};
 
 use cpal::{
-    BufferSize, Device, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind, FromSample,
-    HostId, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
+    Device, DuplexCallbackInfo, Error, ErrorKind, FromSample, HostId, Sample, SampleFormat,
+    SizedSample, Stream, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 use ringbuf::{
@@ -210,14 +210,7 @@ fn duplex() -> Stream {
          secure context: serve this page over HTTPS or from localhost"
     );
 
-    let input_config = device.default_input_config().unwrap();
-    let output_config = device.default_output_config().unwrap();
-    let config = DuplexStreamConfig {
-        input_channels: input_config.channels(),
-        output_channels: output_config.channels(),
-        sample_rate: output_config.sample_rate(),
-        buffer_size: BufferSize::Default,
-    };
+    let config = device.default_duplex_config().unwrap();
 
     let err_fn = |err: Error| match err.kind() {
         ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
