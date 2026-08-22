@@ -1039,7 +1039,7 @@ impl DriverInner {
     }
 
     fn destroy_inner(&mut self) -> Result<(), AsioError> {
-        {
+        let result = {
             // Held so a concurrent `load_driver` can't start ASIOInit before this
             // driver's ASIOExit finishes.
             let _loaded_driver_guard = self
@@ -1048,8 +1048,8 @@ impl DriverInner {
                 .expect("failed to acquire loaded driver lock");
 
             let mut state = self.lock_state();
-            state.destroy()?;
-        }
+            state.destroy()
+        };
 
         // Clear any existing stream callbacks. Take the callbacks out and drop the
         // lock before dropping them, as a callback could be owning another stream,
@@ -1061,10 +1061,10 @@ impl DriverInner {
             .map(|mut bcs| std::mem::take(&mut *bcs));
         drop(cleared);
 
-        // Signal that the driver has been destroyed.
-        self.destroyed = true;
+        // Signal that the driver has been destroyed. Left unset on failure so `Drop` retries.
+        self.destroyed = result.is_ok();
 
-        Ok(())
+        result
     }
 }
 
