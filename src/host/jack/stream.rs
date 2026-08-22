@@ -415,16 +415,20 @@ impl jack::ProcessHandler for LocalProcessHandler {
         // it is less. A greater count is truncated to the temp buffers' capacity.
         let requested_frame_count = process_scope.n_frames() as usize;
         let current_frame_count = requested_frame_count.min(self.buffer_size);
-        if requested_frame_count > self.buffer_size && !self.oversized_reported {
-            let message = format!(
-                "JACK delivered a {requested_frame_count}-frame period, exceeding the configured buffer size of {}; truncated",
-                self.buffer_size
-            );
-            self.oversized_reported = try_emit_error(
-                &self.error_callback,
-                Error::with_message(ErrorKind::BackendError, message),
-            )
-            .is_ok();
+        if requested_frame_count > self.buffer_size {
+            if !self.oversized_reported {
+                let message = format!(
+                    "JACK delivered a {requested_frame_count}-frame period, exceeding the configured buffer size of {}; truncated",
+                    self.buffer_size
+                );
+                self.oversized_reported = try_emit_error(
+                    &self.error_callback,
+                    Error::with_message(ErrorKind::BackendError, message),
+                )
+                .is_ok();
+            }
+        } else {
+            self.oversized_reported = false;
         }
 
         // Get timestamp data
