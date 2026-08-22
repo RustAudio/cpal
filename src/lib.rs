@@ -98,6 +98,12 @@
 //! > please share your issue and use-case with the CPAL team on the GitHub issue tracker for
 //! > consideration.*
 //!
+//! The data callback is real-time code. You must not allocate, lock, block, or do I/O in it, and
+//! you must not call back into CPAL from it. Reentrancy isn't supported and backends differ in how
+//! they fail, up to deadlocking the callback thread. To get data in and out, hand it across a
+//! lock-free ring buffer (the `feedback` example uses `ringbuf`) or share simple state through
+//! atomics.
+//!
 //! In this example, we simply fill the given output buffer with silence.
 //!
 //! ```no_run
