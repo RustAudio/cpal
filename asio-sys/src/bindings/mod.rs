@@ -450,12 +450,16 @@ impl Asio {
 
         // Check whether or not a driver is already loaded.
         if let Some(inner) = loaded.upgrade() {
-            let driver = Driver { inner };
-            if driver.name() == driver_name {
-                return Ok(driver);
+            let result = if inner.name == driver_name {
+                Ok(Driver { inner })
             } else {
-                return Err(LoadDriverError::DriverAlreadyExists);
-            }
+                Err(LoadDriverError::DriverAlreadyExists)
+            };
+
+            // Release before `result` goes out of scope: if it holds the last handle,
+            // `DriverInner::drop` takes this same lock.
+            drop(loaded);
+            return result;
         }
 
         // Make owned CString to send to load driver
