@@ -265,20 +265,20 @@ jobs:
           key: windows-${{ matrix.arch }}
 
       - name: Run tests (default features)
-        run: cargo +${{ env.MSRV_WINDOWS }} test --workspace --verbose
+        run: cargo +${{ env.MSRV_WINDOWS }} test --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (default features)
-        run: cargo +${{ env.MSRV_WINDOWS }} check --examples --workspace --verbose
+        run: cargo +${{ env.MSRV_WINDOWS }} check --examples --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Run tests (all features)
-        run: cargo +${{ steps.msrv.outputs.all-features }} test --workspace --all-features --verbose
+        run: cargo +${{ steps.msrv.outputs.all-features }} test --workspace --all-features --verbose --target ${{ env.TARGET }}
 
       - name: Check examples (all features)
-        run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --all-features --workspace --verbose
+        run: cargo +${{ steps.msrv.outputs.all-features }} check --examples --all-features --workspace --verbose --target ${{ env.TARGET }}
 
       - name: Build ASIO examples
         working-directory: asio-sys
-        run: cargo +${{ env.MSRV_WINDOWS }} build --examples --verbose --workspace
+        run: cargo +${{ env.MSRV_WINDOWS }} build --examples --verbose --workspace --target ${{ env.TARGET }}
 
   # macOS ARM64
   macos:
