@@ -43,7 +43,13 @@ jobs:
 
           # Windows - WASAPI backend
           - target: x86_64-pc-windows-msvc
-            name: Windows
+            name: Windows-x64
+            features: --all-features
+            os: windows-latest
+
+          # Windows 32-bit - WASAPI backend
+          - target: i686-pc-windows-msvc
+            name: Windows-x86
             features: --all-features
             os: windows-latest
 
