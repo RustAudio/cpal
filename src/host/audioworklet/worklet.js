@@ -9,11 +9,6 @@ registerProcessor("CpalProcessor", class WasmProcessor extends AudioWorkletProce
     }
 
     process(inputs, outputs) {
-        // Check if memory grew and update view
-        if (this.wasm_memory.buffer !== this.memory.buffer) {
-            this.wasm_memory = new Float32Array(this.memory.buffer);
-        }
-
         const channels = outputs[0];
         const channels_count = channels.length;
         const frame_size = channels[0].length;
@@ -23,6 +18,11 @@ registerProcessor("CpalProcessor", class WasmProcessor extends AudioWorkletProce
             sampleRate,
             currentTime
         );
+
+        // process() may have grown Wasm memory; refresh the view before reading.
+        if (this.wasm_memory.buffer !== this.memory.buffer) {
+            this.wasm_memory = new Float32Array(this.memory.buffer);
+        }
 
         const interleaved_start = interleaved_ptr / 4; // Convert byte offset to f32 index
         const interleaved = this.wasm_memory;

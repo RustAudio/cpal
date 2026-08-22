@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.
+- **AudioWorklet**: Fix stale output when the data callback grows Wasm memory.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
 
