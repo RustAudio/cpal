@@ -250,7 +250,8 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// * `config` - The stream configuration including sample rate, channels, and buffer size.
     /// * `data_callback` - Called periodically with captured audio data. The callback receives
-    ///   a slice of samples in the format `T` and timing information.
+    ///   a slice of samples in the format `T` and timing information. It is real-time code: see
+    ///   the [crate documentation](crate) for what you must not do in it.
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
@@ -307,7 +308,8 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// * `data_callback` - Called periodically to fill the output buffer. The callback receives
     ///   a mutable slice of samples in the format `T` to be filled with audio data, along with
     ///   timing information. The slice is pre-filled with silence, so a callback that writes
-    ///   fewer samples than the slice holds leaves the remainder silent rather than stale.
+    ///   fewer samples than the slice holds leaves the remainder silent rather than stale. It is
+    ///   real-time code: see the [crate documentation](crate) for what you must not do in it.
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
@@ -366,7 +368,8 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// * `config` - The stream configuration including sample rate, channels, and buffer size.
     /// * `sample_format` - The sample format of the audio data.
-    /// * `data_callback` - Called periodically with captured audio data as a [`Data`] buffer.
+    /// * `data_callback` - Called periodically with captured audio data as a [`Data`] buffer. It
+    ///   is real-time code: see the [crate documentation](crate) for what you must not do in it.
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
@@ -413,6 +416,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// * `data_callback` - Called periodically to fill the output buffer with audio data as
     ///   a mutable [`Data`] buffer. The buffer is pre-filled with silence, so a callback that
     ///   writes fewer samples than the buffer holds leaves the remainder silent rather than stale.
+    ///   It is real-time code: see the [crate documentation](crate) for what you must not do in it.
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
@@ -453,7 +457,8 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// # Parameters
     ///
     /// * `config` - Channels, sample rate, and buffer size shared by both directions.
-    /// * `data_callback` - Called periodically with captured input and a mutable output buffer.
+    /// * `data_callback` - Called periodically with captured input and a mutable output buffer. It
+    ///   is real-time code: see the [crate documentation](crate) for what you must not do in it.
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
