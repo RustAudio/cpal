@@ -12,8 +12,8 @@
 
 use clap::Parser;
 use cpal::{
-    BufferSize, Device, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind, HostId,
-    SampleFormat, SizedSample,
+    Device, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind, HostId, SampleFormat,
+    SizedSample,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -118,13 +118,7 @@ fn main() -> anyhow::Result<()> {
         "both directions must share a sample format for this example"
     );
 
-    // A duplex stream has one sample rate by definition.
-    let config = DuplexStreamConfig {
-        input_channels: input_config.channels(),
-        output_channels: output_config.channels(),
-        sample_rate: output_config.sample_rate(),
-        buffer_size: BufferSize::Default,
-    };
+    let config = device.default_duplex_config()?;
 
     match input_config.sample_format() {
         SampleFormat::I8 => run::<i8>(&device, config),
