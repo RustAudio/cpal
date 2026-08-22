@@ -15,7 +15,7 @@ use coreaudio::audio_unit::{
     audio_format::LinearPcmFlags,
     macos_helpers::{
         RateListener, audio_unit_from_device_id_uninitialized, find_matching_physical_format,
-        get_device_name, set_device_physical_stream_format,
+        get_device_name, get_supported_physical_stream_formats, set_device_physical_stream_format,
     },
     render_callback::{self, data},
 };
@@ -526,18 +526,7 @@ impl Device {
                 n_channels += buf.mNumberChannels as usize;
             }
 
-            // TODO: macOS should support U8, I16, I32, F32 and F64. This should allow for using
-            // I16 but just use F32 for now as it's the default anyway.
-            let sample_format = SampleFormat::F32;
-
             // Get available sample rate ranges.
-            // The property "kAudioDevicePropertyAvailableNominalSampleRates" returns a list of pairs of
-            // minimum and maximum sample rates but most of the devices returns pairs of same values though the underlying mechanism is unclear.
-            // This may cause issues when, for example, sorting the configs by the sample rates.
-            // We follows the implementation of RtAudio, which returns single element of config
-            // when all the pairs have the same values and returns multiple elements otherwise.
-            // See https://github.com/thestk/rtaudio/blob/master/RtAudio.cpp#L1369C1-L1375C39
-
             property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
             let mut data_size = 0u32;
             let status = AudioObjectGetPropertyDataSize(
@@ -575,19 +564,55 @@ impl Device {
             }
             let buffer_size = get_io_buffer_frame_size_range(self.audio_device_id)?;
 
-            // Most hardware reports discrete rates (mMinimum == mMaximum); some aggregate or
-            // virtual devices report continuous ranges.
-            let fmts: Vec<_> = ranges
-                .iter()
-                .map(|range| SupportedStreamConfigRange {
-                    channels: n_channels as ChannelCount,
-                    min_sample_rate: range.mMinimum as u32,
-                    max_sample_rate: range.mMaximum as u32,
-                    buffer_size,
-                    sample_format,
-                })
-                .collect();
-            Ok(fmts.into_iter())
+            // AUHAL always converts to and from F32 regardless of the physical format, so
+            // advertise it at every nominal rate (most hardware reports discrete rates, i.e.
+            // mMinimum == mMaximum; some aggregate or virtual devices report continuous ranges).
+            let f32_fmts = ranges.iter().map(|range| SupportedStreamConfigRange {
+                channels: n_channels as ChannelCount,
+                min_sample_rate: range.mMinimum as u32,
+                max_sample_rate: range.mMaximum as u32,
+                buffer_size,
+                sample_format: SampleFormat::F32,
+            });
+
+            // The hardware's own physical formats, so integer-only devices advertise their
+            // bit-perfect paths instead of only the AUHAL-converted F32 one.
+            let physical_fmts = get_supported_physical_stream_formats(self.audio_device_id)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|fmt| {
+                    let Some(coreaudio::audio_unit::AudioFormat::LinearPCM(flags)) =
+                        coreaudio::audio_unit::AudioFormat::from_format_and_flag(
+                            fmt.mFormat.mFormatID,
+                            Some(fmt.mFormat.mFormatFlags),
+                        )
+                    else {
+                        return None;
+                    };
+                    let sample_format = match CoreAudioSampleFormat::from_flags_and_bits_per_sample(
+                        flags,
+                        fmt.mFormat.mBitsPerChannel,
+                    )? {
+                        CoreAudioSampleFormat::I8 => SampleFormat::I8,
+                        CoreAudioSampleFormat::I16 => SampleFormat::I16,
+                        CoreAudioSampleFormat::I24 => SampleFormat::I24,
+                        CoreAudioSampleFormat::I32 => SampleFormat::I32,
+                        // Already covered by f32_fmts at every rate, not just this row's range.
+                        CoreAudioSampleFormat::F32 => return None,
+                    };
+                    Some(SupportedStreamConfigRange {
+                        channels: fmt.mFormat.mChannelsPerFrame as ChannelCount,
+                        min_sample_rate: fmt.mSampleRateRange.mMinimum as u32,
+                        max_sample_rate: fmt.mSampleRateRange.mMaximum as u32,
+                        buffer_size,
+                        sample_format,
+                    })
+                });
+
+            Ok(f32_fmts
+                .chain(physical_fmts)
+                .collect::<Vec<_>>()
+                .into_iter())
         }
     }
 
@@ -711,14 +736,15 @@ impl Device {
 
         // Set the physical stream format (bit depth + sample rate) on the hardware device.
         // This avoids unnecessary format conversions, which is especially important on aggregate
-        // devices. Falls back to sample-rate-only if no matching physical format is available.
-        if set_physical_format(
+        // devices. Falls back to sample-rate-only if no matching physical format is available, or
+        // if the closest match found doesn't actually run at the requested rate.
+        if !set_physical_format(
             self.audio_device_id,
             config.sample_rate,
             config.channels,
             sample_format,
         )
-        .is_err()
+        .is_ok_and(|asbd| (asbd.mSampleRate - config.sample_rate as f64).abs() < 1.0)
         {
             set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
         }
@@ -845,14 +871,15 @@ impl Device {
 
         // Best-effort: set the physical stream format (bit depth + sample rate) on the hardware.
         // This avoids unnecessary conversions, especially on aggregate devices. Not an error if
-        // it fails — the AudioUnit will handle format conversion as before.
-        if set_physical_format(
+        // it fails: the AudioUnit will handle format conversion as before. Also falls back if the
+        // closest match found doesn't actually run at the requested rate.
+        if !set_physical_format(
             self.audio_device_id,
             config.sample_rate,
             config.channels,
             sample_format,
         )
-        .is_err()
+        .is_ok_and(|asbd| (asbd.mSampleRate - config.sample_rate as f64).abs() < 1.0)
         {
             set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
         }

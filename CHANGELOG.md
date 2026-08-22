@@ -37,9 +37,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **ALSA**: Fix a remaining timestamp segfault on 32-bit platforms with a 64-bit kernel `time_t`.
+- **ALSA**: Improved enumeration accuracy for supported format, channel and rate combinations.
+- **ASIO**: `Stream` no longer risks blocking or panicking in the driver callback while another stream is being created or destroyed.
+- **ASIO**: Output streams now start with silence instead of undefined content in the first buffer period.
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.
+- **CoreAudio**: Fix the device running at a different sample rate from the stream on hardware that reports a continuous rate range.
+- **CoreAudio**: Fix `supported_configs()` only reporting `F32`, even on hardware that also supports other sample formats.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
+- **JACK**: Streams no longer panic when the server delivers a larger period than the negotiated buffer size.
+- **PipeWire**: Fix an empty chunk being emitted when a cycle requests no frames.
+- **PipeWire**: Fix capture reading from the wrong offset in the buffer on some devices.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
+- **WASAPI**: Output streams now start with silence instead of undefined content in the render buffer.
+- **WASAPI**: Fix `I64` and `F64` incorrectly reported as supported output formats.
 
 ## [0.18.2] - 2026-08-16
 
