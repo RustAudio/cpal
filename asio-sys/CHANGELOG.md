@@ -141,6 +141,7 @@ Initial release.
 - Support for MSVC toolchain on Windows
 - Basic error types: `AsioError`, `LoadDriverError`
 
+[Unreleased]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.4.0...HEAD
 [0.4.0]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.3.0...asio-sys-v0.4.0
 [0.3.0]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.2.6...asio-sys-v0.3.0
 [0.2.6]: https://github.com/RustAudio/cpal/compare/asio-sys-v0.2.5...asio-sys-v0.2.6
