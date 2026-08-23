@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Fixed a race where `Asio::load_driver` could start `ASIOInit` before a concurrent
+  teardown's `ASIOExit` had finished
+- Fixed `Driver::remove_callback` and `Driver::remove_event_callback` deadlocking when the
+  removed callback owns another stream
+- Fixed driver teardown deadlocking when a cleared stream callback owns another stream
+- Fixed stream callbacks not being cleared when driver teardown fails
+
 ## [0.4.0] - 2026-08-16
 
 ### Added
