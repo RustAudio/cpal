@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed the `wasm-beep` and `audioworklet-beep` examples to `webaudio` and `audioworklet`.
 - **ALSA**: Update `alsa` dependency to 0.12.
 - **Linux**: `realtime` can now promote threads without requiring `realtime-dbus`.
+- **PipeWire**: Set `node.rate` property so that `default.clock.allowed-rates` PipeWire config works.
 
 ### Deprecated
 
