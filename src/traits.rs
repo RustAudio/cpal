@@ -244,12 +244,16 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
 
     /// The default duplex stream configuration for the device.
     ///
-    /// The default implementation prefers a channel count shared by both
-    /// [`supported_input_configs`](Self::supported_input_configs) and
-    /// [`supported_output_configs`](Self::supported_output_configs) (e.g. a stereo interface used
-    /// for stereo passthrough), reconciled on a shared sample rate. Only when no channel count is
-    /// achievable by both directions does it fall back to each direction's own preferred channel
-    /// count.
+    /// A duplex stream drives both directions at one sample rate, so the default implementation
+    /// picks a rate that both support, preferring one returned by
+    /// [`default_input_config`](Self::default_input_config) or
+    /// [`default_output_config`](Self::default_output_config). Channel counts are independent, so
+    /// each direction keeps its own default count where that rate allows it: a mono microphone
+    /// paired with stereo output gives one input channel and two output channels.
+    ///
+    /// The result is built from what each direction reports on its own. A device whose two
+    /// directions cannot both run at their full capability may still reject the configuration in
+    /// [`build_duplex_stream`](Self::build_duplex_stream).
     ///
     /// # Errors
     ///
@@ -271,95 +275,85 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
 
         let inputs: Vec<_> = self.supported_input_configs()?.collect();
         let outputs: Vec<_> = self.supported_output_configs()?.collect();
+        let default_input = self.default_input_config().ok();
+        let default_output = self.default_output_config().ok();
 
         let mut candidate_rates: Vec<SampleRate> = [
-            self.default_input_config().ok().map(|c| c.sample_rate()),
-            self.default_output_config().ok().map(|c| c.sample_rate()),
+            default_input.map(|c| c.sample_rate()),
+            default_output.map(|c| c.sample_rate()),
         ]
         .into_iter()
         .flatten()
         .collect();
         candidate_rates.dedup();
         candidate_rates.sort_unstable_by(|a, b| b.cmp(a));
-        candidate_rates.extend([SAMPLE_RATE_48K, SAMPLE_RATE_CD]);
-
-        // Otherwise fall back to the highest rate at which the two directions actually overlap.
-        let shared_sample_rate =
-            |inputs: &[SupportedStreamConfigRange], outputs: &[SupportedStreamConfigRange]| {
-                let overlaps = |rate: SampleRate| {
-                    inputs.iter().any(|r| r.contains_rate(rate))
-                        && outputs.iter().any(|r| r.contains_rate(rate))
-                };
-                candidate_rates
-                    .iter()
-                    .copied()
-                    .find(|&rate| overlaps(rate))
-                    .or_else(|| {
-                        inputs
-                            .iter()
-                            .flat_map(|i| {
-                                outputs.iter().filter_map(move |o| {
-                                    let hi = i.max_sample_rate.min(o.max_sample_rate);
-                                    (i.min_sample_rate.max(o.min_sample_rate) <= hi).then_some(hi)
-                                })
-                            })
-                            .max()
-                    })
-            };
-
-        // cpal's own channel preference order (see `cmp_default_heuristics`): stereo, then mono,
-        // then ascending channel count.
-        let channel_rank = |channels: ChannelCount| (channels == 2, channels == 1, channels);
-
-        let matched_channels = inputs
-            .iter()
-            .map(|r| r.channels())
-            .filter(|&c| outputs.iter().any(|r| r.channels() == c))
-            .max_by_key(|&c| channel_rank(c));
-        if let Some(channels) = matched_channels {
-            let matched_inputs: Vec<_> = inputs
-                .iter()
-                .copied()
-                .filter(|r| r.channels() == channels)
-                .collect();
-            let matched_outputs: Vec<_> = outputs
-                .iter()
-                .copied()
-                .filter(|r| r.channels() == channels)
-                .collect();
-            if let Some(sample_rate) = shared_sample_rate(&matched_inputs, &matched_outputs) {
-                return Ok(DuplexStreamConfig {
-                    input_channels: channels,
-                    output_channels: channels,
-                    sample_rate,
-                    buffer_size: BufferSize::Default,
-                });
+        for rate in [SAMPLE_RATE_48K, SAMPLE_RATE_CD] {
+            if !candidate_rates.contains(&rate) {
+                candidate_rates.push(rate);
             }
         }
 
-        // No channel count is achievable by both directions (or none shares a rate at that
-        // count): fall back to each direction's own best channel count, reconciled only on a
-        // shared sample rate.
-        let sample_rate = shared_sample_rate(&inputs, &outputs).ok_or_else(|| {
-            Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                "no sample rate is supported by both input and output",
-            )
-        })?;
-        let best_channels = |configs: &[SupportedStreamConfigRange], none_supported_message| {
-            configs
-                .iter()
-                .filter(|r| r.contains_rate(sample_rate))
-                .max_by(|a, b| a.cmp_default_heuristics(b))
-                .map(|r| r.channels())
+        let overlaps = |rate: SampleRate| {
+            inputs.iter().any(|r| r.contains_rate(rate))
+                && outputs.iter().any(|r| r.contains_rate(rate))
+        };
+        let sample_rate = candidate_rates
+            .iter()
+            .copied()
+            .find(|&rate| overlaps(rate))
+            .or_else(|| {
+                // Otherwise take the highest rate at which the two directions overlap.
+                inputs
+                    .iter()
+                    .flat_map(|i| {
+                        outputs.iter().filter_map(move |o| {
+                            let hi = i.max_sample_rate.min(o.max_sample_rate);
+                            (i.min_sample_rate.max(o.min_sample_rate) <= hi).then_some(hi)
+                        })
+                    })
+                    .max()
+            })
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::UnsupportedConfig,
+                    "no sample rate is supported by both input and output",
+                )
+            })?;
+
+        // Keep the direction's own default channel count if it is available at the chosen rate,
+        // since that is what a stream in this direction alone would have used.
+        let best_channels = |configs: &[SupportedStreamConfigRange],
+                             preferred: Option<ChannelCount>,
+                             none_supported_message| {
+            preferred
+                .filter(|&channels| {
+                    configs
+                        .iter()
+                        .any(|r| r.channels() == channels && r.contains_rate(sample_rate))
+                })
+                .or_else(|| {
+                    configs
+                        .iter()
+                        .filter(|r| r.contains_rate(sample_rate))
+                        .max_by(|a, b| a.cmp_default_heuristics(b))
+                        .map(|r| r.channels())
+                })
                 .ok_or_else(|| {
                     Error::with_message(ErrorKind::UnsupportedConfig, none_supported_message)
                 })
         };
 
         Ok(DuplexStreamConfig {
-            input_channels: best_channels(&inputs, "no supported input configuration")?,
-            output_channels: best_channels(&outputs, "no supported output configuration")?,
+            input_channels: best_channels(
+                &inputs,
+                default_input.map(|c| c.channels()),
+                "no supported input configuration",
+            )?,
+            output_channels: best_channels(
+                &outputs,
+                default_output.map(|c| c.channels()),
+                "no supported output configuration",
+            )?,
             sample_rate,
             buffer_size: BufferSize::Default,
         })
@@ -571,9 +565,8 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static;
 
-    /// Create a synchronized duplex stream whose input and output share the same clock
-    /// or OS provided bidirectional aggregate device (macOS). macOS Aggregate device drift
-    /// compensation is not required.
+    /// Create a duplex stream that captures input and renders output from one device-level
+    /// callback.
     ///
     /// cpal does not compensate for drift between the two directions, and does not mix or remap
     /// channels between them.
