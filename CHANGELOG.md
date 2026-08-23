@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `StreamTrait::stop` ends a stream gracefully, draining buffered audio before halting (blocking up to a caller-supplied timeout). Dropping a stream still halts immediately without draining.
 - `CallbackInfo::xrun()` reports buffer over/underruns via the data callback.
-- `DeviceTrait::build_duplex_stream()`, `build_duplex_stream_raw()`, and `supports_duplex()` for capture and playback from one device-level callback.
+- `DeviceTrait::build_duplex_stream()`, `build_duplex_stream_raw()`, `default_duplex_config()`, and `supports_duplex()` for capture and playback from one device-level callback.
 - **AudioWorklet**: Input and duplex streams are now supported.
 - **WebAudio**: Input and duplex streams are now supported.
 
