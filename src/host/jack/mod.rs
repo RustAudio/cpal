@@ -31,9 +31,9 @@ pub type Devices = std::vec::IntoIter<Device>;
 /// - Server auto-start via [`set_start_server_automatically`](Host::set_start_server_automatically)
 #[derive(Debug)]
 pub struct Host {
-    /// The name that the client will have in JACK.
-    /// Until we have duplex streams two clients will be created adding "out" or "in" to the name
-    /// since names have to be unique.
+    /// The name that the client will have in JACK. The half-duplex input and output devices each
+    /// get their own client, adding "in" or "out" to the name since names have to be unique; the
+    /// duplex device uses the plain name.
     name: String,
     /// If ports are to be connected to the system (soundcard) ports automatically (default is true).
     connect_ports_automatically: bool,
@@ -87,6 +87,13 @@ impl Host {
         self.default_output_device()
     }
 
+    /// The default duplex-capable device, if the JACK server was reachable when this `Host` was
+    /// created. Not part of [`HostTrait`]: unlike hosts where the same device already serves
+    /// both directions, JACK's default input and output devices are separate client identities.
+    pub fn default_duplex_device(&self) -> Option<Device> {
+        self.devices_created.iter().find(|d| d.is_duplex()).cloned()
+    }
+
     fn initialize_default_devices(&mut self) {
         let in_device_res = Device::default_input_device(
             &self.name,
@@ -104,6 +111,15 @@ impl Host {
             self.start_server_automatically,
         );
         if let Ok(device) = out_device_res {
+            self.devices_created.push(device);
+        }
+
+        let duplex_device_res = Device::default_duplex_device(
+            &self.name,
+            self.connect_ports_automatically,
+            self.start_server_automatically,
+        );
+        if let Ok(device) = duplex_device_res {
             self.devices_created.push(device);
         }
     }
