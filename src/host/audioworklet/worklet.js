@@ -133,15 +133,11 @@ registerProcessor("CpalDuplexProcessor", class WasmDuplexProcessor extends CpalP
         const frame_size = output_channels[0].length;
 
         // inputs[0] is empty until the microphone source is connected. Keep rendering output
-        // with a zero-channel input rather than stalling the graph waiting for it.
+        // rather than stalling the graph waiting for it; the processor still hands the callback
+        // the configured number of input channels.
         const input_channels = inputs[0];
-        const input_channels_count = input_channels.length;
 
-        const input_ptr = this.processor.prepare(
-            input_channels_count,
-            output_channels_count,
-            frame_size
-        );
+        const input_ptr = this.processor.prepare(output_channels_count, frame_size);
         if (!this.interleave(input_channels, input_ptr, frame_size)) {
             return false; // Safely stop the node
         }
@@ -151,7 +147,6 @@ registerProcessor("CpalDuplexProcessor", class WasmDuplexProcessor extends CpalP
         const output_ptr = this.processor.output_buffer_ptr();
 
         this.processor.process(
-            input_channels_count,
             output_channels_count,
             frame_size,
             sampleRate,

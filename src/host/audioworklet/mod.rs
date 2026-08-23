@@ -914,58 +914,61 @@ impl DeviceTrait for Device {
                 options.set_processor_options(Some(&js_sys::Array::of3(
                     &wasm_bindgen::module(),
                     &wasm_bindgen::memory(),
-                    &WasmAudioDuplexProcessor::new(Box::new(
-                        move |input_interleaved,
-                              output_interleaved,
-                              frame_size,
-                              sample_rate,
-                              now| {
-                            buffer_size_frames_cb.store(frame_size as u64, Ordering::Relaxed);
-                            current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
+                    &WasmAudioDuplexProcessor::new(
+                        input_channels,
+                        Box::new(
+                            move |input_interleaved,
+                                  output_interleaved,
+                                  frame_size,
+                                  sample_rate,
+                                  now| {
+                                buffer_size_frames_cb.store(frame_size as u64, Ordering::Relaxed);
+                                current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
 
-                            let input = unsafe {
-                                Data::from_parts(
-                                    input_interleaved.as_ptr() as *mut (),
-                                    input_interleaved.len(),
-                                    input_sample_format,
-                                )
-                            };
-                            let mut output = unsafe {
-                                Data::from_parts(
-                                    output_interleaved.as_mut_ptr() as *mut (),
-                                    output_interleaved.len(),
-                                    output_sample_format,
-                                )
-                            };
+                                let input = unsafe {
+                                    Data::from_parts(
+                                        input_interleaved.as_ptr() as *mut (),
+                                        input_interleaved.len(),
+                                        input_sample_format,
+                                    )
+                                };
+                                let mut output = unsafe {
+                                    Data::from_parts(
+                                        output_interleaved.as_mut_ptr() as *mut (),
+                                        output_interleaved.len(),
+                                        output_sample_format,
+                                    )
+                                };
 
-                            // One clock: both directions share the same `callback` instant.
-                            let callback = StreamInstant::from_secs_f64(now);
-                            let buffer_duration =
-                                frames_to_duration(frame_size as FrameCount, sample_rate);
-                            let latency =
-                                Duration::from_nanos(latency_nanos_cb.load(Ordering::Relaxed));
+                                // One clock: both directions share the same `callback` instant.
+                                let callback = StreamInstant::from_secs_f64(now);
+                                let buffer_duration =
+                                    frames_to_duration(frame_size as FrameCount, sample_rate);
+                                let latency =
+                                    Duration::from_nanos(latency_nanos_cb.load(Ordering::Relaxed));
 
-                            let info = DuplexCallbackInfo::new(
-                                CallbackInfo {
-                                    timestamp: StreamTimestamp {
-                                        callback,
-                                        device: callback
-                                            .checked_sub(buffer_duration)
-                                            .unwrap_or(callback),
+                                let info = DuplexCallbackInfo::new(
+                                    CallbackInfo {
+                                        timestamp: StreamTimestamp {
+                                            callback,
+                                            device: callback
+                                                .checked_sub(buffer_duration)
+                                                .unwrap_or(callback),
+                                        },
+                                        xrun: false,
                                     },
-                                    xrun: false,
-                                },
-                                CallbackInfo {
-                                    timestamp: StreamTimestamp {
-                                        callback,
-                                        device: callback + (buffer_duration + latency),
+                                    CallbackInfo {
+                                        timestamp: StreamTimestamp {
+                                            callback,
+                                            device: callback + (buffer_duration + latency),
+                                        },
+                                        xrun: false,
                                     },
-                                    xrun: false,
-                                },
-                            );
-                            (data_callback)(&input, &mut output, &info);
-                        },
-                    ))
+                                );
+                                (data_callback)(&input, &mut output, &info);
+                            },
+                        ),
+                    )
                     .pack()
                     .into(),
                 )));
@@ -1267,14 +1270,18 @@ type AudioDuplexCallback = Box<dyn FnMut(&[f32], &mut [f32], u32, u32, f64)>;
 pub struct WasmAudioDuplexProcessor {
     input_buffer: Vec<f32>,
     output_buffer: Vec<f32>,
+    /// The input channel count from the stream configuration. The graph reports none until the
+    /// capture source connects, so its count cannot stand in for this one.
+    input_channels: u32,
     callback: AudioDuplexCallback,
 }
 
 impl WasmAudioDuplexProcessor {
-    pub fn new(callback: AudioDuplexCallback) -> Self {
+    pub fn new(input_channels: u32, callback: AudioDuplexCallback) -> Self {
         Self {
             input_buffer: Vec::new(),
             output_buffer: Vec::new(),
+            input_channels,
             callback,
         }
     }
@@ -1284,8 +1291,11 @@ impl WasmAudioDuplexProcessor {
 impl WasmAudioDuplexProcessor {
     /// Sizes both buffers for this quantum and returns a pointer for JS to interleave captured
     /// audio into. Must be called to grow Wasm memory before [`process`](Self::process) runs.
-    pub fn prepare(&mut self, input_channels: u32, output_channels: u32, frame_size: u32) -> u32 {
-        resize_interleaved(&mut self.input_buffer, input_channels, frame_size);
+    pub fn prepare(&mut self, output_channels: u32, frame_size: u32) -> u32 {
+        // JS interleaves only the channels the graph delivers, so a quantum it skips would
+        // otherwise repeat the one before it.
+        let input_len = resize_interleaved(&mut self.input_buffer, self.input_channels, frame_size);
+        self.input_buffer[..input_len].fill(f32::EQUILIBRIUM);
         resize_interleaved(&mut self.output_buffer, output_channels, frame_size);
         self.input_buffer.as_mut_ptr() as _
     }
@@ -1298,13 +1308,12 @@ impl WasmAudioDuplexProcessor {
     /// Invokes the Rust callback with the captured audio, plus the output buffer to fill.
     pub fn process(
         &mut self,
-        input_channels: u32,
         output_channels: u32,
         frame_size: u32,
         sample_rate: u32,
         current_time: f64,
     ) {
-        let input_len = input_channels as usize * frame_size as usize;
+        let input_len = self.input_channels as usize * frame_size as usize;
         let output_len = output_channels as usize * frame_size as usize;
 
         // Destructured so the callback can hold both buffers at once.
@@ -1312,6 +1321,7 @@ impl WasmAudioDuplexProcessor {
             input_buffer,
             output_buffer,
             callback,
+            ..
         } = self;
         output_buffer[..output_len].fill(f32::EQUILIBRIUM);
         callback(
