@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (e.g. Steinberg)
 - Fixed `asio_message` not advertising `kAsioSelectorSupported` itself as a supported selector
 - Fixed rust-analyzer errors on non-Windows targets by using stub instead of ASIO bindings
+- Fixed a race where `Asio::load_driver` could start `ASIOInit` before a concurrent
+  teardown's `ASIOExit` had finished
+- Fixed `Driver::remove_callback` and `Driver::remove_event_callback` deadlocking when the
+  removed callback owns another stream
+- Fixed driver teardown deadlocking when a cleared stream callback owns another stream
+- Fixed stream callbacks not being cleared when driver teardown fails
 
 ### Removed
 - Removed unused `SampleRate` struct
