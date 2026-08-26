@@ -69,7 +69,8 @@
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
-//! # let config = device.default_output_config().unwrap().into();
+//! # let supported_config = device.default_output_config().unwrap();
+//! let config = supported_config.into();
 //! let stream = device.build_output_stream(
 //!     config,
 //!     move |data: &mut [f32], _: &cpal::CallbackInfo| {
