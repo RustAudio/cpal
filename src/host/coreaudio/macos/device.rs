@@ -486,49 +486,7 @@ impl Device {
         };
 
         unsafe {
-            // Retrieve the devices audio buffer list.
-            let mut data_size = 0u32;
-            let status = AudioObjectGetPropertyDataSize(
-                self.audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-            );
-            check_os_status(status)?;
-
-            let mut audio_buffer_list: Vec<u8> = vec![];
-            audio_buffer_list.reserve_exact(data_size as usize);
-            let status = AudioObjectGetPropertyData(
-                self.audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-                NonNull::new(audio_buffer_list.as_mut_ptr()).unwrap().cast(),
-            );
-            check_os_status(status)?;
-
-            let audio_buffer_list = audio_buffer_list.as_mut_ptr() as *mut AudioBufferList;
-
-            // Read the number of buffers without assuming alignment (avoid UB).
-            let nb_ptr = core::ptr::addr_of!((*audio_buffer_list).mNumberBuffers);
-            let n_buffers = core::ptr::read_unaligned(nb_ptr) as usize;
-            // If there are no buffers, skip.
-            if n_buffers == 0 {
-                return Ok(vec![].into_iter());
-            }
-
-            // Count the number of channels as the sum of all channels in all output buffers.
-            let first_buf_ptr =
-                core::ptr::addr_of!((*audio_buffer_list).mBuffers) as *const AudioBuffer;
-            let mut n_channels = 0usize;
-            for i in 0..n_buffers {
-                let buf_ptr = first_buf_ptr.add(i);
-                // Read potentially unaligned
-                let buf: AudioBuffer = core::ptr::read_unaligned(buf_ptr);
-                n_channels += buf.mNumberChannels as usize;
-            }
+            let n_channels = get_channel_count_for_device(self.audio_device_id, scope)?;
 
             // TODO: macOS should support U8, I16, I32, F32 and F64. This should allow for using
             // I16 but just use F32 for now as it's the default anyway.
@@ -584,7 +542,7 @@ impl Device {
             let fmts: Vec<_> = ranges
                 .iter()
                 .map(|range| SupportedStreamConfigRange {
-                    channels: n_channels as ChannelCount,
+                    channels: n_channels,
                     min_sample_rate: range.mMinimum as u32,
                     max_sample_rate: range.mMaximum as u32,
                     buffer_size,
@@ -707,6 +665,24 @@ impl Device {
             return Err(Error::with_message(
                 ErrorKind::InvalidInput,
                 "Device does not support output",
+            ));
+        }
+
+        let max_channels = get_channel_count_for_device(
+            self.audio_device_id,
+            if input {
+                kAudioObjectPropertyScopeInput
+            } else {
+                kAudioObjectPropertyScopeOutput
+            },
+        )?;
+        if channel_index >= max_channels {
+            return Err(Error::with_message(
+                ErrorKind::InvalidInput,
+                format!(
+                    "channel index {channel_index} is out of range (device has {max_channels} {} channels)",
+                    if input { "input" } else { "output" },
+                ),
             ));
         }
 
@@ -1178,5 +1154,60 @@ fn get_channel_name_for_device(
             ErrorKind::Other,
             "channel name is null",
         ))
+    }
+}
+
+#[allow(clippy::cast_ptr_alignment)]
+fn get_channel_count_for_device(
+    device_id: AudioDeviceID,
+    scope: AudioObjectPropertyScope,
+) -> Result<ChannelCount, Error> {
+    let property_address = AudioObjectPropertyAddress {
+        mSelector: kAudioDevicePropertyStreamConfiguration,
+        mScope: scope,
+        mElement: kAudioObjectPropertyElementMain,
+    };
+
+    unsafe {
+        let mut data_size = 0u32;
+        let status = AudioObjectGetPropertyDataSize(
+            device_id,
+            NonNull::from(&property_address),
+            0,
+            null(),
+            NonNull::from(&mut data_size),
+        );
+        check_os_status(status)?;
+
+        let mut audio_buffer_list: Vec<u8> = vec![];
+        audio_buffer_list.reserve_exact(data_size as usize);
+        let status = AudioObjectGetPropertyData(
+            device_id,
+            NonNull::from(&property_address),
+            0,
+            null(),
+            NonNull::from(&mut data_size),
+            NonNull::new(audio_buffer_list.as_mut_ptr()).unwrap().cast(),
+        );
+        check_os_status(status)?;
+
+        let audio_buffer_list = audio_buffer_list.as_mut_ptr() as *mut AudioBufferList;
+        let n_buffers =
+            core::ptr::read_unaligned(core::ptr::addr_of!((*audio_buffer_list).mNumberBuffers))
+                as usize;
+        let first_buf_ptr =
+            core::ptr::addr_of!((*audio_buffer_list).mBuffers) as *const AudioBuffer;
+        let mut n_channels = 0usize;
+        for index in 0..n_buffers {
+            let buffer = core::ptr::read_unaligned(first_buf_ptr.add(index));
+            n_channels += buffer.mNumberChannels as usize;
+        }
+
+        n_channels.try_into().map_err(|_| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!("device has too many channels ({n_channels})"),
+            )
+        })
     }
 }
