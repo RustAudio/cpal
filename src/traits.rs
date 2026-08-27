@@ -670,25 +670,26 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
 
     /// Obtain the associated string name for a channel index.
     ///
-    /// This method is only implemented for CoreAudio (macOS) and ASIO (Windows). All other
-    /// backends will return [`ErrorKind::UnsupportedOperation`].
+    /// The CoreAudio (macOS) and ASIO backends provide channel names. All other built-in
+    /// backends return [`ErrorKind::UnsupportedOperation`].
     ///
     /// # Parameters
     ///
-    /// * `channel_index` - Channel index to query name for.
-    /// * `input` - Whether to query an input channel (true) or output channel (false).
+    /// * `channel_index` - Channel index to query.
+    /// * `input` - Whether to query an input channel (`true`) or output channel (`false`).
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::UnsupportedOperation`] if the backend does not implement channel name
-    ///   queries.
-    /// - [`ErrorKind::InvalidInput`] if the channel index is out of range for the device,
-    ///   or if the device does not support the requested direction (input/output).
-    /// - [`ErrorKind::Other`] for unclassifiable backend failures (e.g., the channel name could
-    ///   not be retrieved from the device).
+    /// - [`ErrorKind::UnsupportedOperation`] if the backend does not provide channel names, or
+    ///   if the device does not support the requested direction.
+    /// - [`ErrorKind::InvalidInput`] if `channel_index` is out of range for the device.
+    /// - [`ErrorKind::BackendError`] if the underlying audio API returns an error that cannot be
+    ///   mapped to a more specific error kind.
+    /// - [`ErrorKind::Other`] if the backend returns no channel name.
     ///
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
     /// [`ErrorKind::InvalidInput`]: crate::ErrorKind::InvalidInput
+    /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
     /// [`ErrorKind::Other`]: crate::ErrorKind::Other
     fn get_channel_name(&self, _channel_index: u16, _input: bool) -> Result<String, Error> {
         Err(Error::with_message(
