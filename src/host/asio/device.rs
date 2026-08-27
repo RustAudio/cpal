@@ -243,7 +243,7 @@ impl Iterator for Devices {
                                 .channel_name(ch.into(), true)
                                 .ok()
                                 .filter(|name| !name.is_empty())
-                                .unwrap_or_else(|_| format!("Input {ch}"))
+                                .unwrap_or_else(|| format!("Input {ch}"))
                         })
                         .collect();
                     let output_channel_names: Box<[String]> = (0..channels_out)
@@ -252,7 +252,7 @@ impl Iterator for Devices {
                                 .channel_name(ch.into(), false)
                                 .ok()
                                 .filter(|name| !name.is_empty())
-                                .unwrap_or_else(|_| format!("Output {ch}"))
+                                .unwrap_or_else(|| format!("Output {ch}"))
                         })
                         .collect();
 
