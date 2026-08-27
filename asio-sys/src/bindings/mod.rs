@@ -7,7 +7,7 @@ pub mod errors;
 #[cfg(target_os = "windows")]
 use std::os::raw::c_long;
 use std::{
-    ffi::{CStr, CString},
+    ffi::CString,
     os::raw::{c_char, c_double, c_void},
     ptr::null_mut,
     sync::{
@@ -1149,7 +1149,15 @@ fn stream_data_type(is_input: bool) -> Result<AsioSampleType, AsioError> {
 ///
 /// This converts to utf8.
 fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
-    unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
+    let length = bytes
+        .iter()
+        .position(|&byte| byte == 0)
+        .unwrap_or(bytes.len());
+    let bytes = bytes[..length]
+        .iter()
+        .map(|&byte| byte as u8)
+        .collect::<Vec<_>>();
+    String::from_utf8_lossy(&bytes).into_owned().into()
 }
 
 /// Convert an `ASIOTimeStamp` (high and low 32-bit halves) to a `u64` nanosecond value.
