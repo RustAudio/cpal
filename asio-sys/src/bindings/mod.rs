@@ -1119,6 +1119,10 @@ fn asio_get_buffer_sizes() -> Result<BufferSizes, AsioError> {
 /// Retrieve the `ASIOChannelInfo` associated with the channel at the given index on either the
 /// input or output stream (`true` for input).
 fn asio_channel_info(channel: c_long, is_input: bool) -> Result<ai::ASIOChannelInfo, AsioError> {
+    if channel < 0 {
+        return Err(AsioError::InvalidInput);
+    }
+
     let mut channel_info = ai::ASIOChannelInfo {
         // Which channel we are querying
         channel,
