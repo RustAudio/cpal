@@ -240,15 +240,19 @@ impl Iterator for Devices {
                     let input_channel_names: Box<[String]> = (0..channels_in)
                         .map(|ch| {
                             driver
-                                .channel_name(ch, true)
-                                .unwrap_or_else(|| format!("Input {ch}"))
+                                .channel_name(ch.into(), true)
+                                .ok()
+                                .filter(|name| !name.is_empty())
+                                .unwrap_or_else(|_| format!("Input {ch}"))
                         })
                         .collect();
                     let output_channel_names: Box<[String]> = (0..channels_out)
                         .map(|ch| {
                             driver
-                                .channel_name(ch, false)
-                                .unwrap_or_else(|| format!("Output {ch}"))
+                                .channel_name(ch.into(), false)
+                                .ok()
+                                .filter(|name| !name.is_empty())
+                                .unwrap_or_else(|_| format!("Output {ch}"))
                         })
                         .collect();
 
@@ -266,7 +270,6 @@ impl Iterator for Devices {
                         supported_sample_rates,
                         input_channel_names,
                         output_channel_names,
-                        asio_streams,
                         // Initialize with sentinel value so it never matches global flag state (0 or 1).
                         current_callback_flag: Arc::new(AtomicU32::new(u32::MAX)),
                     });
