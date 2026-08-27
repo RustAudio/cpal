@@ -37,7 +37,7 @@ use objc2_core_audio::{
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
 };
-use objc2_core_foundation::{CFRetained, CFString};
+use objc2_core_foundation::CFString;
 
 pub use super::enumerate::{SupportedInputConfigs, SupportedOutputConfigs};
 use super::{
@@ -441,36 +441,12 @@ impl Device {
             mElement: kAudioObjectPropertyElementMain,
         };
 
-        // CFString is returned under the create rule, so take ownership of the +1 reference.
-        let mut uid: *mut CFString = std::ptr::null_mut();
-        let mut data_size = size_of::<*mut CFString>() as u32;
-
-        // SAFETY: AudioObjectGetPropertyData is documented to write a CFString pointer
-        // for kAudioDevicePropertyDeviceUID. We check the status code before use.
-        let status = unsafe {
-            AudioObjectGetPropertyData(
-                self.audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-                NonNull::from(&mut uid).cast(),
-            )
-        };
-        check_os_status(status)?;
-
-        // SAFETY: Status was successful, meaning the API call succeeded.
-        // We now check if the returned uid is non-null before use.
-        if !uid.is_null() {
-            let uid_string =
-                unsafe { CFRetained::from_raw(NonNull::new(uid).unwrap()).to_string() };
-            Ok(DeviceId::new(
-                crate::platform::HostId::CoreAudio,
-                uid_string,
-            ))
-        } else {
-            Err(ErrorKind::DeviceNotAvailable.into())
-        }
+        let uid_string = get_cf_string_property(self.audio_device_id, &property_address)?
+            .ok_or(ErrorKind::DeviceNotAvailable)?;
+        Ok(DeviceId::new(
+            crate::platform::HostId::CoreAudio,
+            uid_string,
+        ))
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.
@@ -1120,9 +1096,6 @@ fn get_channel_name_for_device(
     channel_index: u16,
     input: bool,
 ) -> Result<String, Error> {
-    let mut channel_name: *mut CFString = std::ptr::null_mut();
-    let mut data_size = size_of::<*mut CFString>() as u32;
-
     let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioObjectPropertyElementName,
         mScope: if input {
@@ -1134,27 +1107,31 @@ fn get_channel_name_for_device(
         mElement: channel_index as u32 + 1,
     };
 
+    get_cf_string_property(device_id, &property_address)?
+        .ok_or_else(|| Error::with_message(ErrorKind::Other, "channel name is null"))
+}
+
+fn get_cf_string_property(
+    device_id: AudioDeviceID,
+    property_address: &AudioObjectPropertyAddress,
+) -> Result<Option<String>, Error> {
+    let mut value: *mut CFString = std::ptr::null_mut();
+    let mut data_size = size_of::<*mut CFString>() as u32;
+
     let status = unsafe {
         AudioObjectGetPropertyData(
             device_id,
-            NonNull::from(&property_address),
+            NonNull::from(property_address),
             0,
             null(),
             NonNull::from(&mut data_size),
-            NonNull::from(&mut channel_name).cast(),
+            NonNull::from(&mut value).cast(),
         )
     };
     check_os_status(status)?;
 
-    if !channel_name.is_null() {
-        let raw_name = unsafe { CFRetained::from_raw(NonNull::new(channel_name).unwrap()) };
-        Ok(raw_name.to_string())
-    } else {
-        Err(Error::with_message(
-            ErrorKind::Other,
-            "channel name is null",
-        ))
-    }
+    Ok(NonNull::new(value)
+        .map(|value| unsafe { objc2_core_foundation::CFRetained::from_raw(value).to_string() }))
 }
 
 #[allow(clippy::cast_ptr_alignment)]
