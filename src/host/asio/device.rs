@@ -207,6 +207,12 @@ impl Iterator for Devices {
                     if channels.ins == 0 && channels.outs == 0 {
                         continue;
                     }
+                    let Ok(channels_in) = ChannelCount::try_from(channels.ins) else {
+                        continue;
+                    };
+                    let Ok(channels_out) = ChannelCount::try_from(channels.outs) else {
+                        continue;
+                    };
 
                     // Some drivers (e.g. Realtek ASIO) return 0 for sample_rate() until a
                     // stream is active. Treat 0 as "not yet known" rather than skipping.
@@ -231,19 +237,27 @@ impl Iterator for Devices {
                         .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))
                         .collect();
 
-                    let input_channel_names: Box<[String]> = (0..channels.ins)
-                        .map(|ch| driver.channel_name(ch, true).unwrap_or_default())
+                    let input_channel_names: Box<[String]> = (0..channels_in)
+                        .map(|ch| {
+                            driver
+                                .channel_name(ch, true)
+                                .unwrap_or_else(|| format!("Input {ch}"))
+                        })
                         .collect();
-                    let output_channel_names: Box<[String]> = (0..channels.outs)
-                        .map(|ch| driver.channel_name(ch, false).unwrap_or_default())
+                    let output_channel_names: Box<[String]> = (0..channels_out)
+                        .map(|ch| {
+                            driver
+                                .channel_name(ch, false)
+                                .unwrap_or_else(|| format!("Output {ch}"))
+                        })
                         .collect();
 
                     self.current_driver = Some(driver);
 
                     return Some(Device {
                         name,
-                        channels_in: channels.ins as ChannelCount,
-                        channels_out: channels.outs as ChannelCount,
+                        channels_in,
+                        channels_out,
                         sample_rate: sample_rate as SampleRate,
                         buffer_size_min: buffer_size_range.min as FrameCount,
                         buffer_size_max: buffer_size_range.max as FrameCount,
