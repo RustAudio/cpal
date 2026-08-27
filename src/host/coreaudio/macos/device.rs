@@ -450,7 +450,6 @@ impl Device {
     }
 
     // Logic re-used between `supported_input_configs` and `supported_output_configs`.
-    #[expect(clippy::cast_ptr_alignment)]
     fn supported_configs(
         &self,
         scope: AudioObjectPropertyScope,
