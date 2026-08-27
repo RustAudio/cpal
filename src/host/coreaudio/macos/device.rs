@@ -630,20 +630,6 @@ impl Device {
     }
 
     fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error> {
-        if input && !self.supports_input() {
-            return Err(Error::with_message(
-                ErrorKind::InvalidInput,
-                "Device does not support input",
-            ));
-        }
-
-        if !input && !self.supports_output() {
-            return Err(Error::with_message(
-                ErrorKind::InvalidInput,
-                "Device does not support output",
-            ));
-        }
-
         let max_channels = get_channel_count_for_device(
             self.audio_device_id,
             if input {
