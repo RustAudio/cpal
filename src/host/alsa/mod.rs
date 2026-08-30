@@ -23,9 +23,9 @@ use self::alsa::poll::Descriptors;
 pub use self::enumerate::Devices;
 use crate::{
     BufferSize, COMMON_SAMPLE_RATES, CallbackInfo, ChannelCount, Data, DeviceDescription,
-    DeviceDescriptionBuilder, DeviceDirection, DeviceId, Error, ErrorKind, FrameCount,
-    SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DuplexCallbackInfo, DuplexStreamConfig,
+    Error, ErrorKind, FrameCount, SampleFormat, SampleRate, StreamConfig, StreamInstant,
+    StreamTimestamp, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
         Notify,
         equilibrium::{DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE, fill_equilibrium},
@@ -240,6 +240,10 @@ impl DeviceTrait for Device {
         )
     }
 
+    fn supports_duplex(&self) -> bool {
+        self.direction == DeviceDirection::Duplex
+    }
+
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         Self::supported_input_configs(self)
     }
@@ -300,6 +304,30 @@ impl DeviceTrait for Device {
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
         let stream = Self::Stream::new_output(
+            Arc::new(stream_inner),
+            data_callback,
+            error_callback,
+            timeout,
+        );
+        Ok(stream)
+    }
+
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        config: DuplexStreamConfig,
+        input_sample_format: SampleFormat,
+        output_sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
+    {
+        let stream_inner =
+            self.build_duplex_stream_inner(config, input_sample_format, output_sample_format)?;
+        let stream = Self::Stream::new_duplex(
             Arc::new(stream_inner),
             data_callback,
             error_callback,
@@ -407,7 +435,11 @@ impl Device {
         let handle = open_pcm(&self.pcm_id, stream_type)?;
 
         let hw_params = set_hw_params_from_format(&handle, conf, sample_format)?;
-        let (buffer_size, period_size) = set_sw_params_from_format(&handle, stream_type)?;
+        let start_threshold = match stream_type {
+            alsa::Direction::Playback => StartThreshold::Periods(DEFAULT_PERIODS as usize),
+            alsa::Direction::Capture => StartThreshold::Immediate,
+        };
+        let (buffer_size, period_size) = set_sw_params_from_format(&handle, start_threshold)?;
         if buffer_size == 0 || period_size == 0 {
             return Err(ErrorKind::DeviceNotAvailable.into());
         }
@@ -421,23 +453,14 @@ impl Device {
         // A zero get_htstamp() at prepare time indicates the device does not support hardware timestamps (e.g. PulseAudio ALSA plugin).
         // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
         let creation_ts = handle.status()?.get_htstamp();
-        let timestamp_mode = if creation_ts.tv_sec == 0 && creation_ts.tv_nsec == 0 {
-            TimestampMode::CreationInstant
-        } else if hw_params.supports_audio_ts_type(alsa::pcm::AudioTstampType::LinkSynchronized) {
-            TimestampMode::AudioLink
-        } else {
-            TimestampMode::SystemClock
-        };
+        let timestamp_mode = timestamp_mode_for(&hw_params, creation_ts);
         drop(hw_params);
 
         let period_size = period_size as usize;
         let frame_size = sample_format.sample_size() * conf.channels as usize;
 
         let stream_inner = StreamInner {
-            dropping: AtomicBool::new(false),
-            draining: AtomicBool::new(false),
-            parked: AtomicBool::new(false),
-            park: Notify::default(),
+            control: WorkerControl::default(),
             direction: stream_type.into(),
             handle,
             sample_format,
@@ -445,9 +468,113 @@ impl Device {
             frame_size,
             period_size,
             period_samples: period_size * conf.channels as usize,
-            equilibrium: EquilibriumFill::new(sample_format, period_size * frame_size),
+            equilibrium: (stream_type == alsa::Direction::Playback)
+                .then(|| EquilibriumFill::new(sample_format, period_size * frame_size)),
             timestamp_mode,
             creation_ts,
+            creation_instant: std::time::Instant::now(),
+            pending_xrun: AtomicBool::new(false),
+            _context: self._context.clone(),
+        };
+
+        Ok(stream_inner)
+    }
+
+    // Opens capture and playback from the same pcm_id with matching period/rate and returns the
+    // paired inner state used to drive both from one worker thread. Linking happens later, in
+    // begin_duplex_playback().
+    fn build_duplex_stream_inner(
+        &self,
+        config: DuplexStreamConfig,
+        input_sample_format: SampleFormat,
+        output_sample_format: SampleFormat,
+    ) -> Result<DuplexStreamInner, Error> {
+        let capture_config = StreamConfig {
+            channels: config.input_channels,
+            sample_rate: config.sample_rate,
+            buffer_size: config.buffer_size,
+        };
+        let playback_config = StreamConfig {
+            channels: config.output_channels,
+            sample_rate: config.sample_rate,
+            buffer_size: config.buffer_size,
+        };
+        crate::validate_stream_config(&capture_config)?;
+        crate::validate_stream_config(&playback_config)?;
+
+        let capture_handle = open_pcm(&self.pcm_id, alsa::Direction::Capture)?;
+        let playback_handle = open_pcm(&self.pcm_id, alsa::Direction::Playback)?;
+
+        let capture_hw_params =
+            set_hw_params_from_format(&capture_handle, capture_config, input_sample_format)?;
+        let playback_hw_params =
+            set_hw_params_from_format(&playback_handle, playback_config, output_sample_format)?;
+
+        let (capture_buffer_size, capture_period_size) =
+            set_sw_params_from_format(&capture_handle, StartThreshold::Disabled)?;
+        let (playback_buffer_size, playback_period_size) =
+            set_sw_params_from_format(&playback_handle, StartThreshold::Disabled)?;
+        if capture_buffer_size == 0
+            || capture_period_size == 0
+            || playback_buffer_size == 0
+            || playback_period_size == 0
+        {
+            return Err(ErrorKind::DeviceNotAvailable.into());
+        }
+        // Duplex drives both directions from one worker cycle; period sizes must match.
+        if capture_period_size != playback_period_size {
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                format!(
+                    "capture and playback negotiated different period sizes ({capture_period_size} vs {playback_period_size} frames)"
+                ),
+            ));
+        }
+
+        capture_handle.prepare()?;
+        playback_handle.prepare()?;
+
+        if capture_handle.count() == 0 || playback_handle.count() == 0 {
+            return Err(ErrorKind::DeviceNotAvailable.into());
+        }
+
+        let capture_creation_ts = capture_handle.status()?.get_htstamp();
+        let capture_timestamp_mode = timestamp_mode_for(&capture_hw_params, capture_creation_ts);
+        drop(capture_hw_params);
+        let playback_creation_ts = playback_handle.status()?.get_htstamp();
+        let playback_timestamp_mode = timestamp_mode_for(&playback_hw_params, playback_creation_ts);
+        drop(playback_hw_params);
+
+        let period_size = capture_period_size as usize;
+        let capture_frame_size = input_sample_format.sample_size() * config.input_channels as usize;
+        let playback_frame_size =
+            output_sample_format.sample_size() * config.output_channels as usize;
+
+        let stream_inner = DuplexStreamInner {
+            control: WorkerControl::default(),
+            capture: DuplexCaptureState {
+                handle: capture_handle,
+                sample_format: input_sample_format,
+                frame_size: capture_frame_size,
+                period_samples: period_size * config.input_channels as usize,
+                timestamp_mode: capture_timestamp_mode,
+                creation_ts: capture_creation_ts,
+            },
+            playback: DuplexPlaybackState {
+                handle: playback_handle,
+                sample_format: output_sample_format,
+                frame_size: playback_frame_size,
+                period_samples: period_size * config.output_channels as usize,
+                timestamp_mode: playback_timestamp_mode,
+                creation_ts: playback_creation_ts,
+                equilibrium: EquilibriumFill::new(
+                    output_sample_format,
+                    period_size * playback_frame_size,
+                ),
+            },
+            sample_rate: config.sample_rate,
+            period_size,
+            linked: AtomicBool::new(false),
             creation_instant: std::time::Instant::now(),
             pending_xrun: AtomicBool::new(false),
             _context: self._context.clone(),
@@ -708,6 +835,22 @@ impl EquilibriumFill {
     }
 }
 
+// A zero get_htstamp() at prepare time indicates the device does not support hardware
+// timestamps (e.g. PulseAudio ALSA plugin). Related:
+// https://bugs.freedesktop.org/show_bug.cgi?id=88503
+fn timestamp_mode_for(
+    hw_params: &alsa::pcm::HwParams<'_>,
+    creation_ts: alsa::timespec,
+) -> TimestampMode {
+    if creation_ts.tv_sec == 0 && creation_ts.tv_nsec == 0 {
+        TimestampMode::CreationInstant
+    } else if hw_params.supports_audio_ts_type(alsa::pcm::AudioTstampType::LinkSynchronized) {
+        TimestampMode::AudioLink
+    } else {
+        TimestampMode::SystemClock
+    }
+}
+
 // How callback timestamps are produced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TimestampMode {
@@ -726,10 +869,11 @@ enum TimestampMode {
     AudioLink,
 }
 
-#[derive(Debug)]
-struct StreamInner {
-    // Flag used to check when to stop polling, regardless of the state of the stream
-    // (e.g. broken due to a disconnected device).
+// Park/drop plumbing shared by StreamInner and DuplexStreamInner, giving StreamTrait
+// exclusive worker access for pause/stop/drain regardless of handle count.
+#[derive(Debug, Default)]
+struct WorkerControl {
+    // Set when the worker should stop polling, e.g. after a device disconnect.
     dropping: AtomicBool,
 
     // Whether the user callback is currently suppressed.
@@ -738,6 +882,57 @@ struct StreamInner {
     // Set by stop() to request the worker pause for exclusive PCM access during drain.
     parked: AtomicBool,
     park: Notify,
+}
+
+impl WorkerControl {
+    // Pauses the worker at its next loop iteration and waits for acknowledgment, or returns
+    // early if it already exited. Caller holds exclusive PCM access until unpark_worker().
+    fn park_worker(&self) {
+        self.parked.store(true, Ordering::Relaxed);
+        let (lock, cvar) = &self.park;
+        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        // Exit if the worker acknowledged the park OR if the worker has exited (dropping=true).
+        while !*guard && !self.dropping.load(Ordering::Relaxed) {
+            guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+
+    // Acknowledges a pending park, then sleeps until unpark_worker() is called.
+    fn acknowledge_park(&self) {
+        let (lock, cvar) = &self.park;
+        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = true;
+        cvar.notify_one();
+        while self.parked.load(Ordering::Relaxed) {
+            guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
+        }
+        *guard = false;
+    }
+
+    // Marks the stream dead and wakes any thread blocked in park_worker(), so an exit
+    // other than a normal drop doesn't hang it.
+    fn signal_worker_exit(&self) {
+        self.dropping.store(true, Ordering::Relaxed);
+        let (lock, cvar) = &self.park;
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        cvar.notify_one();
+    }
+
+    // Releases the park: clears parked and wakes the worker from acknowledge_park().
+    fn unpark_worker(&self) {
+        let (lock, cvar) = &self.park;
+        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        *guard = false;
+        self.parked.store(false, Ordering::Relaxed);
+        drop(guard);
+        cvar.notify_one();
+    }
+}
+
+#[derive(Debug)]
+struct StreamInner {
+    // Controls the worker thread's lifecycle and pause/drain state.
+    control: WorkerControl,
 
     // Stream direction.
     direction: DeviceDirection,
@@ -755,7 +950,8 @@ struct StreamInner {
     frame_size: usize,
     period_size: usize,
     period_samples: usize,
-    equilibrium: EquilibriumFill,
+    // Only used for Output direction.
+    equilibrium: Option<EquilibriumFill>,
 
     // How callback timestamps are produced.
     timestamp_mode: TimestampMode,
@@ -779,13 +975,63 @@ struct StreamInner {
 unsafe impl Sync for StreamInner {}
 
 #[derive(Debug)]
+struct DuplexCaptureState {
+    handle: alsa::pcm::PCM,
+    sample_format: SampleFormat,
+    frame_size: usize,
+    period_samples: usize,
+    timestamp_mode: TimestampMode,
+    creation_ts: alsa::timespec,
+}
+
+#[derive(Debug)]
+struct DuplexPlaybackState {
+    handle: alsa::pcm::PCM,
+    sample_format: SampleFormat,
+    frame_size: usize,
+    period_samples: usize,
+    timestamp_mode: TimestampMode,
+    creation_ts: alsa::timespec,
+    equilibrium: EquilibriumFill,
+}
+
+#[derive(Debug)]
+struct DuplexStreamInner {
+    control: WorkerControl,
+
+    capture: DuplexCaptureState,
+    playback: DuplexPlaybackState,
+
+    sample_rate: SampleRate,
+    period_size: usize,
+
+    // Ties capture and playback via snd_pcm_link(). begin_duplex_playback() retries when false.
+    // Recovery and pause leave it alone; ALSA doesn't document those as severing a link.
+    linked: AtomicBool,
+
+    creation_instant: Instant,
+    pending_xrun: AtomicBool,
+    _context: Arc<AlsaContext>,
+}
+
+// Assume that the ALSA library is built with thread safe option.
+unsafe impl Sync for DuplexStreamInner {}
+
+impl DuplexStreamInner {
+    #[cfg(feature = "realtime")]
+    fn is_rt_eligible(&self) -> bool {
+        pcm_is_rt_eligible(&self.capture.handle) && pcm_is_rt_eligible(&self.playback.handle)
+    }
+}
+
+#[derive(Debug)]
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
     /// Option used for moving out in destructor.
     thread: Option<JoinHandle<()>>,
 
-    /// Handle to the underlying stream for playback controls.
-    inner: Arc<StreamInner>,
+    /// Single-direction or duplex.
+    kind: StreamKind,
 
     /// Used to signal to stop processing.
     trigger: TriggerSender,
@@ -798,126 +1044,109 @@ pub struct Stream {
     latch: Latch,
 }
 
+#[derive(Debug)]
+enum StreamKind {
+    Single(Arc<StreamInner>),
+    Duplex(Arc<DuplexStreamInner>),
+}
+
 impl StreamInner {
     #[inline]
     fn callback_instant(&self, status: &alsa::pcm::Status) -> StreamInstant {
-        // For playback the PCM starts in PREPARED state while the output buffer fills;
-        // snd_pcm_start() fires automatically at start_threshold, moving it to RUNNING.
-        // Therefore, callbacks arrive before RUNNING state. Using creation_ts as the
-        // anchor for all modes means timestamps advance monotonically through both the
-        // initial buffer fill and any later xrun recovery.
-        match self.timestamp_mode {
-            TimestampMode::CreationInstant => {
-                let d = std::time::Instant::now().duration_since(self.creation_instant);
-                StreamInstant::new(d.as_secs(), d.subsec_nanos())
-            }
-            TimestampMode::SystemClock => {
-                // htstamp is the time of the most recent DMA interrupt on the configured
-                // monotonic clock. Subtracting creation_ts (same clock, prepare() time)
-                // gives elapsed time since stream creation in any PCM state.
-                htstamp_elapsed(status, self.creation_ts)
-            }
-            TimestampMode::AudioLink => {
-                // audio_htstamp measures elapsed time since snd_pcm_start() via hardware
-                // sample counter and TSC cross-timestamp, so it is only valid in RUNNING state.
-                if status.get_state() != alsa::pcm::State::Running {
-                    // After xrun recovery, snd_pcm_prepare() does not reset trigger_htstamp
-                    // (only snd_pcm_start() does), so it keeps its pre-xrun value while the
-                    // hardware counter has not yet restarted.
-                    htstamp_elapsed(status, self.creation_ts)
+        callback_instant_for(
+            self.timestamp_mode,
+            self.creation_ts,
+            self.creation_instant,
+            status,
+        )
+    }
+}
+
+#[inline]
+fn callback_instant_for(
+    timestamp_mode: TimestampMode,
+    creation_ts: alsa::timespec,
+    creation_instant: std::time::Instant,
+    status: &alsa::pcm::Status,
+) -> StreamInstant {
+    // For playback the PCM starts in PREPARED state while the output buffer fills;
+    // snd_pcm_start() fires automatically at start_threshold, moving it to RUNNING.
+    // Therefore, callbacks arrive before RUNNING state. Using creation_ts as the
+    // anchor for all modes means timestamps advance monotonically through both the
+    // initial buffer fill and any later xrun recovery.
+    match timestamp_mode {
+        TimestampMode::CreationInstant => {
+            let d = std::time::Instant::now().duration_since(creation_instant);
+            StreamInstant::new(d.as_secs(), d.subsec_nanos())
+        }
+        TimestampMode::SystemClock => {
+            // htstamp is the time of the most recent DMA interrupt on the configured
+            // monotonic clock. Subtracting creation_ts (same clock, prepare() time)
+            // gives elapsed time since stream creation in any PCM state.
+            htstamp_elapsed(status, creation_ts)
+        }
+        TimestampMode::AudioLink => {
+            // audio_htstamp measures elapsed time since snd_pcm_start() via hardware
+            // sample counter and TSC cross-timestamp, so it is only valid in RUNNING state.
+            if status.get_state() != alsa::pcm::State::Running {
+                // After xrun recovery, snd_pcm_prepare() does not reset trigger_htstamp
+                // (only snd_pcm_start() does), so it keeps its pre-xrun value while the
+                // hardware counter has not yet restarted.
+                htstamp_elapsed(status, creation_ts)
+            } else {
+                // When running, add (trigger_ts − creation_ts) to express elapsed time
+                // since stream creation rather than since the last snd_pcm_start().
+                let trigger_ts = status.get_trigger_htstamp();
+                let trigger_offset = timespec_diff_nanos(trigger_ts, creation_ts);
+                if trigger_offset < 0 {
+                    // trigger_ts predates creation_ts (driver bug); fall back to
+                    // htstamp − creation_ts to preserve a monotone result.
+                    htstamp_elapsed(status, creation_ts)
                 } else {
-                    // When running, add (trigger_ts − creation_ts) to express elapsed time
-                    // since stream creation rather than since the last snd_pcm_start().
-                    let trigger_ts = status.get_trigger_htstamp();
-                    let trigger_offset = timespec_diff_nanos(trigger_ts, self.creation_ts);
-                    if trigger_offset < 0 {
-                        // trigger_ts predates creation_ts (driver bug); fall back to
-                        // htstamp − creation_ts to preserve a monotone result.
-                        htstamp_elapsed(status, self.creation_ts)
-                    } else {
-                        let audio_ts = status.get_audio_htstamp();
-                        let nanos = timespec_to_nanos(audio_ts) + trigger_offset;
-                        StreamInstant::from_nanos(nanos as u64)
-                    }
+                    let audio_ts = status.get_audio_htstamp();
+                    let nanos = timespec_to_nanos(audio_ts) + trigger_offset;
+                    StreamInstant::from_nanos(nanos as u64)
                 }
             }
         }
     }
+}
 
+impl StreamInner {
     #[cfg(feature = "realtime")]
     fn is_rt_eligible(&self) -> bool {
-        use alsa_sys::*;
-        // SAFETY: `alsa::pcm::PCM` is `pub struct PCM(*mut snd_pcm_t, Cell<bool>)`. The crate
-        // does not expose a public `as_ptr()`, but we can cast and read from it.
-        // TODO: replace with `self.handle.as_ptr()` once alsa-rs exposes it publicly.
-        let raw = unsafe {
-            (&self.handle as *const alsa::pcm::PCM)
-                .cast::<*mut snd_pcm_t>()
-                .read()
-        };
-        let pcm_type = unsafe { snd_pcm_type(raw) };
-
-        // Only attempt RT promotion for types known not to spin and not to chain to a
-        // server-backed backend. Therefore, we exclude:
-        // - NULL: always-ready poll() spins and exhausts RLIMIT_RTTIME, causing SIGXCPU.
-        // - IOPLUG/EXTPLUG: may route to PulseAudio, causing priority inversion and SIGXCPU.
-        // - HOOKS, SOFTVOL, PLUG, RATE, ROUTE, COPY: that can chain to either of the above.
-        matches!(
-            pcm_type,
-            SND_PCM_TYPE_HW
-                | SND_PCM_TYPE_LINEAR
-                | SND_PCM_TYPE_ALAW
-                | SND_PCM_TYPE_MULAW
-                | SND_PCM_TYPE_ADPCM
-                | SND_PCM_TYPE_LINEAR_FLOAT
-                | SND_PCM_TYPE_IEC958
-        )
+        pcm_is_rt_eligible(&self.handle)
     }
+}
 
-    // Signals the worker to pause at the top of its next loop iteration and waits for it to
-    // acknowledge. Returns early if the worker has already exited. The caller holds exclusive
-    // PCM access until unpark_worker() is called.
-    fn park_worker(&self) {
-        self.parked.store(true, Ordering::Relaxed);
-        let (lock, cvar) = &self.park;
-        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-        // Exit if the worker acknowledged the park OR if the worker has exited (dropping=true).
-        while !*guard && !self.dropping.load(Ordering::Relaxed) {
-            guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
-        }
-    }
+#[cfg(feature = "realtime")]
+fn pcm_is_rt_eligible(handle: &alsa::pcm::PCM) -> bool {
+    use alsa_sys::*;
+    // SAFETY: `alsa::pcm::PCM` is `pub struct PCM(*mut snd_pcm_t, Cell<bool>)`. The crate
+    // does not expose a public `as_ptr()`, but we can cast and read from it.
+    // TODO: replace with `handle.as_ptr()` once alsa-rs exposes it publicly.
+    let raw = unsafe {
+        (handle as *const alsa::pcm::PCM)
+            .cast::<*mut snd_pcm_t>()
+            .read()
+    };
+    let pcm_type = unsafe { snd_pcm_type(raw) };
 
-    // Called by the worker when it sees parked=true: acknowledges the park, then sleeps
-    // until the caller calls unpark_worker().
-    fn acknowledge_park(&self) {
-        let (lock, cvar) = &self.park;
-        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = true;
-        cvar.notify_one();
-        while self.parked.load(Ordering::Relaxed) {
-            guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
-        }
-        *guard = false;
-    }
-
-    // Called by the worker on any exit that is not a normal drop: marks the stream dead and
-    // wakes any thread blocked in park_worker() so it doesn't hang indefinitely.
-    fn signal_worker_exit(&self) {
-        self.dropping.store(true, Ordering::Relaxed);
-        let (lock, cvar) = &self.park;
-        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-        cvar.notify_one();
-    }
-
-    // Releases the park: clears parked and wakes the worker from acknowledge_park().
-    fn unpark_worker(&self) {
-        let (lock, cvar) = &self.park;
-        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = false;
-        self.parked.store(false, Ordering::Relaxed);
-        drop(guard);
-        cvar.notify_one();
-    }
+    // Only attempt RT promotion for types known not to spin and not to chain to a
+    // server-backed backend. Therefore, we exclude:
+    // - NULL: always-ready poll() spins and exhausts RLIMIT_RTTIME, causing SIGXCPU.
+    // - IOPLUG/EXTPLUG: may route to PulseAudio, causing priority inversion and SIGXCPU.
+    // - HOOKS, SOFTVOL, PLUG, RATE, ROUTE, COPY: that can chain to either of the above.
+    matches!(
+        pcm_type,
+        SND_PCM_TYPE_HW
+            | SND_PCM_TYPE_LINEAR
+            | SND_PCM_TYPE_ALAW
+            | SND_PCM_TYPE_MULAW
+            | SND_PCM_TYPE_ADPCM
+            | SND_PCM_TYPE_LINEAR_FLOAT
+            | SND_PCM_TYPE_IEC958
+    )
 }
 
 struct StreamWorkerContext {
@@ -996,11 +1225,11 @@ fn input_stream_worker(
 
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
     loop {
-        if stream.dropping.load(Ordering::Relaxed) {
+        if stream.control.dropping.load(Ordering::Relaxed) {
             return;
         }
-        if stream.parked.load(Ordering::Relaxed) {
-            stream.acknowledge_park();
+        if stream.control.parked.load(Ordering::Relaxed) {
+            stream.control.acknowledge_park();
         }
         let result = match poll_for_period(&rx, stream, &mut ctxt) {
             Ok(Poll::Pending) => continue,
@@ -1021,7 +1250,7 @@ fn input_stream_worker(
             match err.kind() {
                 ErrorKind::DeviceNotAvailable => {
                     error_callback(err);
-                    stream.signal_worker_exit();
+                    stream.control.signal_worker_exit();
                     return;
                 }
                 _ => error_callback(err),
@@ -1051,11 +1280,11 @@ fn output_stream_worker(
     let mut ctxt = StreamWorkerContext::new(&timeout, stream, &rx);
 
     loop {
-        if stream.dropping.load(Ordering::Relaxed) {
+        if stream.control.dropping.load(Ordering::Relaxed) {
             return;
         }
-        if stream.parked.load(Ordering::Relaxed) {
-            stream.acknowledge_park();
+        if stream.control.parked.load(Ordering::Relaxed) {
+            stream.control.acknowledge_park();
         }
         let result = match poll_for_period(&rx, stream, &mut ctxt) {
             Ok(Poll::Pending) => continue,
@@ -1076,7 +1305,7 @@ fn output_stream_worker(
             match err.kind() {
                 ErrorKind::DeviceNotAvailable => {
                     error_callback(err);
-                    stream.signal_worker_exit();
+                    stream.control.signal_worker_exit();
                     return;
                 }
                 _ => error_callback(err),
@@ -1135,7 +1364,6 @@ enum Poll {
     Recover,
 }
 
-// This block is shared between both input and output stream worker functions.
 fn poll_for_period(
     rx: &TriggerReceiver,
     stream: &StreamInner,
@@ -1217,22 +1445,30 @@ fn poll_for_period(
         return Ok(Poll::Pending);
     }
 
-    let audio_ts_type = match stream.timestamp_mode {
-        TimestampMode::AudioLink => alsa::pcm::AudioTstampType::LinkSynchronized,
-        TimestampMode::SystemClock | TimestampMode::CreationInstant => {
-            alsa::pcm::AudioTstampType::Compat
-        }
-    };
     // From the guard above we know that this poll is not a spurious wakeup,
     // so we also know we can query the device in a stable state.
-    let status = alsa::pcm::StatusBuilder::new()
-        .audio_htstamp_config(audio_ts_type, false)
-        .build(&stream.handle)?;
+    let status = status_with_timestamp(&stream.handle, stream.timestamp_mode)?;
 
     Ok(Poll::Ready {
         status,
         delay_frames: delay_frames.max(0) as usize,
     })
+}
+
+fn status_with_timestamp(
+    handle: &alsa::pcm::PCM,
+    mode: TimestampMode,
+) -> Result<alsa::pcm::Status, Error> {
+    let audio_ts_type = match mode {
+        TimestampMode::AudioLink => alsa::pcm::AudioTstampType::LinkSynchronized,
+        TimestampMode::SystemClock | TimestampMode::CreationInstant => {
+            alsa::pcm::AudioTstampType::Compat
+        }
+    };
+    alsa::pcm::StatusBuilder::new()
+        .audio_htstamp_config(audio_ts_type, false)
+        .build(handle)
+        .map_err(Into::into)
 }
 
 // Full input underrun recovery: mark the xrun, then prepare + start the stream.
@@ -1278,7 +1514,7 @@ fn process_input(
             Err(err) => return Err(err.into()),
         }
     }
-    if !stream.draining.load(Ordering::Relaxed) {
+    if !stream.control.draining.load(Ordering::Relaxed) {
         let data = buffer.as_mut_ptr() as *mut ();
         let data = unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
         let callback_instant = stream.callback_instant(&status);
@@ -1315,9 +1551,13 @@ fn process_output(
     data_callback: &mut (dyn FnMut(&mut Data, &CallbackInfo) + Send + 'static),
 ) -> Result<(), Error> {
     // Pre-fill buffer with equilibrium; user callback overwrites what it wants.
-    stream.equilibrium.fill(buffer);
+    stream
+        .equilibrium
+        .as_ref()
+        .expect("process_output only runs for Output-direction streams")
+        .fill(buffer);
 
-    if !stream.draining.load(Ordering::Relaxed) {
+    if !stream.control.draining.load(Ordering::Relaxed) {
         let data = buffer.as_mut_ptr() as *mut ();
         let mut data =
             unsafe { Data::from_parts(data, stream.period_samples, stream.sample_format) };
@@ -1362,6 +1602,445 @@ fn process_output(
     Ok(())
 }
 
+// Prefills playback with silence, links the pair if not already linked, and starts capture
+// (which starts playback too via kernel link-group propagation) or starts both explicitly if
+// unlinked. Call only when both PCMs are Prepared.
+//
+// snd_pcm_link() only synchronizes PCMs sharing one card's hardware trigger, so it can fail
+// (e.g. an `asym` PCM spanning two cards) while both PCMs still open and run fine independently.
+// cpal can't verify hardware clock sharing either way, so a failed link doesn't refuse the
+// stream: it proceeds unlinked instead of gating on a signal it can't fully trust.
+fn begin_duplex_playback(stream: &DuplexStreamInner) -> Result<(), Error> {
+    let mut silence = vec![0u8; stream.period_size * stream.playback.frame_size].into_boxed_slice();
+    stream.playback.equilibrium.fill(&mut silence);
+    for _ in 0..DEFAULT_PERIODS {
+        let mut frames_written = 0;
+        while frames_written < stream.period_size {
+            let n = stream
+                .playback
+                .handle
+                .io_bytes()
+                .writei(&silence[frames_written * stream.playback.frame_size..])?;
+            frames_written += n;
+        }
+    }
+
+    if !stream.linked.load(Ordering::Relaxed)
+        && stream.capture.handle.link(&stream.playback.handle).is_ok()
+    {
+        stream.linked.store(true, Ordering::Relaxed);
+    }
+
+    stream.capture.handle.start()?;
+    if !stream.linked.load(Ordering::Relaxed) {
+        stream.playback.handle.start()?;
+    }
+    Ok(())
+}
+
+fn start_duplex(stream: &DuplexStreamInner) -> Result<(), Error> {
+    match stream.capture.handle.state() {
+        alsa::pcm::State::Paused => {
+            let resumed = stream
+                .capture
+                .handle
+                .pause(false)
+                .and_then(|_| stream.playback.handle.pause(false));
+            // Mirrors pause_duplex's fallback: resuming a linked pair via PAUSE_RELEASE can be
+            // as unreliable as pausing it was, on the same drivers.
+            if resumed.is_err() {
+                stream.capture.handle.drop().ok();
+                stream.playback.handle.drop().ok();
+                stream.capture.handle.prepare()?;
+                stream.playback.handle.prepare()?;
+                begin_duplex_playback(stream)?;
+            }
+        }
+        // Guard against Setup in case prepare() in stop() failed silently.
+        alsa::pcm::State::Prepared | alsa::pcm::State::Setup => {
+            if stream.capture.handle.state() == alsa::pcm::State::Setup {
+                stream.capture.handle.prepare()?;
+            }
+            if stream.playback.handle.state() == alsa::pcm::State::Setup {
+                stream.playback.handle.prepare()?;
+            }
+            begin_duplex_playback(stream)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+// On xrun, drop() and prepare() both PCMs. When linked this is one call each: DROP and PREPARE
+// propagate through the kernel link group the same way START does (snd_pcm_action_group()
+// applies to every substream in the group, not just the one the ioctl was issued on).
+fn recover_duplex(stream: &DuplexStreamInner) -> Result<(), Error> {
+    stream.pending_xrun.store(true, Ordering::Relaxed);
+    if stream.linked.load(Ordering::Relaxed) {
+        stream.capture.handle.drop()?;
+        stream.capture.handle.prepare()?;
+    } else {
+        stream.capture.handle.drop().ok();
+        stream.playback.handle.drop().ok();
+        stream.capture.handle.prepare()?;
+        stream.playback.handle.prepare()?;
+    }
+    begin_duplex_playback(stream)
+}
+
+struct DuplexStreamWorkerContext {
+    descriptors: Box<[libc::pollfd]>,
+    capture_range: std::ops::Range<usize>,
+    playback_range: std::ops::Range<usize>,
+    capture_buffer: Box<[u8]>,
+    playback_buffer: Box<[u8]>,
+    poll_timeout: i32,
+}
+
+impl DuplexStreamWorkerContext {
+    fn new(
+        poll_timeout: &Option<Duration>,
+        stream: &DuplexStreamInner,
+        rx: &TriggerReceiver,
+    ) -> Self {
+        let poll_timeout: i32 = if let Some(d) = poll_timeout {
+            d.as_nanos().div_ceil(1_000_000).min(i32::MAX as u128) as i32
+        } else {
+            POLL_INFINITE
+        };
+
+        let capture_buffer =
+            vec![0u8; stream.period_size * stream.capture.frame_size].into_boxed_slice();
+        let playback_buffer =
+            vec![0u8; stream.period_size * stream.playback.frame_size].into_boxed_slice();
+
+        let capture_count = stream.capture.handle.count();
+        let playback_count = stream.playback.handle.count();
+        let mut descriptors = vec![
+            libc::pollfd {
+                fd: 0,
+                events: 0,
+                revents: 0
+            };
+            1 + capture_count + playback_count
+        ]
+        .into_boxed_slice();
+
+        descriptors[0] = libc::pollfd {
+            fd: rx.0,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+
+        let capture_range = 1..(1 + capture_count);
+        let playback_range = capture_range.end..(capture_range.end + playback_count);
+
+        let filled = stream
+            .capture
+            .handle
+            .fill(&mut descriptors[capture_range.clone()])
+            .expect("Failed to fill ALSA capture descriptors");
+        debug_assert_eq!(filled, capture_count);
+        let filled = stream
+            .playback
+            .handle
+            .fill(&mut descriptors[playback_range.clone()])
+            .expect("Failed to fill ALSA playback descriptors");
+        debug_assert_eq!(filled, playback_count);
+
+        Self {
+            descriptors,
+            capture_range,
+            playback_range,
+            capture_buffer,
+            playback_buffer,
+            poll_timeout,
+        }
+    }
+}
+
+fn duplex_stream_worker(
+    rx: Arc<TriggerReceiver>,
+    stream: &DuplexStreamInner,
+    data_callback: &mut (dyn FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static),
+    error_callback: &mut (dyn FnMut(Error) + Send + 'static),
+    timeout: Option<Duration>,
+) {
+    #[cfg(feature = "realtime")]
+    if stream.is_rt_eligible() {
+        let period_frames = u32::try_from(stream.period_size).unwrap_or(0);
+        if let Err(err) = audio_thread_priority::promote_current_thread_to_real_time(
+            period_frames,
+            stream.sample_rate,
+        ) {
+            error_callback(err.into());
+        }
+    }
+
+    let mut ctxt = DuplexStreamWorkerContext::new(&timeout, stream, &rx);
+    loop {
+        if stream.control.dropping.load(Ordering::Relaxed) {
+            return;
+        }
+        if stream.control.parked.load(Ordering::Relaxed) {
+            stream.control.acknowledge_park();
+        }
+        let result = match poll_for_duplex_period(&rx, stream, &mut ctxt) {
+            Ok(DuplexPoll::Pending) => continue,
+            Ok(DuplexPoll::Recover) => recover_duplex(stream),
+            Ok(DuplexPoll::Ready {
+                capture_status,
+                playback_status,
+                capture_delay,
+                playback_delay,
+            }) => process_duplex(
+                stream,
+                &mut ctxt.capture_buffer,
+                &mut ctxt.playback_buffer,
+                capture_status,
+                playback_status,
+                capture_delay,
+                playback_delay,
+                data_callback,
+            ),
+            Err(err) => Err(err),
+        };
+        if let Err(err) = result {
+            match err.kind() {
+                ErrorKind::DeviceNotAvailable => {
+                    error_callback(err);
+                    stream.control.signal_worker_exit();
+                    return;
+                }
+                _ => error_callback(err),
+            }
+        }
+    }
+}
+
+#[expect(clippy::large_enum_variant)]
+enum DuplexPoll {
+    Pending,
+    Ready {
+        capture_status: alsa::pcm::Status,
+        playback_status: alsa::pcm::Status,
+        capture_delay: usize,
+        playback_delay: usize,
+    },
+    Recover,
+}
+
+// Neither direction is processed until both have a full period ready, keeping capture and
+// playback in lockstep when snd_pcm_link() couldn't tie them together (virtual PCMs like
+// default or pulse have no shared substream to link, so this is common on non-hw devices).
+// Suspend goes straight to full recovery instead of a soft hardware resume, since duplex
+// would need to keep that resume path in sync across two handles.
+fn poll_for_duplex_period(
+    rx: &TriggerReceiver,
+    stream: &DuplexStreamInner,
+    ctxt: &mut DuplexStreamWorkerContext,
+) -> Result<DuplexPoll, Error> {
+    let res = alsa::poll::poll(&mut ctxt.descriptors, ctxt.poll_timeout)?;
+    if res == 0 {
+        for handle in [&stream.capture.handle, &stream.playback.handle] {
+            match handle.state() {
+                alsa::pcm::State::Disconnected => {
+                    return Err(Error::with_message(
+                        ErrorKind::DeviceNotAvailable,
+                        "Device disconnected",
+                    ));
+                }
+                alsa::pcm::State::XRun | alsa::pcm::State::Suspended => {
+                    stream.pending_xrun.store(true, Ordering::Relaxed);
+                    return Ok(DuplexPoll::Recover);
+                }
+                _ => {}
+            }
+        }
+        return Ok(DuplexPoll::Pending);
+    }
+
+    if ctxt.descriptors[0].revents != 0 {
+        rx.clear_pipe();
+        return Ok(DuplexPoll::Pending);
+    }
+
+    let capture_revents = stream
+        .capture
+        .handle
+        .revents(&ctxt.descriptors[ctxt.capture_range.clone()])?;
+    let playback_revents = stream
+        .playback
+        .handle
+        .revents(&ctxt.descriptors[ctxt.playback_range.clone()])?;
+    if capture_revents.is_empty() && playback_revents.is_empty() {
+        return Ok(DuplexPoll::Pending);
+    }
+    if capture_revents.intersects(alsa::poll::Flags::HUP | alsa::poll::Flags::NVAL)
+        || playback_revents.intersects(alsa::poll::Flags::HUP | alsa::poll::Flags::NVAL)
+    {
+        return Err(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "Device disconnected",
+        ));
+    }
+
+    let (capture_avail, capture_delay) = match stream.capture.handle.avail_delay() {
+        Err(_) if matches!(stream.capture.handle.state(), alsa::pcm::State::Suspended) => {
+            stream.pending_xrun.store(true, Ordering::Relaxed);
+            return Ok(DuplexPoll::Recover);
+        }
+        Err(err) if err.errno() == libc::EPIPE => {
+            stream.pending_xrun.store(true, Ordering::Relaxed);
+            return Ok(DuplexPoll::Recover);
+        }
+        res => res,
+    }?;
+    let (playback_avail, playback_delay) = match stream.playback.handle.avail_delay() {
+        Err(_) if matches!(stream.playback.handle.state(), alsa::pcm::State::Suspended) => {
+            stream.pending_xrun.store(true, Ordering::Relaxed);
+            return Ok(DuplexPoll::Recover);
+        }
+        Err(err) if err.errno() == libc::EPIPE => {
+            stream.pending_xrun.store(true, Ordering::Relaxed);
+            return Ok(DuplexPoll::Recover);
+        }
+        res => res,
+    }?;
+    if capture_avail < stream.period_size as alsa::pcm::Frames
+        || playback_avail < stream.period_size as alsa::pcm::Frames
+    {
+        return Ok(DuplexPoll::Pending);
+    }
+
+    let capture_status =
+        status_with_timestamp(&stream.capture.handle, stream.capture.timestamp_mode)?;
+    let playback_status =
+        status_with_timestamp(&stream.playback.handle, stream.playback.timestamp_mode)?;
+
+    Ok(DuplexPoll::Ready {
+        capture_status,
+        playback_status,
+        capture_delay: capture_delay.max(0) as usize,
+        playback_delay: playback_delay.max(0) as usize,
+    })
+}
+
+#[expect(clippy::too_many_arguments)]
+fn process_duplex(
+    stream: &DuplexStreamInner,
+    capture_buffer: &mut [u8],
+    playback_buffer: &mut [u8],
+    capture_status: alsa::pcm::Status,
+    playback_status: alsa::pcm::Status,
+    capture_delay: usize,
+    playback_delay: usize,
+    data_callback: &mut (dyn FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static),
+) -> Result<(), Error> {
+    let mut frames_read = 0;
+    while frames_read < stream.period_size {
+        match stream
+            .capture
+            .handle
+            .io_bytes()
+            .readi(&mut capture_buffer[frames_read * stream.capture.frame_size..])
+        {
+            Ok(n) => frames_read += n,
+            Err(err) if err.errno() == libc::EAGAIN && frames_read == 0 => return Ok(()),
+            Err(_) if matches!(stream.capture.handle.state(), alsa::pcm::State::Suspended) => {
+                return recover_duplex(stream);
+            }
+            Err(err) if err.errno() == libc::EAGAIN || err.errno() == libc::EPIPE => {
+                return recover_duplex(stream);
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    stream.playback.equilibrium.fill(playback_buffer);
+
+    if !stream.control.draining.load(Ordering::Relaxed) {
+        let input_ptr = capture_buffer.as_ptr() as *mut ();
+        let input_data = unsafe {
+            Data::from_parts(
+                input_ptr,
+                stream.capture.period_samples,
+                stream.capture.sample_format,
+            )
+        };
+        let output_ptr = playback_buffer.as_mut_ptr() as *mut ();
+        let mut output_data = unsafe {
+            Data::from_parts(
+                output_ptr,
+                stream.playback.period_samples,
+                stream.playback.sample_format,
+            )
+        };
+
+        let capture_instant = callback_instant_for(
+            stream.capture.timestamp_mode,
+            stream.capture.creation_ts,
+            stream.creation_instant,
+            &capture_status,
+        );
+        let capture_delay_duration =
+            frames_to_duration(capture_delay as FrameCount, stream.sample_rate);
+        let capture_device = capture_instant
+            .checked_sub(capture_delay_duration)
+            .unwrap_or(StreamInstant::ZERO);
+
+        let playback_instant = callback_instant_for(
+            stream.playback.timestamp_mode,
+            stream.playback.creation_ts,
+            stream.creation_instant,
+            &playback_status,
+        );
+        let playback_delay_duration =
+            frames_to_duration(playback_delay as FrameCount, stream.sample_rate);
+        let playback_device = playback_instant + playback_delay_duration;
+
+        let xrun = stream.pending_xrun.swap(false, Ordering::Relaxed);
+        let info = DuplexCallbackInfo::new(
+            CallbackInfo {
+                timestamp: StreamTimestamp {
+                    callback: capture_instant,
+                    device: capture_device,
+                },
+                xrun,
+            },
+            CallbackInfo {
+                timestamp: StreamTimestamp {
+                    callback: playback_instant,
+                    device: playback_device,
+                },
+                xrun,
+            },
+        );
+        data_callback(&input_data, &mut output_data, &info);
+    }
+
+    let mut frames_written = 0;
+    while frames_written < stream.period_size {
+        match stream
+            .playback
+            .handle
+            .io_bytes()
+            .writei(&playback_buffer[frames_written * stream.playback.frame_size..])
+        {
+            Ok(n) => frames_written += n,
+            Err(err) if err.errno() == libc::EAGAIN && frames_written == 0 => return Ok(()),
+            Err(_) if matches!(stream.playback.handle.state(), alsa::pcm::State::Suspended) => {
+                return recover_duplex(stream);
+            }
+            Err(err) if err.errno() == libc::EAGAIN || err.errno() == libc::EPIPE => {
+                return recover_duplex(stream);
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+    Ok(())
+}
+
 // Adapted from `timestamp2ns` here:
 // https://fossies.org/linux/alsa-lib/test/audio_time.c
 #[inline]
@@ -1386,13 +2065,22 @@ fn htstamp_elapsed(status: &alsa::pcm::Status, origin: alsa::timespec) -> Stream
 }
 
 impl Stream {
-    /// Parks the worker and gets exclusive access to the PCM handle.
+    /// Parks the worker and gets exclusive access to the PCM handle(s).
     fn park_worker(&self) {
         self.latch.release();
         // Must be true before the trigger fires, so the worker sees it on the next loop iteration.
-        self.inner.parked.store(true, Ordering::Relaxed);
-        self.trigger.wakeup();
-        self.inner.park_worker();
+        match &self.kind {
+            StreamKind::Single(inner) => {
+                inner.control.parked.store(true, Ordering::Relaxed);
+                self.trigger.wakeup();
+                inner.control.park_worker();
+            }
+            StreamKind::Duplex(inner) => {
+                inner.control.parked.store(true, Ordering::Relaxed);
+                self.trigger.wakeup();
+                inner.control.park_worker();
+            }
+        }
     }
 
     fn new_input<D, E>(
@@ -1431,7 +2119,7 @@ impl Stream {
 
         Self {
             thread: Some(thread),
-            inner,
+            kind: StreamKind::Single(inner),
             trigger: tx,
             _rx: rx,
             latch,
@@ -1474,119 +2162,238 @@ impl Stream {
 
         Self {
             thread: Some(thread),
-            inner,
+            kind: StreamKind::Single(inner),
             trigger: tx,
             _rx: rx,
             latch,
         }
     }
 
-    fn suspend_pcm(&self) -> Result<(), Error> {
-        let hw_params = self.inner.handle.hw_params_current()?;
+    fn new_duplex<D, E>(
+        inner: Arc<DuplexStreamInner>,
+        mut data_callback: D,
+        mut error_callback: E,
+        timeout: Option<Duration>,
+    ) -> Stream
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
+    {
+        let (tx, rx) = trigger();
+        let rx_thread = rx.clone();
+        let stream = inner.clone();
+
+        // The latch is released by play(); the worker blocks here until then, keeping both
+        // PCMs in PREPARED state with no DMA activity.
+        let mut latch = Latch::new();
+        let waiter = latch.waiter();
+
+        let thread = thread::Builder::new()
+            .name("cpal_alsa_duplex".to_owned())
+            .spawn(move || {
+                waiter.wait();
+                duplex_stream_worker(
+                    rx_thread,
+                    &stream,
+                    &mut data_callback,
+                    &mut error_callback,
+                    timeout,
+                );
+            })
+            .unwrap();
+        latch.add_thread(thread.thread().clone());
+
+        Self {
+            thread: Some(thread),
+            kind: StreamKind::Duplex(inner),
+            trigger: tx,
+            _rx: rx,
+            latch,
+        }
+    }
+
+    fn suspend_pcm(&self, inner: &StreamInner) -> Result<(), Error> {
+        let hw_params = inner.handle.hw_params_current()?;
         if hw_params.can_pause() {
-            if self.inner.handle.state() != alsa::pcm::State::Paused {
-                self.inner.handle.pause(true)?;
+            if inner.handle.state() != alsa::pcm::State::Paused {
+                inner.handle.pause(true)?;
             }
         } else {
             self.park_worker();
-            let result = if self.inner.handle.state() == alsa::pcm::State::Running {
-                self.inner
+            let result = if inner.handle.state() == alsa::pcm::State::Running {
+                inner
                     .handle
                     .drop()
-                    .and_then(|_| self.inner.handle.prepare())
+                    .and_then(|_| inner.handle.prepare())
                     .map_err(Error::from)
             } else {
                 Ok(())
             };
-            self.inner.unpark_worker();
+            inner.control.unpark_worker();
             return result;
         }
         Ok(())
     }
 
     // Drops buffered PCM data so a resumed stream doesn't deliver stale audio.
-    fn discard_pcm(&self) -> Result<(), Error> {
+    fn discard_pcm(&self, inner: &StreamInner) -> Result<(), Error> {
         self.park_worker();
-        let result = if self.inner.handle.state() != alsa::pcm::State::Setup {
-            self.inner
+        let result = if inner.handle.state() != alsa::pcm::State::Setup {
+            inner
                 .handle
                 .drop()
-                .and_then(|_| self.inner.handle.prepare())
+                .and_then(|_| inner.handle.prepare())
                 .map_err(Error::from)
         } else {
             Ok(())
         };
-        self.inner.unpark_worker();
+        inner.control.unpark_worker();
         result
     }
 
-    // Drains a parked output PCM: caller holds exclusive access via park_worker()/unpark_worker().
-    fn drain_output(&self, timeout: Option<Duration>) -> Result<(), Error> {
-        if timeout == Some(Duration::ZERO) {
-            self.inner.handle.drop().ok();
-            return self.inner.handle.prepare().map_err(Into::into);
+    // PAUSE propagates through the link group like START does, so one call on capture pauses
+    // both when linked; the explicit playback call only does work when unlinked.
+    fn pause_duplex(&self, inner: &DuplexStreamInner) -> Result<(), Error> {
+        let can_pause = inner.capture.handle.hw_params_current()?.can_pause()
+            && inner.playback.handle.hw_params_current()?.can_pause();
+        if can_pause {
+            let result: Result<(), alsa::Error> = (|| {
+                if inner.capture.handle.state() != alsa::pcm::State::Paused {
+                    inner.capture.handle.pause(true)?;
+                }
+                if inner.playback.handle.state() != alsa::pcm::State::Paused {
+                    inner.playback.handle.pause(true)?;
+                }
+                Ok(())
+            })();
+            // Some drivers advertise per-direction pause support that fails once the pair is
+            // linked; fall through to the discard path below instead of surfacing that error.
+            if result.is_ok() {
+                return Ok(());
+            }
         }
 
-        // Non-blocking drain: the PCM is opened non-blocking, so snd_pcm_drain returns EAGAIN
-        // immediately. Poll the ALSA fds until drain completes or the deadline expires.
-        let deadline = timeout.and_then(|t| Instant::now().checked_add(t));
-        let mut fds = self.inner.handle.get()?;
-        let mut result: Result<(), Error> = Ok(());
+        self.park_worker();
+        let capture_result = if inner.capture.handle.state() == alsa::pcm::State::Running {
+            inner
+                .capture
+                .handle
+                .drop()
+                .and_then(|_| inner.capture.handle.prepare())
+                .map_err(Error::from)
+        } else {
+            Ok(())
+        };
+        let playback_result = if inner.playback.handle.state() == alsa::pcm::State::Running {
+            inner
+                .playback
+                .handle
+                .drop()
+                .and_then(|_| inner.playback.handle.prepare())
+                .map_err(Error::from)
+        } else {
+            Ok(())
+        };
+        inner.control.unpark_worker();
+        capture_result.and(playback_result)
+    }
 
-        'drain: loop {
-            match self.inner.handle.drain() {
-                Ok(()) => break,
-                Err(e) if e.errno() == libc::EAGAIN => {
-                    let timeout_ms = match deadline {
-                        None => POLL_INFINITE,
-                        Some(deadline) => {
-                            let remaining = deadline.saturating_duration_since(Instant::now());
-                            if remaining.is_zero() {
-                                self.inner.handle.drop().ok();
-                                break 'drain;
-                            }
-                            remaining.as_millis().min(i32::MAX as u128) as i32
-                        }
-                    };
-                    match alsa::poll::poll(&mut fds, timeout_ms) {
-                        Ok(0) => {
-                            self.inner.handle.drop().ok();
+    // Discards capture and drains playback, per StreamTrait::stop's per-direction contract. Left
+    // linked, capture.handle.start() in the next begin_duplex_playback() fails even after
+    // preparing capture: a linked start() needs the whole group ready, and playback sits in
+    // Setup until its own prepare() runs. Unlink first so each handle can be prepared and
+    // started independently.
+    fn stop_duplex(
+        &self,
+        inner: &DuplexStreamInner,
+        timeout: Option<Duration>,
+    ) -> Result<(), Error> {
+        self.park_worker();
+        if inner.linked.swap(false, Ordering::Relaxed) {
+            inner.capture.handle.unlink().ok(); // best-effort
+        }
+        let capture_result = if inner.capture.handle.state() != alsa::pcm::State::Setup {
+            inner
+                .capture
+                .handle
+                .drop()
+                .and_then(|_| inner.capture.handle.prepare())
+                .map_err(Error::from)
+        } else {
+            Ok(())
+        };
+        let playback_result = drain_pcm(&inner.playback.handle, timeout);
+        inner.control.unpark_worker();
+        capture_result.and(playback_result)
+    }
+}
+
+// Drains a parked output PCM: caller holds exclusive access via park_worker()/unpark_worker().
+fn drain_pcm(handle: &alsa::pcm::PCM, timeout: Option<Duration>) -> Result<(), Error> {
+    if timeout == Some(Duration::ZERO) {
+        handle.drop().ok();
+        return handle.prepare().map_err(Into::into);
+    }
+
+    // Non-blocking drain: the PCM is opened non-blocking, so snd_pcm_drain returns EAGAIN
+    // immediately. Poll the ALSA fds until drain completes or the deadline expires.
+    let deadline = timeout.and_then(|t| Instant::now().checked_add(t));
+    let mut fds = handle.get()?;
+    let mut result: Result<(), Error> = Ok(());
+
+    'drain: loop {
+        match handle.drain() {
+            Ok(()) => break,
+            Err(e) if e.errno() == libc::EAGAIN => {
+                let timeout_ms = match deadline {
+                    None => POLL_INFINITE,
+                    Some(deadline) => {
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        if remaining.is_zero() {
+                            handle.drop().ok();
                             break 'drain;
                         }
-                        Ok(_) => continue,
-                        Err(e) => {
-                            result = Err(e.into());
-                            break;
-                        }
+                        remaining.as_millis().min(i32::MAX as u128) as i32
+                    }
+                };
+                match alsa::poll::poll(&mut fds, timeout_ms) {
+                    Ok(0) => {
+                        handle.drop().ok();
+                        break 'drain;
+                    }
+                    Ok(_) => continue,
+                    Err(e) => {
+                        result = Err(e.into());
+                        break;
                     }
                 }
-                Err(e) => {
-                    result = Err(e.into());
-                    break;
-                }
+            }
+            Err(e) => {
+                result = Err(e.into());
+                break;
             }
         }
-
-        // Leave PCM in PREPARED so the worker can resume normally.
-        match self.inner.handle.state() {
-            alsa::pcm::State::Setup => {
-                // Drain completed or drop-on-timeout succeeded.
-                if let Err(e) = self.inner.handle.prepare() {
-                    result = result.and(Err(e.into()));
-                }
-            }
-            alsa::pcm::State::Draining => {
-                // A poll error interrupted an in-progress drain; abort it.
-                self.inner.handle.drop().ok();
-                if let Err(e) = self.inner.handle.prepare() {
-                    result = result.and(Err(e.into()));
-                }
-            }
-            _ => {} // XRun, Running, Disconnected: worker's own recovery handles it
-        }
-
-        result
     }
+
+    // Leave PCM in PREPARED so the worker can resume normally.
+    match handle.state() {
+        alsa::pcm::State::Setup => {
+            // Drain completed or drop-on-timeout succeeded.
+            if let Err(e) = handle.prepare() {
+                result = result.and(Err(e.into()));
+            }
+        }
+        alsa::pcm::State::Draining => {
+            // A poll error interrupted an in-progress drain; abort it.
+            handle.drop().ok();
+            if let Err(e) = handle.prepare() {
+                result = result.and(Err(e.into()));
+            }
+        }
+        _ => {} // XRun, Running, Disconnected: worker's own recovery handles it
+    }
+
+    result
 }
 
 impl Stream {
@@ -1594,8 +2401,16 @@ impl Stream {
     // if parked, and wakes it from poll_for_period(). dropping must be set first so the
     // worker exits on re-entry rather than polling again.
     fn shutdown_worker(&self) {
-        self.inner.dropping.store(true, Ordering::Relaxed);
-        self.inner.unpark_worker();
+        match &self.kind {
+            StreamKind::Single(inner) => {
+                inner.control.dropping.store(true, Ordering::Relaxed);
+                inner.control.unpark_worker();
+            }
+            StreamKind::Duplex(inner) => {
+                inner.control.dropping.store(true, Ordering::Relaxed);
+                inner.control.unpark_worker();
+            }
+        }
         self.trigger.wakeup();
     }
 }
@@ -1614,68 +2429,111 @@ impl Drop for Stream {
 
 impl StreamTrait for Stream {
     fn start(&self) -> Result<(), Error> {
-        self.inner.draining.store(false, Ordering::Relaxed);
-        self.latch.release(); // idempotent: no-op after first call
-        self.inner.unpark_worker(); // resume if stop() left it parked; no-op otherwise
-        match self.inner.handle.state() {
-            // Calling start() on an empty output buffer would trigger an immediate XRUN.
-            alsa::pcm::State::Prepared if self.inner.direction == DeviceDirection::Input => {
-                self.inner.handle.start()?;
-            }
-            alsa::pcm::State::Paused => {
-                self.inner.handle.pause(false)?;
-            }
-            // Guard against Setup in case prepare() in stop() failed silently.
-            alsa::pcm::State::Setup => {
-                self.inner.handle.prepare()?;
-                if self.inner.direction == DeviceDirection::Input {
-                    self.inner.handle.start()?;
+        match &self.kind {
+            StreamKind::Single(inner) => {
+                inner.control.draining.store(false, Ordering::Relaxed);
+                self.latch.release(); // idempotent: no-op after first call
+                inner.control.unpark_worker(); // resume if stop() left it parked; no-op otherwise
+                match inner.handle.state() {
+                    // Calling start() on an empty output buffer would trigger an immediate XRUN.
+                    alsa::pcm::State::Prepared if inner.direction == DeviceDirection::Input => {
+                        inner.handle.start()?;
+                    }
+                    alsa::pcm::State::Paused => {
+                        inner.handle.pause(false)?;
+                    }
+                    // Guard against Setup in case prepare() in stop() failed silently.
+                    alsa::pcm::State::Setup => {
+                        inner.handle.prepare()?;
+                        if inner.direction == DeviceDirection::Input {
+                            inner.handle.start()?;
+                        }
+                    }
+                    _ => {}
                 }
+                Ok(())
             }
-            _ => {}
+            StreamKind::Duplex(inner) => {
+                inner.control.draining.store(false, Ordering::Relaxed);
+                self.latch.release();
+                inner.control.unpark_worker();
+                start_duplex(inner)
+            }
         }
-        Ok(())
     }
 
     fn pause(&self) -> Result<(), Error> {
-        self.inner.draining.store(true, Ordering::Relaxed);
-        self.suspend_pcm()
+        match &self.kind {
+            StreamKind::Single(inner) => {
+                inner.control.draining.store(true, Ordering::Relaxed);
+                self.suspend_pcm(inner)
+            }
+            StreamKind::Duplex(inner) => {
+                inner.control.draining.store(true, Ordering::Relaxed);
+                self.pause_duplex(inner)
+            }
+        }
     }
 
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
-        self.inner.draining.store(true, Ordering::Relaxed);
+        match &self.kind {
+            StreamKind::Single(inner) => {
+                inner.control.draining.store(true, Ordering::Relaxed);
 
-        if self.inner.direction != DeviceDirection::Output {
-            // Unlike pause(), stop() discards rather than preserves buffered samples.
-            return self.discard_pcm();
+                if inner.direction != DeviceDirection::Output {
+                    // Unlike pause(), stop() discards rather than preserves buffered samples.
+                    return self.discard_pcm(inner);
+                }
+
+                self.park_worker();
+                let result = drain_pcm(&inner.handle, timeout);
+                inner.control.unpark_worker();
+                result
+            }
+            StreamKind::Duplex(inner) => {
+                inner.control.draining.store(true, Ordering::Relaxed);
+                self.stop_duplex(inner, timeout)
+            }
         }
-
-        self.park_worker();
-        let result = self.drain_output(timeout);
-        self.inner.unpark_worker();
-        result
     }
 
     fn now(&self) -> StreamInstant {
-        if self.inner.timestamp_mode != TimestampMode::CreationInstant {
-            let audio_ts_type = match self.inner.timestamp_mode {
-                TimestampMode::AudioLink => alsa::pcm::AudioTstampType::LinkSynchronized,
-                _ => alsa::pcm::AudioTstampType::Compat,
-            };
-            if let Ok(status) = alsa::pcm::StatusBuilder::new()
-                .audio_htstamp_config(audio_ts_type, false)
-                .build(&self.inner.handle)
-            {
-                return self.inner.callback_instant(&status);
+        match &self.kind {
+            StreamKind::Single(inner) => {
+                if inner.timestamp_mode != TimestampMode::CreationInstant {
+                    if let Ok(status) = status_with_timestamp(&inner.handle, inner.timestamp_mode) {
+                        return inner.callback_instant(&status);
+                    }
+                }
+                let d = std::time::Instant::now().duration_since(inner.creation_instant);
+                StreamInstant::new(d.as_secs(), d.subsec_nanos())
+            }
+            StreamKind::Duplex(inner) => {
+                // Capture is the canonical clock, matching how process_duplex derives
+                // DuplexCallbackInfo's capture-side timestamp.
+                if inner.capture.timestamp_mode != TimestampMode::CreationInstant {
+                    if let Ok(status) =
+                        status_with_timestamp(&inner.capture.handle, inner.capture.timestamp_mode)
+                    {
+                        return callback_instant_for(
+                            inner.capture.timestamp_mode,
+                            inner.capture.creation_ts,
+                            inner.creation_instant,
+                            &status,
+                        );
+                    }
+                }
+                let d = std::time::Instant::now().duration_since(inner.creation_instant);
+                StreamInstant::new(d.as_secs(), d.subsec_nanos())
             }
         }
-
-        let d = std::time::Instant::now().duration_since(self.inner.creation_instant);
-        StreamInstant::new(d.as_secs(), d.subsec_nanos())
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        Ok(self.inner.period_size as FrameCount)
+        match &self.kind {
+            StreamKind::Single(inner) => Ok(inner.period_size as FrameCount),
+            StreamKind::Duplex(inner) => Ok(inner.period_size as FrameCount),
+        }
     }
 }
 
@@ -1889,24 +2747,32 @@ fn set_hw_params_from_format(
     pcm_handle.hw_params_current().map_err(Into::into)
 }
 
+// What triggers ALSA's automatic Prepared -> Running transition.
+enum StartThreshold {
+    // Capture: any read request satisfies this trivially - effectively immediate.
+    Immediate,
+    // Playback: starts once this many periods are queued, regardless of total buffer depth.
+    Periods(usize),
+    // Never automatically; the caller starts the PCM explicitly.
+    Disabled,
+}
+
 fn set_sw_params_from_format(
     pcm_handle: &alsa::pcm::PCM,
-    stream_type: alsa::Direction,
+    start_threshold: StartThreshold,
 ) -> Result<(alsa::pcm::Frames, alsa::pcm::Frames), Error> {
     let sw_params = pcm_handle.sw_params_current()?;
     let (buffer_size, period_size) = pcm_handle
         .get_params()
         .map(|(b, p)| (b as alsa::pcm::Frames, p as alsa::pcm::Frames))?;
 
-    let start_threshold = match stream_type {
-        alsa::Direction::Playback => {
-            // Start playback when 2 periods are filled. This ensures consistent low-latency
-            // startup regardless of total buffer size (whether 2 or more periods).
-            DEFAULT_PERIODS * period_size
-        }
-        alsa::Direction::Capture => 1,
+    let threshold = match start_threshold {
+        StartThreshold::Immediate => 1,
+        StartThreshold::Periods(periods) => periods as alsa::pcm::Frames * period_size,
+        // boundary is unreachable, so auto-start never fires.
+        StartThreshold::Disabled => sw_params.get_boundary()?,
     };
-    sw_params.set_start_threshold(start_threshold)?;
+    sw_params.set_start_threshold(threshold)?;
     sw_params.set_avail_min(period_size)?;
 
     sw_params.set_tstamp_mode(true)?;
