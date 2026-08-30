@@ -30,9 +30,9 @@ use objc2_core_audio::{
     kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceUID,
     kAudioDevicePropertyLatency, kAudioDevicePropertyNominalSampleRate,
     kAudioDevicePropertySafetyOffset, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioObjectPropertyClass, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput,
+    kAudioDevicePropertyStreamFormat, kAudioDevicePropertyTransportType, kAudioObjectPropertyClass,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
@@ -405,6 +405,64 @@ impl Device {
         status == 0 && class_id == kAudioAggregateDeviceClassID
     }
 
+    /// `None` when the property is unavailable or names a transport with no
+    /// `InterfaceType` counterpart, so the field is left unset rather than wrong.
+    fn transport_interface_type(&self) -> Option<InterfaceType> {
+        let property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+
+        let mut transport: u32 = 0;
+        let data_size = size_of::<u32>() as u32;
+
+        // SAFETY: AudioObjectGetPropertyData writes a UInt32 for
+        // kAudioDevicePropertyTransportType. The status is checked before use.
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                self.audio_device_id,
+                NonNull::from(&property_address),
+                0,
+                null(),
+                NonNull::from(&data_size),
+                NonNull::from(&mut transport).cast(),
+            )
+        };
+        if status != 0 {
+            return None;
+        }
+
+        // Four-character codes from AudioHardwareBase.h.
+        const BUILT_IN: u32 = u32::from_be_bytes(*b"bltn");
+        const USB: u32 = u32::from_be_bytes(*b"usb ");
+        const BLUETOOTH: u32 = u32::from_be_bytes(*b"blue");
+        const BLUETOOTH_LE: u32 = u32::from_be_bytes(*b"blea");
+        const VIRTUAL: u32 = u32::from_be_bytes(*b"virt");
+        const AGGREGATE: u32 = u32::from_be_bytes(*b"grup");
+        const THUNDERBOLT: u32 = u32::from_be_bytes(*b"thun");
+        const HDMI: u32 = u32::from_be_bytes(*b"hdmi");
+        const DISPLAY_PORT: u32 = u32::from_be_bytes(*b"dprt");
+        const FIREWIRE: u32 = u32::from_be_bytes(*b"1394");
+        const PCI: u32 = u32::from_be_bytes(*b"pci ");
+        const AIRPLAY: u32 = u32::from_be_bytes(*b"airp");
+
+        match transport {
+            BUILT_IN => Some(InterfaceType::BuiltIn),
+            USB => Some(InterfaceType::Usb),
+            BLUETOOTH | BLUETOOTH_LE => Some(InterfaceType::Bluetooth),
+            VIRTUAL => Some(InterfaceType::Virtual),
+            AGGREGATE => Some(InterfaceType::Aggregate),
+            THUNDERBOLT => Some(InterfaceType::Thunderbolt),
+            HDMI => Some(InterfaceType::Hdmi),
+            DISPLAY_PORT => Some(InterfaceType::DisplayPort),
+            FIREWIRE => Some(InterfaceType::FireWire),
+            PCI => Some(InterfaceType::Pci),
+            AIRPLAY => Some(InterfaceType::Network),
+            _ => None,
+        }
+    }
+
     fn description(&self) -> Result<crate::DeviceDescription, Error> {
         let name = get_device_name(self.audio_device_id).context("Failed to get device name")?;
 
@@ -422,8 +480,11 @@ impl Device {
 
         let mut builder = DeviceDescriptionBuilder::new(name).direction(direction);
 
-        // Check if this is an aggregate device
-        if self.is_aggregate_device() {
+        // TransportType also reports "grup" for aggregates; the class check
+        // remains for devices that do not expose the property.
+        if let Some(interface_type) = self.transport_interface_type() {
+            builder = builder.interface_type(interface_type);
+        } else if self.is_aggregate_device() {
             builder = builder.interface_type(InterfaceType::Aggregate);
         }
 
