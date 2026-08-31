@@ -16,7 +16,7 @@ use super::{
     open_pcm,
     stream::{
         DuplexCaptureState, DuplexPlaybackState, DuplexStreamInner, EquilibriumFill, StreamInner,
-        WorkerControl, timestamp_mode_for,
+        WorkerControl, creation_timestamp,
     },
 };
 use crate::{
@@ -192,14 +192,10 @@ impl Device {
             return Err(ErrorKind::DeviceNotAvailable.into());
         }
 
-        // A zero get_htstamp() at prepare time indicates the device does not support hardware timestamps (e.g. PulseAudio ALSA plugin).
-        // Related: https://bugs.freedesktop.org/show_bug.cgi?id=88503
-        let creation_ts = handle.status()?.get_htstamp();
-        let timestamp_mode = timestamp_mode_for(&hw_params, creation_ts);
-        drop(hw_params);
+        let (creation_ts, timestamp_mode) = creation_timestamp(&handle, hw_params)?;
 
         let period_size = period_size as usize;
-        let frame_size = sample_format.sample_size() * conf.channels as usize;
+        let frame_size = frame_size(sample_format, conf.channels);
 
         let stream_inner = StreamInner {
             control: WorkerControl::default(),
@@ -280,17 +276,14 @@ impl Device {
             return Err(ErrorKind::DeviceNotAvailable.into());
         }
 
-        let capture_creation_ts = capture_handle.status()?.get_htstamp();
-        let capture_timestamp_mode = timestamp_mode_for(&capture_hw_params, capture_creation_ts);
-        drop(capture_hw_params);
-        let playback_creation_ts = playback_handle.status()?.get_htstamp();
-        let playback_timestamp_mode = timestamp_mode_for(&playback_hw_params, playback_creation_ts);
-        drop(playback_hw_params);
+        let (capture_creation_ts, capture_timestamp_mode) =
+            creation_timestamp(&capture_handle, capture_hw_params)?;
+        let (playback_creation_ts, playback_timestamp_mode) =
+            creation_timestamp(&playback_handle, playback_hw_params)?;
 
         let period_size = capture_period_size as usize;
-        let capture_frame_size = input_sample_format.sample_size() * config.input_channels as usize;
-        let playback_frame_size =
-            output_sample_format.sample_size() * config.output_channels as usize;
+        let capture_frame_size = frame_size(input_sample_format, config.input_channels);
+        let playback_frame_size = frame_size(output_sample_format, config.output_channels);
 
         let stream_inner = DuplexStreamInner {
             control: WorkerControl::default(),
@@ -538,4 +531,8 @@ impl std::hash::Hash for Device {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.pcm_id.hash(state);
     }
+}
+
+fn frame_size(sample_format: SampleFormat, channels: ChannelCount) -> usize {
+    sample_format.sample_size() * channels as usize
 }

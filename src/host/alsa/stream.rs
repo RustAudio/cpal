@@ -209,11 +209,7 @@ impl Stream {
         } else {
             self.park_worker();
             let result = if inner.handle.state() == alsa::pcm::State::Running {
-                inner
-                    .handle
-                    .drop()
-                    .and_then(|_| inner.handle.prepare())
-                    .map_err(Error::from)
+                discard_buffer(&inner.handle)
             } else {
                 Ok(())
             };
@@ -227,11 +223,7 @@ impl Stream {
     fn discard_pcm(&self, inner: &StreamInner) -> Result<(), Error> {
         self.park_worker();
         let result = if inner.handle.state() != alsa::pcm::State::Setup {
-            inner
-                .handle
-                .drop()
-                .and_then(|_| inner.handle.prepare())
-                .map_err(Error::from)
+            discard_buffer(&inner.handle)
         } else {
             Ok(())
         };
@@ -263,22 +255,12 @@ impl Stream {
 
         self.park_worker();
         let capture_result = if inner.capture.handle.state() == alsa::pcm::State::Running {
-            inner
-                .capture
-                .handle
-                .drop()
-                .and_then(|_| inner.capture.handle.prepare())
-                .map_err(Error::from)
+            discard_buffer(&inner.capture.handle)
         } else {
             Ok(())
         };
         let playback_result = if inner.playback.handle.state() == alsa::pcm::State::Running {
-            inner
-                .playback
-                .handle
-                .drop()
-                .and_then(|_| inner.playback.handle.prepare())
-                .map_err(Error::from)
+            discard_buffer(&inner.playback.handle)
         } else {
             Ok(())
         };
@@ -301,12 +283,7 @@ impl Stream {
             inner.capture.handle.unlink().ok(); // best-effort
         }
         let capture_result = if inner.capture.handle.state() != alsa::pcm::State::Setup {
-            inner
-                .capture
-                .handle
-                .drop()
-                .and_then(|_| inner.capture.handle.prepare())
-                .map_err(Error::from)
+            discard_buffer(&inner.capture.handle)
         } else {
             Ok(())
         };
@@ -331,6 +308,14 @@ impl Stream {
         }
         self.trigger.wakeup();
     }
+}
+
+// Discards buffered audio: drop() halts the PCM (-> Setup) and prepare() re-arms it (-> Prepared).
+fn discard_buffer(handle: &alsa::pcm::PCM) -> Result<(), Error> {
+    handle
+        .drop()
+        .and_then(|_| handle.prepare())
+        .map_err(Error::from)
 }
 
 // Drains a parked output PCM: caller holds exclusive access via park_worker()/unpark_worker().
@@ -563,7 +548,7 @@ impl EquilibriumFill {
 // A zero get_htstamp() at prepare time indicates the device does not support hardware
 // timestamps (e.g. PulseAudio ALSA plugin). Related:
 // https://bugs.freedesktop.org/show_bug.cgi?id=88503
-pub(super) fn timestamp_mode_for(
+fn timestamp_mode_for(
     hw_params: &alsa::pcm::HwParams<'_>,
     creation_ts: alsa::timespec,
 ) -> TimestampMode {
@@ -574,6 +559,15 @@ pub(super) fn timestamp_mode_for(
     } else {
         TimestampMode::SystemClock
     }
+}
+
+// Derives a stream's timestamp anchor and mode from its handle at prepare() time.
+pub(super) fn creation_timestamp(
+    handle: &alsa::pcm::PCM,
+    hw_params: alsa::pcm::HwParams<'_>,
+) -> Result<(alsa::timespec, TimestampMode), Error> {
+    let creation_ts = handle.status()?.get_htstamp();
+    Ok((creation_ts, timestamp_mode_for(&hw_params, creation_ts)))
 }
 
 // How callback timestamps are produced.
@@ -612,7 +606,7 @@ pub(super) struct WorkerControl {
 impl WorkerControl {
     // Pauses the worker at its next loop iteration and waits for acknowledgment, or returns
     // early if it already exited. Caller holds exclusive PCM access until unpark_worker().
-    pub(super) fn park_worker(&self) {
+    fn park_worker(&self) {
         self.parked.store(true, Ordering::Relaxed);
         let (lock, cvar) = &self.park;
         let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -644,7 +638,7 @@ impl WorkerControl {
     }
 
     // Releases the park: clears parked and wakes the worker from acknowledge_park().
-    pub(super) fn unpark_worker(&self) {
+    fn unpark_worker(&self) {
         let (lock, cvar) = &self.park;
         let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
         *guard = false;
