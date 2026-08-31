@@ -38,7 +38,7 @@ use crate::{
             stream::{
                 DefaultDeviceMonitor, PwInitGuard, SUPPORTED_FORMATS, StreamCommand, StreamData,
             },
-            utils::{DEVICE_ICON_NAME, METADATA_NAME, audio, clock, default, node},
+            utils::{DEVICE_ICON_NAME, METADATA_NAME, audio, clock, default},
         },
     },
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
@@ -174,7 +174,10 @@ impl Device {
 
         // Group input and output nodes so PipeWire schedules them in the same quantum,
         // preventing phase drift between simultaneous input/output streams.
-        properties.insert("node.group", format!("cpal-{}", std::process::id()));
+        properties.insert(
+            *pw::keys::NODE_GROUP,
+            format!("cpal-{}", std::process::id()),
+        );
 
         properties.insert(*pw::keys::NODE_RATE, format!("1/{}", config.sample_rate));
 
@@ -991,7 +994,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
 
                             let interface_type = match props.get(*pw::keys::DEVICE_API) {
                                 Some("bluez5") => InterfaceType::Bluetooth,
-                                _ => match props.get("device.bus") {
+                                _ => match props.get(*pw::keys::DEVICE_BUS) {
                                     Some("pci") => InterfaceType::Pci,
                                     Some("usb") => InterfaceType::Usb,
                                     Some("firewire") => InterfaceType::FireWire,
@@ -1010,7 +1013,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                             // "node.rate" = "1/<sample_rate>" — set by the driver, authoritative
                             // for the hardware clock rate.
                             let node_rate: Option<SampleRate> = props
-                                .get(node::RATE)
+                                .get(*pw::keys::NODE_RATE)
                                 .and_then(parse_fraction)
                                 .filter(|(_, den)| *den > 0)
                                 .map(|(_, den)| den);
@@ -1021,7 +1024,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                                 Option<FrameCount>,
                                 Option<SampleRate>,
                             ) = props
-                                .get(node::LATENCY)
+                                .get(*pw::keys::NODE_LATENCY)
                                 .and_then(parse_fraction)
                                 .filter(|(num, den)| *num > 0 && *den > 0)
                                 .unzip();
