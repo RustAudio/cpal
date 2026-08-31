@@ -26,6 +26,12 @@ use crate::{
     traits::StreamTrait,
 };
 
+pub(super) type InputDataCallback = dyn FnMut(&Data, &CallbackInfo) + Send + 'static;
+pub(super) type OutputDataCallback = dyn FnMut(&mut Data, &CallbackInfo) + Send + 'static;
+pub(super) type DuplexDataCallback =
+    dyn FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static;
+pub(super) type ErrorCallback = dyn FnMut(Error) + Send + 'static;
+
 #[derive(Debug)]
 pub struct Stream {
     /// The high-priority audio processing thread calling callbacks.
