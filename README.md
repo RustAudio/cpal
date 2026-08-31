@@ -213,6 +213,12 @@ If you are unable to build the library:
 - Verify you have installed the required development libraries, as documented above
 - **ASIO on Windows:** Verify `CPAL_ASIO_DIR` and `LIBCLANG_PATH` are set and LLVM is installed
 
+## Duplex Devices
+
+cpal doesn't compose devices itself; it needs a device that already claims both capture and playback.
+
+On ALSA, that needs no extra setup if capture and playback are on the same `hw:`/`plughw:` device (most built-in and USB audio). If they are on separate cards, combine them into one named PCM with ALSA's `asym` plugin in `~/.asoundrc` or `/etc/asound.conf`, then address that name as the device.
+
 ## Examples
 
 CPAL comes with several examples in `examples/`.
