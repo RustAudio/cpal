@@ -219,6 +219,8 @@ cpal doesn't compose devices itself; it needs a device that already claims both 
 
 On ALSA, that needs no extra setup if capture and playback are on the same `hw:`/`plughw:` device (most built-in and USB audio). If they are on separate cards, combine them into one named PCM with ALSA's `asym` plugin in `~/.asoundrc` or `/etc/asound.conf`, then address that name as the device.
 
+On JACK, any client can register both input and output ports, so `default_duplex_device` needs no additional server-side setup beyond a running `jackd`.
+
 ## Examples
 
 CPAL comes with several examples in `examples/`.
