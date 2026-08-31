@@ -4,8 +4,12 @@ use std::{
 };
 
 use super::{
-    alsa, alsa::poll::Descriptors, poll_timeout_millis, stream::StreamInner,
-    timestamp::status_with_timestamp, trigger::TriggerReceiver,
+    alsa,
+    alsa::poll::Descriptors,
+    poll_timeout_millis,
+    stream::{ErrorCallback, InputDataCallback, OutputDataCallback, StreamInner},
+    timestamp::status_with_timestamp,
+    trigger::TriggerReceiver,
 };
 use crate::{
     CallbackInfo, Data, Error, ErrorKind, FrameCount, StreamInstant, StreamTimestamp,
@@ -15,8 +19,8 @@ use crate::{
 pub(super) fn input_stream_worker(
     rx: Arc<TriggerReceiver>,
     stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(&Data, &CallbackInfo) + Send + 'static),
-    error_callback: &mut (dyn FnMut(Error) + Send + 'static),
+    data_callback: &mut InputDataCallback,
+    error_callback: &mut ErrorCallback,
     timeout: Option<Duration>,
 ) {
     #[cfg(feature = "realtime")]
@@ -69,8 +73,8 @@ pub(super) fn input_stream_worker(
 pub(super) fn output_stream_worker(
     rx: Arc<TriggerReceiver>,
     stream: &StreamInner,
-    data_callback: &mut (dyn FnMut(&mut Data, &CallbackInfo) + Send + 'static),
-    error_callback: &mut (dyn FnMut(Error) + Send + 'static),
+    data_callback: &mut OutputDataCallback,
+    error_callback: &mut ErrorCallback,
     timeout: Option<Duration>,
 ) {
     #[cfg(feature = "realtime")]
@@ -326,7 +330,7 @@ fn process_input(
     buffer: &mut [u8],
     status: alsa::pcm::Status,
     delay_frames: usize,
-    data_callback: &mut (dyn FnMut(&Data, &CallbackInfo) + Send + 'static),
+    data_callback: &mut InputDataCallback,
 ) -> Result<(), Error> {
     let mut frames_read = 0;
     while frames_read < stream.period_size {
@@ -389,7 +393,7 @@ fn process_output(
     buffer: &mut [u8],
     status: alsa::pcm::Status,
     delay_frames: usize,
-    data_callback: &mut (dyn FnMut(&mut Data, &CallbackInfo) + Send + 'static),
+    data_callback: &mut OutputDataCallback,
 ) -> Result<(), Error> {
     // Pre-fill buffer with equilibrium; user callback overwrites what it wants.
     stream

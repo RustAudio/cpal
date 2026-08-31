@@ -7,7 +7,7 @@ use super::{
     DEFAULT_PERIODS, alsa,
     alsa::poll::Descriptors,
     poll_timeout_millis,
-    stream::DuplexStreamInner,
+    stream::{DuplexDataCallback, DuplexStreamInner, ErrorCallback},
     timestamp::{callback_instant_for, status_with_timestamp},
     trigger::TriggerReceiver,
 };
@@ -52,8 +52,8 @@ pub(super) fn start_duplex(stream: &DuplexStreamInner) -> Result<(), Error> {
 pub(super) fn duplex_stream_worker(
     rx: Arc<TriggerReceiver>,
     stream: &DuplexStreamInner,
-    data_callback: &mut (dyn FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static),
-    error_callback: &mut (dyn FnMut(Error) + Send + 'static),
+    data_callback: &mut DuplexDataCallback,
+    error_callback: &mut ErrorCallback,
     timeout: Option<Duration>,
 ) {
     #[cfg(feature = "realtime")]
@@ -345,7 +345,7 @@ fn process_duplex(
     playback_status: alsa::pcm::Status,
     capture_delay: usize,
     playback_delay: usize,
-    data_callback: &mut (dyn FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static),
+    data_callback: &mut DuplexDataCallback,
 ) -> Result<(), Error> {
     let mut frames_read = 0;
     while frames_read < stream.period_size {
