@@ -10,6 +10,7 @@ extern crate libc;
 use std::{
     mem,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 pub use self::device::Device;
@@ -94,7 +95,7 @@ static ALSA_CONTEXT_COUNT: Mutex<usize> = Mutex::new(0);
 
 /// ALSA backend context shared between `Host`, `Device`, and `Stream` via `Arc`.
 #[derive(Debug)]
-pub(super) struct AlsaContext;
+struct AlsaContext;
 
 impl AlsaContext {
     fn new() -> Result<Self, alsa::Error> {
@@ -173,6 +174,15 @@ const DEFAULT_PERIODS: alsa::pcm::Frames = 2;
 
 const POLL_INFINITE: i32 = -1; // "block until an event arrives"
 const TRIGGER_PAYLOAD_SIZE: libc::ssize_t = mem::size_of::<u64>() as libc::ssize_t;
+
+// Round up: a nonzero sub-millisecond timeout must not floor to 0 (a non-blocking poll),
+// but an explicit Duration::ZERO stays 0 so a non-blocking poll can still be requested.
+fn poll_timeout_millis(timeout: Option<Duration>) -> i32 {
+    match timeout {
+        Some(d) => d.as_nanos().div_ceil(1_000_000).min(i32::MAX as u128) as i32,
+        None => POLL_INFINITE,
+    }
+}
 
 // Some ALSA plugins (e.g. alsaequal, certain USB drivers) are not reentrant.
 static ALSA_OPEN_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());

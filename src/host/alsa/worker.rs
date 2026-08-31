@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::{
-    POLL_INFINITE, alsa, alsa::poll::Descriptors, stream::StreamInner,
+    alsa, alsa::poll::Descriptors, poll_timeout_millis, stream::StreamInner,
     timestamp::status_with_timestamp, trigger::TriggerReceiver,
 };
 use crate::{
@@ -129,13 +129,7 @@ struct StreamWorkerContext {
 
 impl StreamWorkerContext {
     fn new(poll_timeout: &Option<Duration>, stream: &StreamInner, rx: &TriggerReceiver) -> Self {
-        let poll_timeout: i32 = if let Some(d) = poll_timeout {
-            // Round up: a nonzero sub-millisecond timeout must not floor to 0 (a non-blocking poll),
-            // but an explicit Duration::ZERO stays 0 so a non-blocking poll can still be requested.
-            d.as_nanos().div_ceil(1_000_000).min(i32::MAX as u128) as i32
-        } else {
-            POLL_INFINITE
-        };
+        let poll_timeout = poll_timeout_millis(*poll_timeout);
 
         // Pre-allocate a period-sized working buffer. Contents are overwritten each callback.
         let transfer_buffer = vec![0u8; stream.period_size * stream.frame_size].into_boxed_slice();

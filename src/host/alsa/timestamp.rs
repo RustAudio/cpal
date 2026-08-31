@@ -51,6 +51,7 @@ pub(super) fn callback_instant_for(
     }
 }
 
+#[inline]
 pub(super) fn status_with_timestamp(
     handle: &alsa::pcm::PCM,
     mode: TimestampMode,

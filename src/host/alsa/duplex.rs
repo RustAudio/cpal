@@ -4,8 +4,9 @@ use std::{
 };
 
 use super::{
-    DEFAULT_PERIODS, POLL_INFINITE, alsa,
+    DEFAULT_PERIODS, alsa,
     alsa::poll::Descriptors,
+    poll_timeout_millis,
     stream::DuplexStreamInner,
     timestamp::{callback_instant_for, status_with_timestamp},
     trigger::TriggerReceiver,
@@ -175,11 +176,7 @@ impl DuplexStreamWorkerContext {
         stream: &DuplexStreamInner,
         rx: &TriggerReceiver,
     ) -> Self {
-        let poll_timeout: i32 = if let Some(d) = poll_timeout {
-            d.as_nanos().div_ceil(1_000_000).min(i32::MAX as u128) as i32
-        } else {
-            POLL_INFINITE
-        };
+        let poll_timeout = poll_timeout_millis(*poll_timeout);
 
         let capture_buffer =
             vec![0u8; stream.period_size * stream.capture.frame_size].into_boxed_slice();

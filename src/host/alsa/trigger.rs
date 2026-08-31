@@ -3,7 +3,7 @@ use std::sync::Arc;
 use super::TRIGGER_PAYLOAD_SIZE;
 
 #[derive(Debug)]
-pub(super) struct TriggerSender(pub(super) libc::c_int);
+pub(super) struct TriggerSender(libc::c_int);
 
 #[derive(Debug)]
 pub(super) struct TriggerReceiver(pub(super) libc::c_int);
