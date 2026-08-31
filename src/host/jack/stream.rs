@@ -123,25 +123,13 @@ impl Stream {
     pub fn connect_to_system_outputs(&mut self) -> Result<(), Error> {
         let client = self.async_client.as_client();
         let system_ports = client.ports(Some("system:playback_.*"), None, jack::PortFlags::empty());
-
-        // Connect outputs from this client to the system playback inputs.
-        for (i, (our_port, system_port)) in
-            self.output_port_names.iter().zip(&system_ports).enumerate()
-        {
-            if let Err(e) = client.connect_ports_by_name(our_port, system_port) {
-                for (prev_our, prev_sys) in
-                    self.output_port_names[..i].iter().zip(&system_ports[..i])
-                {
-                    let _ = client.disconnect_ports_by_name(prev_our, prev_sys);
-                }
-
-                return Err(Error::with_message(
-                    ErrorKind::DeviceNotAvailable,
-                    format!("JACK failed to connect port '{our_port}' to '{system_port}': {e}"),
-                ));
-            }
-        }
-        Ok(())
+        let pairs: Vec<_> = self
+            .output_port_names
+            .iter()
+            .map(String::as_str)
+            .zip(system_ports.iter().map(String::as_str))
+            .collect();
+        connect_pairs(client, &pairs)
     }
 
     /// Connects the stream's input ports to as many system capture ports as are available; must
@@ -154,25 +142,12 @@ impl Stream {
     pub fn connect_to_system_inputs(&mut self) -> Result<(), Error> {
         let client = self.async_client.as_client();
         let system_ports = client.ports(Some("system:capture_.*"), None, jack::PortFlags::empty());
-
-        // Connect inputs from system capture ports to this client.
-        for (i, (system_port, our_port)) in
-            system_ports.iter().zip(&self.input_port_names).enumerate()
-        {
-            if let Err(e) = client.connect_ports_by_name(system_port, our_port) {
-                for (prev_sys, prev_our) in
-                    system_ports[..i].iter().zip(&self.input_port_names[..i])
-                {
-                    let _ = client.disconnect_ports_by_name(prev_sys, prev_our);
-                }
-
-                return Err(Error::with_message(
-                    ErrorKind::DeviceNotAvailable,
-                    format!("JACK failed to connect port '{system_port}' to '{our_port}': {e}"),
-                ));
-            }
-        }
-        Ok(())
+        let pairs: Vec<_> = system_ports
+            .iter()
+            .map(String::as_str)
+            .zip(self.input_port_names.iter().map(String::as_str))
+            .collect();
+        connect_pairs(client, &pairs)
     }
 }
 
@@ -246,6 +221,23 @@ where
         input_port_names: input_port_names.into_boxed_slice(),
         output_port_names: output_port_names.into_boxed_slice(),
     })
+}
+
+/// Connects each `(from, to)` port pair by name. If one connection fails partway through, rolls
+/// back the pairs already connected so the JACK graph is left unchanged.
+fn connect_pairs(client: &jack::Client, pairs: &[(&str, &str)]) -> Result<(), Error> {
+    for (i, &(from, to)) in pairs.iter().enumerate() {
+        if let Err(e) = client.connect_ports_by_name(from, to) {
+            for &(prev_from, prev_to) in &pairs[..i] {
+                let _ = client.disconnect_ports_by_name(prev_from, prev_to);
+            }
+            return Err(Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("JACK failed to connect port '{from}' to '{to}': {e}"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 impl StreamTrait for Stream {
