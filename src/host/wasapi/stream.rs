@@ -284,14 +284,25 @@ pub enum AudioClientFlow {
     },
 }
 
+/// Play/pause state of a [`StreamInner`]. `Priming` only ever applies to Render streams: set by
+/// a cold-start `PlayStream`, it defers `Start()` until the run loop lands a real fill in the
+/// buffer, so playback begins with actual audio instead of a silence-padded first period.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum PlaybackState {
+    #[default]
+    Stopped,
+    Priming,
+    Playing,
+}
+
 pub struct StreamInner {
     pub audio_client: Audio::IAudioClient,
     pub audio_clock: Audio::IAudioClock,
     pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
     pub event: Foundation::HANDLE,
-    // True if the stream is currently playing. False if paused.
-    pub playing: bool,
+    // Current playback state of the stream.
+    pub playback_state: PlaybackState,
     // Number of frames of audio data in the underlying buffer allocated by WASAPI.
     pub max_frames_in_buffer: FrameCount,
     // Callback size in frames.
@@ -576,37 +587,40 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
     for command in run_context.commands.try_iter() {
         match command {
             Command::PlayStream => unsafe {
-                if !run_context.stream.playing {
-                    // Start() needs a primed buffer, or there's an audible gap until the engine
-                    // gets real data from the first callback.
-                    if let AudioClientFlow::Render { ref render_client } =
-                        run_context.stream.client_flow
-                    {
-                        // PlayStream also fires on resume from pause, where the buffer wasn't
-                        // reset and may already be full.
-                        let frames = get_available_frames(&run_context.stream)?;
-                        if frames > 0 {
-                            write_silence(render_client, &run_context.stream, frames)?;
+                if run_context.stream.playback_state == PlaybackState::Stopped {
+                    // PlayStream also fires on resume from pause, where the buffer wasn't reset
+                    // and may already hold real, unplayed data.
+                    let cold_start = match run_context.stream.client_flow {
+                        AudioClientFlow::Render { .. } => {
+                            get_available_frames(&run_context.stream)? > 0
                         }
+                        AudioClientFlow::Capture { .. } => false,
+                    };
+                    if cold_start {
+                        // Defer Start() until the run loop lands a real fill in the buffer, so
+                        // playback begins with actual audio.
+                        run_context.stream.playback_state = PlaybackState::Priming;
+                    } else {
+                        run_context
+                            .stream
+                            .audio_client
+                            .Start()
+                            .context("Failed to start audio client")?;
+                        run_context.stream.playback_state = PlaybackState::Playing;
                     }
-
-                    run_context
-                        .stream
-                        .audio_client
-                        .Start()
-                        .context("Failed to start audio client")?;
-                    run_context.stream.playing = true;
                 }
             },
             Command::PauseStream | Command::StopStream => unsafe {
-                if run_context.stream.playing {
+                if run_context.stream.playback_state == PlaybackState::Playing {
                     run_context
                         .stream
                         .audio_client
                         .Stop()
                         .context("Failed to stop audio client")?;
-                    run_context.stream.playing = false;
                 }
+                // Also cancels a deferred prefill that hasn't run yet, e.g. pause called right
+                // after play, before the run loop got a chance to act on it.
+                run_context.stream.playback_state = PlaybackState::Stopped;
                 if matches!(command, Command::StopStream) {
                     // Reset discards the render buffer so a future Start() plays no stale frames.
                     run_context
@@ -662,22 +676,6 @@ fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
             .GetCurrentPadding()
             .context("Failed to get current padding")?;
         Ok(stream.max_frames_in_buffer - padding)
-    }
-}
-
-// Fills `frames` of the render buffer with silence and releases it.
-unsafe fn write_silence(
-    render_client: &Audio::IAudioRenderClient,
-    stream: &StreamInner,
-    frames: FrameCount,
-) -> Result<(), Error> {
-    unsafe {
-        let buffer = render_client.GetBuffer(frames)?;
-        debug_assert!(!buffer.is_null());
-        let byte_count = frames as usize * stream.bytes_per_frame as usize;
-        let buffer_slice = std::slice::from_raw_parts_mut(buffer, byte_count);
-        fill_equilibrium(buffer_slice, stream.sample_format);
-        render_client.ReleaseBuffer(frames, 0).map_err(Into::into)
     }
 }
 
@@ -780,6 +778,16 @@ fn run_output(
             emit_error(error_callback, err);
             break;
         }
+        if run_ctxt.stream.playback_state == PlaybackState::Priming {
+            // The buffer above just received a real fill; start now so playback begins with it.
+            let start_result = unsafe { run_ctxt.stream.audio_client.Start() }
+                .context("Failed to start audio client");
+            if let Err(err) = start_result {
+                emit_error(error_callback, err);
+                break;
+            }
+            run_ctxt.stream.playback_state = PlaybackState::Playing;
+        }
     }
 }
 
@@ -820,6 +828,12 @@ fn process_commands_and_await_signal(
             return ControlFlow::Break(());
         }
     };
+
+    if run_context.stream.playback_state == PlaybackState::Priming {
+        // The stream hasn't started yet, so its event never fires. Write the priming fill now
+        // instead of waiting on it.
+        return ControlFlow::Continue(true);
+    }
 
     if let Some(ref flag) = run_context.pending_device_changed {
         if flag.swap(false, Ordering::Relaxed) {
