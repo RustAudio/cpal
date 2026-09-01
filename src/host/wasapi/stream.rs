@@ -315,7 +315,7 @@ pub struct StreamInner {
     pub sample_format: SampleFormat,
     // Hardware pipeline latency.
     pub stream_latency: Duration,
-    // Raised by `stop()` so the audio loop writes silence or skips delivering.
+    // Raised by `stop()` and `pause()` so the audio loop writes silence or skips delivering.
     pub draining: Arc<AtomicBool>,
     // Updated each output callback: latency + current buffer fill in microseconds.
     pub fill_usec: Arc<AtomicU64>,
@@ -527,6 +527,7 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), Error> {
+        self.draining.store(true, Ordering::Relaxed);
         self.push_command(Command::PauseStream)
     }
 
