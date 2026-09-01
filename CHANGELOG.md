@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix loading a driver while a previous driver was still unloading.
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.
 - **AudioWorklet**: Fix dropouts in output streams when the callback buffer grows.
+- **CoreAudio**: A sample rate change no longer gives up early when the device reports other rates first; the caller's timeout is now honoured in full.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
 
