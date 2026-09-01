@@ -34,7 +34,7 @@ use windows::{
     },
 };
 
-use super::stream::{AudioClientFlow, DefaultDeviceMonitor, Stream, StreamInner};
+use super::stream::{AudioClientFlow, DefaultDeviceMonitor, PlaybackState, Stream, StreamInner};
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{host::com, traits::DeviceTrait};
 
@@ -926,7 +926,7 @@ impl Device {
                 audio_clock,
                 client_flow,
                 event,
-                playing: false,
+                playback_state: PlaybackState::default(),
                 max_frames_in_buffer,
                 period_frames,
                 bytes_per_frame: waveformatex.nBlockAlign,
@@ -1029,7 +1029,7 @@ impl Device {
                 audio_clock,
                 client_flow,
                 event,
-                playing: false,
+                playback_state: PlaybackState::default(),
                 max_frames_in_buffer,
                 period_frames,
                 bytes_per_frame: waveformatex.nBlockAlign,
