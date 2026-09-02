@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Bump minimum Windows version to 10 (since 0.17.2).
+
 ### Fixed
 
 - **ALSA**: Improved enumeration accuracy for supported format, channel and rate combinations.
