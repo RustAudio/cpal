@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Migrated to Rust 2024.
+- Bump minimum Windows version to 10 (since 0.17.2).
 - Bump `audio_thread_priority` dependency to 0.36.
 - `DeviceTrait` and `StreamTrait` now require `Send + Sync` as supertrait bounds.
 - `StreamTrait::play` is renamed to `start`.
@@ -27,7 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ALSA**: Update `alsa` dependency to 0.12.
 - **Linux**: `realtime` can now promote threads without requiring `realtime-dbus`.
 - **PipeWire**: Set `node.rate` property so that `default.clock.allowed-rates` PipeWire config works.
-- Bump minimum Windows version to 10 (since 0.17.2).
 
 ### Deprecated
 
