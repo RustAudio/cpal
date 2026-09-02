@@ -37,7 +37,7 @@ use windows::{
     core::{GUID, Interface},
 };
 
-use super::stream::{AudioClientFlow, DefaultDeviceMonitor, Stream, StreamInner};
+use super::stream::{AudioClientFlow, DefaultDeviceMonitor, PlaybackState, Stream, StreamInner};
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{host::com, traits::DeviceTrait};
 
@@ -187,19 +187,15 @@ unsafe fn data_flow_from_immendpoint(endpoint: &Audio::IMMEndpoint) -> Audio::ED
 }
 
 // Given the audio client and format, returns whether the audio engine supports it natively in
-// shared mode without format conversion.
+// the given share mode without format conversion.
 pub unsafe fn is_format_supported(
     client: &Audio::IAudioClient,
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
+    share_mode: Audio::AUDCLNT_SHAREMODE,
 ) -> Result<bool, Error> {
     let mut closest_match: *mut Audio::WAVEFORMATEX = ptr::null_mut();
-    let hr = unsafe {
-        client.IsFormatSupported(
-            Audio::AUDCLNT_SHAREMODE_SHARED,
-            waveformatex_ptr,
-            Some(&mut closest_match),
-        )
-    };
+    let hr =
+        unsafe { client.IsFormatSupported(share_mode, waveformatex_ptr, Some(&mut closest_match)) };
     if !closest_match.is_null() {
         let _free = WaveFormatExPtr(closest_match);
     }
@@ -646,7 +642,11 @@ impl Device {
                 .context("Failed to get mix format")?;
 
             // If the default format can't succeed we have no hope of finding other formats.
-            if !is_format_supported(client, default_waveformatex_ptr.0)? {
+            if !is_format_supported(
+                client,
+                default_waveformatex_ptr.0,
+                Audio::AUDCLNT_SHAREMODE_SHARED,
+            )? {
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     "Could not determine support for default audio format",
@@ -717,11 +717,13 @@ impl Device {
                             buffer_size: BufferSize::Default,
                         },
                         sample_format,
+                        None,
                     ) {
                         let usable = is_output
                             || is_format_supported(
                                 client,
                                 &waveformat.Format as *const Audio::WAVEFORMATEX,
+                                Audio::AUDCLNT_SHAREMODE_SHARED,
                             )?;
                         if usable {
                             supported_formats.push(SupportedStreamConfigRange {
@@ -867,7 +869,7 @@ impl Device {
 
             // Computing the format and initializing the device.
             let waveformatex = {
-                let format_attempt = config_to_waveformatextensible(config, sample_format)
+                let format_attempt = config_to_waveformatextensible(config, sample_format, None)
                     .ok_or_else(|| {
                         Error::with_message(
                             ErrorKind::UnsupportedConfig,
@@ -933,14 +935,14 @@ impl Device {
                 audio_clock,
                 client_flow,
                 event,
-                playing: false,
+                playback_state: PlaybackState::default(),
                 max_frames_in_buffer,
                 period_frames,
                 bytes_per_frame: waveformatex.nBlockAlign,
                 config,
                 sample_format,
                 stream_latency,
-                draining: Arc::new(AtomicBool::new(false)),
+                skip_callback: Arc::new(AtomicBool::new(false)),
                 fill_usec: Arc::new(AtomicU64::new(0)),
             })
         }
@@ -970,7 +972,7 @@ impl Device {
 
             // Computing the format and initializing the device.
             let waveformatex = {
-                let format_attempt = config_to_waveformatextensible(config, sample_format)
+                let format_attempt = config_to_waveformatextensible(config, sample_format, None)
                     .ok_or_else(|| {
                         Error::with_message(
                             ErrorKind::UnsupportedConfig,
@@ -1038,14 +1040,14 @@ impl Device {
                 audio_clock,
                 client_flow,
                 event,
-                playing: false,
+                playback_state: PlaybackState::default(),
                 max_frames_in_buffer,
                 period_frames,
                 bytes_per_frame: waveformatex.nBlockAlign,
                 config,
                 sample_format,
                 stream_latency,
-                draining: Arc::new(AtomicBool::new(false)),
+                skip_callback: Arc::new(AtomicBool::new(false)),
                 fill_usec: Arc::new(AtomicU64::new(0)),
             })
         }
@@ -1349,14 +1351,12 @@ const OUTPUT_MAX_SAMPLE_RATE: SampleRate = 384_000;
 // Formats encodable as WAVEFORMATEXTENSIBLE. U8/I16 map to WAVE_FORMAT_PCM; the rest use
 // WAVE_FORMAT_EXTENSIBLE. Unsigned formats wider than 8 bits are omitted: KSDATAFORMAT_SUBTYPE_PCM
 // is always signed for 16-bit and wider, so submitting unsigned data would produce a DC offset.
-const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 7] = [
+const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 5] = [
     SampleFormat::U8,
     SampleFormat::I16,
     SampleFormat::I24,
     SampleFormat::I32,
-    SampleFormat::I64,
     SampleFormat::F32,
-    SampleFormat::F64,
 ];
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
@@ -1365,6 +1365,7 @@ const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 7] = [
 fn config_to_waveformatextensible(
     config: StreamConfig,
     sample_format: SampleFormat,
+    channel_mask: Option<u32>,
 ) -> Option<Audio::WAVEFORMATEXTENSIBLE> {
     let format_tag = match sample_format {
         SampleFormat::U8 | SampleFormat::I16 => Audio::WAVE_FORMAT_PCM,
@@ -1405,8 +1406,9 @@ fn config_to_waveformatextensible(
         cbSize: cb_size,
     };
 
-    // CPAL does not care about speaker positions, so pass audio right through.
-    let channel_mask = KernelStreaming::KSAUDIO_SPEAKER_DIRECTOUT;
+    // By default CPAL does not care about speaker positions, so pass audio right through.
+    // Exclusive mode negotiation supplies its own mask instead.
+    let channel_mask = channel_mask.unwrap_or(KernelStreaming::KSAUDIO_SPEAKER_DIRECTOUT);
 
     let sub_format = match sample_format {
         SampleFormat::U8

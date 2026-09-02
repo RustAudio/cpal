@@ -215,8 +215,8 @@ pub struct Stream {
     // Latch that ensures no callbacks fire before the caller receives the `Stream` handle.
     latch: Latch,
 
-    // Raised by `stop()` so the audio loop emits silence while buffered audio drains.
-    draining: Arc<AtomicBool>,
+    // Raised by `stop()` and `pause()` so the audio loop skips the user callback.
+    skip_callback: Arc<AtomicBool>,
 
     // Latency + buffer fill in microseconds, updated each output callback; zero for input.
     fill_usec: Arc<AtomicU64>,
@@ -284,14 +284,25 @@ pub enum AudioClientFlow {
     },
 }
 
+/// Play/pause state of a [`StreamInner`]. `Priming` only ever applies to Render streams: set by
+/// a cold-start `PlayStream`, it defers `Start()` until the run loop lands a real fill in the
+/// buffer, so playback begins with actual audio instead of a silence-padded first period.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum PlaybackState {
+    #[default]
+    Stopped,
+    Priming,
+    Playing,
+}
+
 pub struct StreamInner {
     pub audio_client: Audio::IAudioClient,
     pub audio_clock: Audio::IAudioClock,
     pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
     pub event: Foundation::HANDLE,
-    // True if the stream is currently playing. False if paused.
-    pub playing: bool,
+    // Current playback state of the stream.
+    pub playback_state: PlaybackState,
     // Number of frames of audio data in the underlying buffer allocated by WASAPI.
     pub max_frames_in_buffer: FrameCount,
     // Callback size in frames.
@@ -304,8 +315,8 @@ pub struct StreamInner {
     pub sample_format: SampleFormat,
     // Hardware pipeline latency.
     pub stream_latency: Duration,
-    // Raised by `stop()` so the audio loop writes silence or skips delivering.
-    pub draining: Arc<AtomicBool>,
+    // Raised by `stop()` and `pause()` so the audio loop skips the user callback.
+    pub skip_callback: Arc<AtomicBool>,
     // Updated each output callback: latency + current buffer fill in microseconds.
     pub fill_usec: Arc<AtomicU64>,
 }
@@ -327,7 +338,7 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
-        let draining = stream_inner.draining.clone();
+        let skip_callback = stream_inner.skip_callback.clone();
         let fill_usec = stream_inner.fill_usec.clone();
         let mut qpc_frequency: i64 = 0;
         unsafe {
@@ -381,7 +392,7 @@ impl Stream {
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
             latch,
-            draining,
+            skip_callback,
             fill_usec,
         };
         Ok(stream)
@@ -403,7 +414,7 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
-        let draining = stream_inner.draining.clone();
+        let skip_callback = stream_inner.skip_callback.clone();
         let fill_usec = stream_inner.fill_usec.clone();
         let mut qpc_frequency: i64 = 0;
         unsafe {
@@ -457,7 +468,7 @@ impl Stream {
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
             latch,
-            draining,
+            skip_callback,
             fill_usec,
         };
         Ok(stream)
@@ -505,7 +516,7 @@ impl Drop for Stream {
 impl StreamTrait for Stream {
     fn start(&self) -> Result<(), Error> {
         // Clear any pending drain so the audio loop resumes calling the user callback.
-        self.draining.store(false, Ordering::Relaxed);
+        self.skip_callback.store(false, Ordering::Relaxed);
         self.push_command(Command::PlayStream).map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
@@ -516,11 +527,12 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), Error> {
+        self.skip_callback.store(true, Ordering::Relaxed);
         self.push_command(Command::PauseStream)
     }
 
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
-        self.draining.store(true, Ordering::Relaxed);
+        self.skip_callback.store(true, Ordering::Relaxed);
 
         if timeout != Some(Duration::ZERO) {
             let fill = Duration::from_micros(self.fill_usec.load(Ordering::Relaxed));
@@ -576,24 +588,40 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
     for command in run_context.commands.try_iter() {
         match command {
             Command::PlayStream => unsafe {
-                if !run_context.stream.playing {
-                    run_context
-                        .stream
-                        .audio_client
-                        .Start()
-                        .context("Failed to start audio client")?;
-                    run_context.stream.playing = true;
+                if run_context.stream.playback_state == PlaybackState::Stopped {
+                    // PlayStream also fires on resume from pause, where the buffer wasn't reset
+                    // and may already hold real, unplayed data.
+                    let cold_start = match run_context.stream.client_flow {
+                        AudioClientFlow::Render { .. } => {
+                            get_available_frames(&run_context.stream)? > 0
+                        }
+                        AudioClientFlow::Capture { .. } => false,
+                    };
+                    if cold_start {
+                        // Defer Start() until the run loop lands a real fill in the buffer, so
+                        // playback begins with actual audio.
+                        run_context.stream.playback_state = PlaybackState::Priming;
+                    } else {
+                        run_context
+                            .stream
+                            .audio_client
+                            .Start()
+                            .context("Failed to start audio client")?;
+                        run_context.stream.playback_state = PlaybackState::Playing;
+                    }
                 }
             },
             Command::PauseStream | Command::StopStream => unsafe {
-                if run_context.stream.playing {
+                if run_context.stream.playback_state == PlaybackState::Playing {
                     run_context
                         .stream
                         .audio_client
                         .Stop()
                         .context("Failed to stop audio client")?;
-                    run_context.stream.playing = false;
                 }
+                // Also cancels a deferred prefill that hasn't run yet, e.g. pause called right
+                // after play, before the run loop got a chance to act on it.
+                run_context.stream.playback_state = PlaybackState::Stopped;
                 if matches!(command, Command::StopStream) {
                     // Reset discards the render buffer so a future Start() plays no stale frames.
                     run_context
@@ -751,6 +779,21 @@ fn run_output(
             emit_error(error_callback, err);
             break;
         }
+        if run_ctxt.stream.playback_state == PlaybackState::Priming {
+            if run_ctxt.stream.skip_callback.load(Ordering::Relaxed) {
+                // process_output submitted nothing this cycle; stay stopped.
+                run_ctxt.stream.playback_state = PlaybackState::Stopped;
+            } else {
+                // The buffer above just received a real fill; start now so playback begins with it.
+                let start_result = unsafe { run_ctxt.stream.audio_client.Start() }
+                    .context("Failed to start audio client");
+                if let Err(err) = start_result {
+                    emit_error(error_callback, err);
+                    break;
+                }
+                run_ctxt.stream.playback_state = PlaybackState::Playing;
+            }
+        }
     }
 }
 
@@ -791,6 +834,12 @@ fn process_commands_and_await_signal(
             return ControlFlow::Break(());
         }
     };
+
+    if run_context.stream.playback_state == PlaybackState::Priming {
+        // The stream hasn't started yet, so its event never fires. Write the priming fill now
+        // instead of waiting on it.
+        return ControlFlow::Continue(true);
+    }
 
     if let Some(ref flag) = run_context.pending_device_changed {
         if flag.swap(false, Ordering::Relaxed) {
@@ -887,7 +936,7 @@ fn process_input(
             let len = byte_count / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
 
-            if !stream.draining.load(Ordering::Relaxed) {
+            if !stream.skip_callback.load(Ordering::Relaxed) {
                 // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
                 let timestamp = input_timestamp(stream, qpc_position)?;
                 data_callback(&data, &CallbackInfo { timestamp, xrun });
@@ -928,6 +977,11 @@ fn process_output(
         );
     stream.fill_usec.store(fill_usec, Ordering::Relaxed);
 
+    if stream.skip_callback.load(Ordering::Relaxed) {
+        // Skip the period instead of queuing silence a future resume would replay.
+        return Ok(());
+    }
+
     unsafe {
         let buffer = render_client.GetBuffer(frames_available)?;
 
@@ -940,29 +994,26 @@ fn process_output(
         let data = buffer as *mut ();
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
-        if !stream.draining.load(Ordering::Relaxed) {
-            let sample_rate = stream.config.sample_rate;
-            let timestamp =
-                output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
-            // WASAPI exposes no render-side xrun signal.
-            data_callback(
-                &mut data,
-                &CallbackInfo {
-                    timestamp,
-                    xrun: false,
-                },
-            );
+        let sample_rate = stream.config.sample_rate;
+        let timestamp = output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
+        // WASAPI exposes no render-side xrun signal.
+        data_callback(
+            &mut data,
+            &CallbackInfo {
+                timestamp,
+                xrun: false,
+            },
+        );
 
-            if stream.sample_format == SampleFormat::I24 {
-                // WASAPI stores i24 in the upper bits
-                #[expect(
-                    clippy::cast_ptr_alignment,
-                    reason = "WASAPI guarantees the buffer to be aligned to a frame boundary"
-                )]
-                let buffer_slice_i32 = slice::from_raw_parts_mut(buffer.cast::<i32>(), len);
-                for sample in buffer_slice_i32 {
-                    *sample <<= 8;
-                }
+        if stream.sample_format == SampleFormat::I24 {
+            // WASAPI stores i24 in the upper bits
+            #[expect(
+                clippy::cast_ptr_alignment,
+                reason = "WASAPI guarantees the buffer to be aligned to a frame boundary"
+            )]
+            let buffer_slice_i32 = slice::from_raw_parts_mut(buffer.cast::<i32>(), len);
+            for sample in buffer_slice_i32 {
+                *sample <<= 8;
             }
         }
 

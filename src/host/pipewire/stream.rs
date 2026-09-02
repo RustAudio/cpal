@@ -816,8 +816,12 @@ where
             }
 
             if let Some(mut buffer) = stream.dequeue_buffer() {
-                // Read the requested frame count before mutably borrowing datas_mut().
-                let requested = buffer.requested() as usize;
+                // Read the requested frame count before mutably borrowing datas_mut(); fall back
+                // to the last negotiated quantum when a cycle outside the driver's schedule reports 0.
+                let requested = match buffer.requested() as usize {
+                    0 => user_data.last_quantum.load(Ordering::Relaxed) as usize,
+                    requested => requested,
+                };
                 let datas = buffer.datas_mut();
                 if datas.is_empty() {
                     return;
@@ -1092,16 +1096,23 @@ where
                     return;
                 }
                 let data = &mut datas[0];
-                let n_samples = data.chunk().size() / user_data.sample_format.sample_size() as u32;
-                let frames = n_samples / n_channels;
+                let stride = user_data.sample_format.sample_size() * n_channels as usize;
+                let offset = data.chunk().offset() as usize;
+                let size = data.chunk().size() as usize;
 
                 let Some(samples) = data.data() else {
                     return;
                 };
-                let data = samples.as_mut_ptr() as *mut ();
-                let data =
-                    unsafe { Data::from_parts(data, n_samples as usize, user_data.sample_format) };
-                user_data.publish_data_in(stream, frames as usize, &data, xrun);
+                // offset/size semantics: spa/buffer/buffer.h.
+                let maxsize = samples.len();
+                let offset = offset % maxsize;
+                let frames = size.min(maxsize - offset) / stride;
+                let valid = &mut samples[offset..offset + frames * stride];
+
+                let ptr = valid.as_mut_ptr() as *mut ();
+                let n_samples = frames * n_channels as usize;
+                let data = unsafe { Data::from_parts(ptr, n_samples, user_data.sample_format) };
+                user_data.publish_data_in(stream, frames, &data, xrun);
             }
         })
         .register()?;
