@@ -215,8 +215,8 @@ pub struct Stream {
     // Latch that ensures no callbacks fire before the caller receives the `Stream` handle.
     latch: Latch,
 
-    // Raised by `stop()` so the audio loop emits silence while buffered audio drains.
-    draining: Arc<AtomicBool>,
+    // Raised by `stop()` and `pause()` so the audio loop skips the user callback.
+    skip_callback: Arc<AtomicBool>,
 
     // Latency + buffer fill in microseconds, updated each output callback; zero for input.
     fill_usec: Arc<AtomicU64>,
@@ -315,8 +315,8 @@ pub struct StreamInner {
     pub sample_format: SampleFormat,
     // Hardware pipeline latency.
     pub stream_latency: Duration,
-    // Raised by `stop()` and `pause()` so the audio loop writes silence or skips delivering.
-    pub draining: Arc<AtomicBool>,
+    // Raised by `stop()` and `pause()` so the audio loop skips the user callback.
+    pub skip_callback: Arc<AtomicBool>,
     // Updated each output callback: latency + current buffer fill in microseconds.
     pub fill_usec: Arc<AtomicU64>,
 }
@@ -338,7 +338,7 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
-        let draining = stream_inner.draining.clone();
+        let skip_callback = stream_inner.skip_callback.clone();
         let fill_usec = stream_inner.fill_usec.clone();
         let mut qpc_frequency: i64 = 0;
         unsafe {
@@ -392,7 +392,7 @@ impl Stream {
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
             latch,
-            draining,
+            skip_callback,
             fill_usec,
         };
         Ok(stream)
@@ -414,7 +414,7 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
-        let draining = stream_inner.draining.clone();
+        let skip_callback = stream_inner.skip_callback.clone();
         let fill_usec = stream_inner.fill_usec.clone();
         let mut qpc_frequency: i64 = 0;
         unsafe {
@@ -468,7 +468,7 @@ impl Stream {
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
             latch,
-            draining,
+            skip_callback,
             fill_usec,
         };
         Ok(stream)
@@ -516,7 +516,7 @@ impl Drop for Stream {
 impl StreamTrait for Stream {
     fn start(&self) -> Result<(), Error> {
         // Clear any pending drain so the audio loop resumes calling the user callback.
-        self.draining.store(false, Ordering::Relaxed);
+        self.skip_callback.store(false, Ordering::Relaxed);
         self.push_command(Command::PlayStream).map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
@@ -527,12 +527,12 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), Error> {
-        self.draining.store(true, Ordering::Relaxed);
+        self.skip_callback.store(true, Ordering::Relaxed);
         self.push_command(Command::PauseStream)
     }
 
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
-        self.draining.store(true, Ordering::Relaxed);
+        self.skip_callback.store(true, Ordering::Relaxed);
 
         if timeout != Some(Duration::ZERO) {
             let fill = Duration::from_micros(self.fill_usec.load(Ordering::Relaxed));
@@ -780,14 +780,19 @@ fn run_output(
             break;
         }
         if run_ctxt.stream.playback_state == PlaybackState::Priming {
-            // The buffer above just received a real fill; start now so playback begins with it.
-            let start_result = unsafe { run_ctxt.stream.audio_client.Start() }
-                .context("Failed to start audio client");
-            if let Err(err) = start_result {
-                emit_error(error_callback, err);
-                break;
+            if run_ctxt.stream.skip_callback.load(Ordering::Relaxed) {
+                // process_output submitted nothing this cycle; stay stopped.
+                run_ctxt.stream.playback_state = PlaybackState::Stopped;
+            } else {
+                // The buffer above just received a real fill; start now so playback begins with it.
+                let start_result = unsafe { run_ctxt.stream.audio_client.Start() }
+                    .context("Failed to start audio client");
+                if let Err(err) = start_result {
+                    emit_error(error_callback, err);
+                    break;
+                }
+                run_ctxt.stream.playback_state = PlaybackState::Playing;
             }
-            run_ctxt.stream.playback_state = PlaybackState::Playing;
         }
     }
 }
@@ -931,7 +936,7 @@ fn process_input(
             let len = byte_count / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
 
-            if !stream.draining.load(Ordering::Relaxed) {
+            if !stream.skip_callback.load(Ordering::Relaxed) {
                 // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
                 let timestamp = input_timestamp(stream, qpc_position)?;
                 data_callback(&data, &CallbackInfo { timestamp, xrun });
@@ -972,6 +977,11 @@ fn process_output(
         );
     stream.fill_usec.store(fill_usec, Ordering::Relaxed);
 
+    if stream.skip_callback.load(Ordering::Relaxed) {
+        // Skip the period instead of queuing silence a future resume would replay.
+        return Ok(());
+    }
+
     unsafe {
         let buffer = render_client.GetBuffer(frames_available)?;
 
@@ -984,29 +994,26 @@ fn process_output(
         let data = buffer as *mut ();
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
-        if !stream.draining.load(Ordering::Relaxed) {
-            let sample_rate = stream.config.sample_rate;
-            let timestamp =
-                output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
-            // WASAPI exposes no render-side xrun signal.
-            data_callback(
-                &mut data,
-                &CallbackInfo {
-                    timestamp,
-                    xrun: false,
-                },
-            );
+        let sample_rate = stream.config.sample_rate;
+        let timestamp = output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
+        // WASAPI exposes no render-side xrun signal.
+        data_callback(
+            &mut data,
+            &CallbackInfo {
+                timestamp,
+                xrun: false,
+            },
+        );
 
-            if stream.sample_format == SampleFormat::I24 {
-                // WASAPI stores i24 in the upper bits
-                #[expect(
-                    clippy::cast_ptr_alignment,
-                    reason = "WASAPI guarantees the buffer to be aligned to a frame boundary"
-                )]
-                let buffer_slice_i32 = slice::from_raw_parts_mut(buffer.cast::<i32>(), len);
-                for sample in buffer_slice_i32 {
-                    *sample <<= 8;
-                }
+        if stream.sample_format == SampleFormat::I24 {
+            // WASAPI stores i24 in the upper bits
+            #[expect(
+                clippy::cast_ptr_alignment,
+                reason = "WASAPI guarantees the buffer to be aligned to a frame boundary"
+            )]
+            let buffer_slice_i32 = slice::from_raw_parts_mut(buffer.cast::<i32>(), len);
+            for sample in buffer_slice_i32 {
+                *sample <<= 8;
             }
         }
 

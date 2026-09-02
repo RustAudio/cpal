@@ -942,7 +942,7 @@ impl Device {
                 config,
                 sample_format,
                 stream_latency,
-                draining: Arc::new(AtomicBool::new(false)),
+                skip_callback: Arc::new(AtomicBool::new(false)),
                 fill_usec: Arc::new(AtomicU64::new(0)),
             })
         }
@@ -1047,7 +1047,7 @@ impl Device {
                 config,
                 sample_format,
                 stream_latency,
-                draining: Arc::new(AtomicBool::new(false)),
+                skip_callback: Arc::new(AtomicBool::new(false)),
                 fill_usec: Arc::new(AtomicU64::new(0)),
             })
         }
