@@ -727,11 +727,10 @@ fn boost_current_thread_priority(
     }
 }
 
-// WASAPI never rebinds the IAudioClient, so report what's actually true instead of DeviceChanged.
 fn default_device_change_error(flow: Option<Audio::EDataFlow>) -> Error {
     match flow.and_then(get_current_default) {
         None => ErrorKind::DeviceNotAvailable.into(),
-        Some(_) => ErrorKind::StreamInvalidated.into(),
+        Some(_) => ErrorKind::DeviceChanged.into(),
     }
 }
 
