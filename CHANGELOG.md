@@ -339,6 +339,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Bump overall MSRV to 1.78.
+- Bumped minimum Windows version to 10.
 - **ALSA**: Update `alsa` dependency to 0.11.
 - **ALSA**: Bump MSRV to 1.82.
 - **CoreAudio**: Update `core-audio-rs` dependency to 0.14.

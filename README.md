@@ -51,7 +51,7 @@ The minimum Rust version (MSRV) and minimum operating system / runtime version b
 | JACK | Linux, BSD, macOS, Windows | 1.85 | — |
 | PipeWire | Linux, BSD | 1.85 | PipeWire 0.3.53 |
 | PulseAudio | Linux, BSD | 1.88 | — |
-| WASAPI / ASIO | Windows | 1.85 | Windows 8 |
+| WASAPI / ASIO | Windows | 1.85 | Windows 10 |
 | WASM (`wasm32-unknown`) | WebAssembly | 1.85 | — |
 | WASM (`wasm32-wasip1`) | WebAssembly | 1.85 | — |
 | WASM (`audioworklet`) | WebAssembly | nightly | — |
