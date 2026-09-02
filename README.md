@@ -190,6 +190,12 @@ config.buffer_size = cpal::BufferSize::Fixed(1024);
 
 Query `device.default_output_config()?.buffer_size()` for valid ranges. Smaller buffers reduce latency but increase CPU load and the risk of glitches.
 
+### PipeWire Audio Glitches
+
+If a stream's sample rate does not match PipeWire's clock rate, PipeWire resamples it. On the ALSA, JACK, and PulseAudio compatibility layers it provides, that can cause audible glitches or underruns, especially at small buffer sizes, without an xrun being reported.
+
+The native `pipewire` cpal feature is less susceptible to it, but if you must use a PipeWire bridge, then match the stream's sample rate to PipeWire's clock rate, or remove the mismatched rate from `default.clock.allowed-rates`. Larger, power-of-two buffer sizes tend to help as well.
+
 ### ALSA Real-Time Priority Promotion
 
 RT promotion is only attempted for a whitelist of PCM types: direct hardware PCMs (`hw:`) and pure format-conversion plugins (linear, A-law, mu-law, ADPCM, float, IEC 958).
