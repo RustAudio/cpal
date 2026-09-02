@@ -395,7 +395,7 @@ impl DeviceTrait for Device {
                 #[cfg(target_feature = "atomics")]
                 let current_time_bits_cb = current_time_bits.clone();
 
-                let on_audio_process = Closure::wrap(Box::new(move |event: AudioProcessingEvent| {
+                let on_audio_process_fn = Box::new(move |event: AudioProcessingEvent| {
                     let now = ctx_cb.current_time();
                     #[cfg(target_feature = "atomics")]
                     current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
@@ -456,8 +456,8 @@ impl DeviceTrait for Device {
                             ),
                         ),
                     }
-                })
-                    as Box<dyn FnMut(AudioProcessingEvent)>);
+                });
+                let on_audio_process = Closure::wrap(on_audio_process_fn);
 
                 processor.set_onaudioprocess(Some(on_audio_process.as_ref().unchecked_ref()));
 
@@ -876,7 +876,7 @@ impl DeviceTrait for Device {
 
                     // Keep track of when the next buffer worth of samples should be played.
                     *time_handle.write().unwrap() = time_at_start_of_buffer + buffer_time_step_secs;
-                }) as Box<dyn FnMut()>));
+                })));
 
             on_ended_closures.push(on_ended_closure);
         }
@@ -1082,7 +1082,7 @@ impl DeviceTrait for Device {
                     js_sys::Float32Array::new(&temporary_channel_array)
                 };
 
-                let on_audio_process = Closure::wrap(Box::new(move |event: AudioProcessingEvent| {
+                let on_audio_process_fn = Box::new(move |event: AudioProcessingEvent| {
                     let now = ctx_cb.current_time();
                     #[cfg(target_feature = "atomics")]
                     current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
@@ -1219,8 +1219,8 @@ impl DeviceTrait for Device {
                             return;
                         }
                     }
-                })
-                    as Box<dyn FnMut(AudioProcessingEvent)>);
+                });
+                let on_audio_process = Closure::wrap(on_audio_process_fn);
 
                 processor.set_onaudioprocess(Some(on_audio_process.as_ref().unchecked_ref()));
 
