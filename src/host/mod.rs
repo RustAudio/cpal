@@ -78,7 +78,7 @@ pub(crate) mod wasapi;
 
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 pub(crate) mod webaudio;
@@ -96,7 +96,7 @@ pub(crate) mod custom;
     target_os = "android",
     all(
         target_arch = "wasm32",
-        target_os = "unknown",
+        any(target_os = "emscripten", target_os = "unknown"),
         feature = "wasm-bindgen"
     ),
 )))]
@@ -246,7 +246,13 @@ pub(crate) use error_emit::try_emit_error;
     target_os = "netbsd",
     target_os = "windows",
     target_vendor = "apple",
-    feature = "audioworklet",
+    all(
+        target_arch = "wasm32",
+        target_os = "unknown",
+        feature = "wasm-bindgen",
+        feature = "audioworklet",
+        target_feature = "atomics"
+    ),
 ))]
 #[inline]
 pub(crate) fn frames_to_duration(
@@ -333,7 +339,7 @@ where
 /// <https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia#exceptions>
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 pub(crate) fn get_user_media_error(js_err: &wasm_bindgen::JsValue) -> crate::Error {
@@ -366,7 +372,7 @@ pub(crate) fn get_user_media_error(js_err: &wasm_bindgen::JsValue) -> crate::Err
 /// <https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia>
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 pub(crate) async fn request_microphone() -> Result<web_sys::MediaStream, wasm_bindgen::JsValue> {
@@ -387,7 +393,7 @@ pub(crate) async fn request_microphone() -> Result<web_sys::MediaStream, wasm_bi
 /// microphone is actually present without asking for permission first via getUserMedia().
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 pub(crate) fn is_get_user_media_available() -> bool {
@@ -398,7 +404,7 @@ pub(crate) fn is_get_user_media_available() -> bool {
 /// browser's capture indicator. Dropping a WebAudio graph alone does not do this.
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 pub(crate) fn stop_tracks(media_stream: &web_sys::MediaStream) {

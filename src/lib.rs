@@ -198,19 +198,19 @@
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 extern crate js_sys;
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 extern crate wasm_bindgen;
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 extern crate web_sys;
@@ -226,7 +226,7 @@ pub use platform::{
 pub use sample_format::{FromSample, I24, Sample, SampleFormat, SizedSample, U24};
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 use wasm_bindgen::prelude::*;
@@ -426,7 +426,7 @@ pub enum BufferSize {
 
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 impl wasm_bindgen::describe::WasmDescribe for BufferSize {
@@ -437,7 +437,7 @@ impl wasm_bindgen::describe::WasmDescribe for BufferSize {
 
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
@@ -454,7 +454,7 @@ impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
 
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
@@ -476,7 +476,7 @@ impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
 #[cfg_attr(
     all(
         target_arch = "wasm32",
-        target_os = "unknown",
+        any(target_os = "emscripten", target_os = "unknown"),
         feature = "wasm-bindgen"
     ),
     wasm_bindgen

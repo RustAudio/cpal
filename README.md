@@ -52,7 +52,8 @@ The minimum Rust version (MSRV) and minimum operating system / runtime version b
 | PipeWire | Linux, BSD | 1.85 | PipeWire 0.3.53 |
 | PulseAudio | Linux, BSD | 1.88 | — |
 | WASAPI / ASIO | Windows | 1.85 | Windows 10 |
-| WASM (`wasm32-unknown`) | WebAssembly | 1.85 | — |
+| WASM (`wasm32-unknown-unknown`) | WebAssembly | 1.85 | — |
+| WASM (`wasm32-unknown-emscripten`) | WebAssembly | 1.85 | Emscripten 6.0.3, wasm-bindgen 0.2.127 |
 | WASM (`wasm32-wasip1`) | WebAssembly | 1.85 | — |
 | WASM (`audioworklet`) | WebAssembly | nightly | — |
 
@@ -70,7 +71,7 @@ The `audioworklet` backend additionally requires `-Zbuild-std` with atomics supp
 | `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
 | `realtime` | Android, Linux, Windows | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. On Linux, requires `CAP_SYS_NICE`, root, or an `rtprio` limit granted via `limits.conf` or systemd, unless `realtime-dbus` is also enabled. |
 | `realtime-dbus` | Linux | Uses `rtkit` via D-Bus for RT scheduling on Linux desktop systems. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux. |
-| `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `webaudio` example. |
+| `wasm-bindgen` | WebAssembly (`wasm32-unknown-emscripten`, `wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `webaudio` example. |
 
 See the [beep example](examples/beep.rs) for selecting the backend at runtime.
 
