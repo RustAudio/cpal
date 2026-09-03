@@ -7,7 +7,7 @@ pub mod errors;
 #[cfg(target_os = "windows")]
 use std::os::raw::c_long;
 use std::{
-    ffi::{CStr, CString},
+    ffi::CString,
     os::raw::{c_char, c_double, c_void},
     ptr::null_mut,
     sync::{
@@ -981,6 +981,18 @@ impl Driver {
         drop(dcb);
         drop(removed);
     }
+
+    /// Returns the name of the channel at the given index.
+    ///
+    /// `channel` is a 0-based channel index. `is_input` selects the input (`true`) or output
+    /// (`false`) direction.
+    ///
+    /// The driver must already be loaded (i.e. this `Driver` instance must be alive).
+    pub fn channel_name(&self, channel: i32, is_input: bool) -> Result<String, AsioError> {
+        let _guard = self.inner.lock_state();
+        let info = asio_channel_info(channel, is_input)?;
+        Ok(driver_name_to_utf8(&info.name).into_owned())
+    }
 }
 
 impl DriverState {
@@ -1107,6 +1119,10 @@ fn asio_get_buffer_sizes() -> Result<BufferSizes, AsioError> {
 /// Retrieve the `ASIOChannelInfo` associated with the channel at the given index on either the
 /// input or output stream (`true` for input).
 fn asio_channel_info(channel: c_long, is_input: bool) -> Result<ai::ASIOChannelInfo, AsioError> {
+    if channel < 0 {
+        return Err(AsioError::InvalidInput);
+    }
+
     let mut channel_info = ai::ASIOChannelInfo {
         // Which channel we are querying
         channel,
@@ -1137,7 +1153,15 @@ fn stream_data_type(is_input: bool) -> Result<AsioSampleType, AsioError> {
 ///
 /// This converts to utf8.
 fn driver_name_to_utf8(bytes: &[c_char]) -> std::borrow::Cow<'_, str> {
-    unsafe { CStr::from_ptr(bytes.as_ptr()).to_string_lossy() }
+    let length = bytes
+        .iter()
+        .position(|&byte| byte == 0)
+        .unwrap_or(bytes.len());
+    let bytes = bytes[..length]
+        .iter()
+        .map(|&byte| byte as u8)
+        .collect::<Vec<_>>();
+    String::from_utf8_lossy(&bytes).into_owned().into()
 }
 
 /// Convert an `ASIOTimeStamp` (high and low 32-bit halves) to a `u64` nanosecond value.

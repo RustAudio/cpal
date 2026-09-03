@@ -26,6 +26,8 @@ pub struct Device {
     input_sample_format: Option<SampleFormat>,
     output_sample_format: Option<SampleFormat>,
     supported_sample_rates: Box<[SampleRate]>,
+    input_channel_names: Box<[String]>,
+    output_channel_names: Box<[String]>,
 
     pub(super) current_callback_flag: Arc<AtomicU32>,
 }
@@ -123,6 +125,26 @@ impl Device {
         }
         configs
     }
+
+    pub fn get_channel_name(&self, channel_index: u16, input: bool) -> Result<String, Error> {
+        let names = if input {
+            &self.input_channel_names
+        } else {
+            &self.output_channel_names
+        };
+
+        names.get(channel_index as usize).cloned().ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::InvalidInput,
+                format!(
+                    "channel index {} is out of range (device has {} {} channels)",
+                    channel_index,
+                    names.len(),
+                    if input { "input" } else { "output" },
+                ),
+            )
+        })
+    }
 }
 
 impl PartialEq for Device {
@@ -185,6 +207,12 @@ impl Iterator for Devices {
                     if channels.ins == 0 && channels.outs == 0 {
                         continue;
                     }
+                    let Ok(channels_in) = ChannelCount::try_from(channels.ins) else {
+                        continue;
+                    };
+                    let Ok(channels_out) = ChannelCount::try_from(channels.outs) else {
+                        continue;
+                    };
 
                     // Some drivers (e.g. Realtek ASIO) return 0 for sample_rate() until a
                     // stream is active. Treat 0 as "not yet known" rather than skipping.
@@ -209,18 +237,39 @@ impl Iterator for Devices {
                         .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))
                         .collect();
 
+                    let input_channel_names: Box<[String]> = (0..channels_in)
+                        .map(|ch| {
+                            driver
+                                .channel_name(ch.into(), true)
+                                .ok()
+                                .filter(|name| !name.is_empty())
+                                .unwrap_or_else(|| format!("Input {ch}"))
+                        })
+                        .collect();
+                    let output_channel_names: Box<[String]> = (0..channels_out)
+                        .map(|ch| {
+                            driver
+                                .channel_name(ch.into(), false)
+                                .ok()
+                                .filter(|name| !name.is_empty())
+                                .unwrap_or_else(|| format!("Output {ch}"))
+                        })
+                        .collect();
+
                     self.current_driver = Some(driver);
 
                     return Some(Device {
                         name,
-                        channels_in: channels.ins as ChannelCount,
-                        channels_out: channels.outs as ChannelCount,
+                        channels_in,
+                        channels_out,
                         sample_rate: sample_rate as SampleRate,
                         buffer_size_min: buffer_size_range.min as FrameCount,
                         buffer_size_max: buffer_size_range.max as FrameCount,
                         input_sample_format,
                         output_sample_format,
                         supported_sample_rates,
+                        input_channel_names,
+                        output_channel_names,
                         // Initialize with sentinel value so it never matches global flag state (0 or 1).
                         current_callback_flag: Arc::new(AtomicU32::new(u32::MAX)),
                     });

@@ -667,6 +667,36 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
             "duplex streams are not supported by this device",
         ))
     }
+
+    /// Obtain the associated string name for a channel index.
+    ///
+    /// The CoreAudio (macOS) and ASIO backends provide channel names. All other built-in
+    /// backends return [`ErrorKind::UnsupportedOperation`].
+    ///
+    /// # Parameters
+    ///
+    /// * `channel_index` - Channel index to query.
+    /// * `input` - Whether to query an input channel (`true`) or output channel (`false`).
+    ///
+    /// # Errors
+    ///
+    /// - [`ErrorKind::UnsupportedOperation`] if the backend does not provide channel names, or
+    ///   if the device does not support the requested direction.
+    /// - [`ErrorKind::InvalidInput`] if `channel_index` is out of range for the device.
+    /// - [`ErrorKind::BackendError`] if the underlying audio API returns an error that cannot be
+    ///   mapped to a more specific error kind.
+    /// - [`ErrorKind::Other`] if the backend returns no channel name.
+    ///
+    /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
+    /// [`ErrorKind::InvalidInput`]: crate::ErrorKind::InvalidInput
+    /// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
+    /// [`ErrorKind::Other`]: crate::ErrorKind::Other
+    fn get_channel_name(&self, _channel_index: u16, _input: bool) -> Result<String, Error> {
+        Err(Error::with_message(
+            ErrorKind::UnsupportedOperation,
+            "device does not support channel names",
+        ))
+    }
 }
 
 /// A stream created from [`Device`](DeviceTrait), with methods to control it.
