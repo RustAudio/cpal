@@ -5,7 +5,7 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        mpsc::{RecvTimeoutError, channel},
+        mpsc::{Receiver, RecvTimeoutError, channel},
     },
     time::{Duration, Instant},
 };
@@ -184,37 +184,54 @@ fn set_sample_rate(
         // Wait for the reported_rate to change.
         //
         // This should not take longer than a few ms. Use the caller's timeout if provided,
-        // otherwise default to 1 second. We loop over potentially several events from the
-        // channel to ensure that we catch the expected change in sample rate.
-        let mut remaining = timeout.unwrap_or(Duration::from_secs(1));
-        let start = Instant::now();
-        loop {
-            match receiver.recv_timeout(remaining) {
-                Ok(reported_rate) => {
-                    if (reported_rate - target_sample_rate as f64).abs() < 1.0 {
-                        break;
-                    }
-                }
-                Err(RecvTimeoutError::Timeout) => {
-                    return Err(Error::with_message(
-                        ErrorKind::DeviceNotAvailable,
-                        "Sample rate update timed out",
-                    ));
-                }
-                Err(RecvTimeoutError::Disconnected) => {
-                    return Err(Error::with_message(
-                        ErrorKind::StreamInvalidated,
-                        "Sample rate listener disconnected unexpectedly",
-                    ));
-                }
-            }
-            remaining = remaining
-                .checked_sub(start.elapsed())
-                .unwrap_or(Duration::ZERO);
-        }
+        // otherwise default to 1 second.
+        wait_for_rate(
+            &receiver,
+            target_sample_rate,
+            timeout.unwrap_or(Duration::from_secs(1)),
+        )?;
         // listener dropped here; its Drop impl calls unregister() automatically.
     }
     Ok(())
+}
+
+/// Block until the rate listener reports `target_sample_rate`, giving up after `timeout`.
+///
+/// Notifications carrying some other rate can arrive first, so `timeout` bounds the whole wait
+/// rather than each individual receive.
+fn wait_for_rate(
+    receiver: &Receiver<f64>,
+    target_sample_rate: SampleRate,
+    timeout: Duration,
+) -> Result<(), Error> {
+    let start = Instant::now();
+    let mut remaining = timeout;
+
+    loop {
+        match receiver.recv_timeout(remaining) {
+            Ok(reported_rate) => {
+                if (reported_rate - target_sample_rate as f64).abs() < 1.0 {
+                    return Ok(());
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                return Err(Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "Sample rate update timed out",
+                ));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(Error::with_message(
+                    ErrorKind::StreamInvalidated,
+                    "Sample rate listener disconnected unexpectedly",
+                ));
+            }
+        }
+
+        remaining = timeout
+            .checked_sub(start.elapsed())
+            .unwrap_or(Duration::ZERO);
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1115,4 +1132,47 @@ pub(crate) fn get_device_buffer_frame_size(
         Element::Output,
     )?;
     Ok(frames as usize)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::channel;
+    use std::time::{Duration, Instant};
+
+    use super::wait_for_rate;
+
+    /// A listener can report rates other than the target before it reports the new one, e.g. a
+    /// device stepping through rates. The whole timeout must remain available across those.
+    #[test]
+    fn wait_for_rate_honours_the_full_timeout_across_repeated_events() {
+        const TIMEOUT: Duration = Duration::from_millis(500);
+
+        let (sender, receiver) = channel::<f64>();
+        let feeder = std::thread::spawn(move || {
+            while sender.send(44_100.0).is_ok() {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+
+        let start = Instant::now();
+        assert!(wait_for_rate(&receiver, 48_000, TIMEOUT).is_err());
+        let elapsed = start.elapsed();
+
+        drop(receiver);
+        let _ = feeder.join();
+
+        assert!(
+            elapsed >= TIMEOUT - Duration::from_millis(100),
+            "gave up after {elapsed:?}, well before the {TIMEOUT:?} timeout"
+        );
+    }
+
+    #[test]
+    fn wait_for_rate_returns_when_the_target_rate_is_reported() {
+        let (sender, receiver) = channel::<f64>();
+        sender.send(44_100.0).unwrap();
+        sender.send(48_000.0).unwrap();
+
+        assert!(wait_for_rate(&receiver, 48_000, Duration::from_secs(5)).is_ok());
+    }
 }
