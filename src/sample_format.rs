@@ -35,9 +35,6 @@ pub use dasp_sample::{FromSample, Sample};
 ))]
 use wasm_bindgen::prelude::*;
 
-// I48 and U48 are not currently supported by cpal but available in dasp_sample:
-// pub use dasp_sample::{I48, U48};
-
 /// Format that each sample has. Usually, this corresponds to the sampling
 /// depth of the audio source. For example, 16 bit quantized samples can be
 /// encoded in `i16` or `u16`. Note that the quantized sampling depth is not
@@ -78,8 +75,6 @@ pub enum SampleFormat {
     /// `i32` with a valid range of `i32::MIN..=i32::MAX` with `0` being the origin.
     I32,
 
-    // /// `I48` with a valid range of '-(1 << 47)..(1 << 47)' with `0` being the origin
-    // I48,
     /// `i64` with a valid range of `i64::MIN..=i64::MAX` with `0` being the origin.
     I64,
 
@@ -96,9 +91,6 @@ pub enum SampleFormat {
 
     /// `u32` with a valid range of `u32::MIN..=u32::MAX` with `1 << 31` being the origin.
     U32,
-
-    /// `U48` with a valid range of '0..(1 << 48)' with `1 << 47` being the origin
-    // U48,
 
     /// `u64` with a valid range of `u64::MIN..=u64::MAX` with `1 << 63` being the origin.
     U64,
@@ -125,23 +117,21 @@ impl SampleFormat {
     /// sample format (e.g., i24 has size of i32).
     #[inline]
     #[must_use]
-    pub fn sample_size(&self) -> usize {
-        match *self {
-            SampleFormat::I8 => mem::size_of::<i8>(),
-            SampleFormat::U8 => mem::size_of::<u8>(),
+    pub const fn sample_size(self) -> usize {
+        match self {
+            SampleFormat::I8  => mem::size_of::<i8>(),
+            SampleFormat::U8  => mem::size_of::<u8>(),
             SampleFormat::I16 => mem::size_of::<i16>(),
             SampleFormat::U16 => mem::size_of::<u16>(),
             SampleFormat::I24 => mem::size_of::<i32>(),
             SampleFormat::U24 => mem::size_of::<i32>(),
             SampleFormat::I32 => mem::size_of::<i32>(),
             SampleFormat::U32 => mem::size_of::<u32>(),
-            // SampleFormat::I48 => mem::size_of::<i64>(),
-            // SampleFormat::U48 => mem::size_of::<i64>(),
             SampleFormat::I64 => mem::size_of::<i64>(),
             SampleFormat::U64 => mem::size_of::<u64>(),
             SampleFormat::F32 => mem::size_of::<f32>(),
             SampleFormat::F64 => mem::size_of::<f64>(),
-            SampleFormat::DsdU8 => mem::size_of::<u8>(),
+            SampleFormat::DsdU8  => mem::size_of::<u8>(),
             SampleFormat::DsdU16 => mem::size_of::<u16>(),
             SampleFormat::DsdU32 => mem::size_of::<u32>(),
         }
@@ -152,21 +142,19 @@ impl SampleFormat {
     /// this sample format (e.g., I24 has size of i32 but 24 bits per sample).
     #[inline]
     #[must_use]
-    pub fn bits_per_sample(&self) -> u32 {
-        match *self {
-            SampleFormat::I8 => i8::BITS,
-            SampleFormat::U8 => u8::BITS,
+    pub const fn bits_per_sample(self) -> u32 {
+        match self {
+            SampleFormat::I8  => i8::BITS,
+            SampleFormat::U8  => u8::BITS,
             SampleFormat::I16 => i16::BITS,
             SampleFormat::U16 => u16::BITS,
             SampleFormat::I24 => 24,
             SampleFormat::U24 => 24,
             SampleFormat::I32 => i32::BITS,
             SampleFormat::U32 => u32::BITS,
-            // SampleFormat::I48 => 48,
-            // SampleFormat::U48 => 48,
             SampleFormat::I64 => i64::BITS,
             SampleFormat::U64 => u64::BITS,
-            SampleFormat::F32 => 32,
+            SampleFormat::F32 => 32, // f32/64::BITS is currently unstable, so we hardcode the values here.
             SampleFormat::F64 => 64,
             SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => 1,
         }
@@ -174,66 +162,59 @@ impl SampleFormat {
 
     #[inline]
     #[must_use]
-    pub fn is_int(&self) -> bool {
+    pub const fn is_int(self) -> bool {
         matches!(
-            *self,
+            self,
             SampleFormat::I8
-                | SampleFormat::I16
-                | SampleFormat::I24
-                | SampleFormat::I32
-                // | SampleFormat::I48
-                | SampleFormat::I64
+            | SampleFormat::I16
+            | SampleFormat::I24
+            | SampleFormat::I32
+            | SampleFormat::I64
         )
     }
 
     #[inline]
     #[must_use]
-    pub fn is_uint(&self) -> bool {
+    pub const fn is_uint(self) -> bool {
         matches!(
-            *self,
+            self,
             SampleFormat::U8
-                | SampleFormat::U16
-                | SampleFormat::U24
-                | SampleFormat::U32
-                // | SampleFormat::U48
-                | SampleFormat::U64
+            | SampleFormat::U16
+            | SampleFormat::U24
+            | SampleFormat::U32
+            | SampleFormat::U64
         )
     }
 
     #[inline]
     #[must_use]
-    pub fn is_float(&self) -> bool {
-        matches!(*self, SampleFormat::F32 | SampleFormat::F64)
+    pub const fn is_float(self) -> bool {
+        matches!(self, SampleFormat::F32 | SampleFormat::F64)
     }
 
     #[inline]
     #[must_use]
-    pub fn is_dsd(&self) -> bool {
-        matches!(
-            *self,
-            SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32
-        )
+    pub const fn is_dsd(self) -> bool {
+        matches!(self, SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32)
     }
 }
 
 impl Display for SampleFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            SampleFormat::I8 => "i8",
+            SampleFormat::I8  => "i8",
             SampleFormat::I16 => "i16",
             SampleFormat::I24 => "i24",
             SampleFormat::I32 => "i32",
-            // SampleFormat::I48 => "i48",
             SampleFormat::I64 => "i64",
-            SampleFormat::U8 => "u8",
+            SampleFormat::U8  => "u8",
             SampleFormat::U16 => "u16",
             SampleFormat::U24 => "u24",
             SampleFormat::U32 => "u32",
-            // SampleFormat::U48 => "u48",
             SampleFormat::U64 => "u64",
             SampleFormat::F32 => "f32",
             SampleFormat::F64 => "f64",
-            SampleFormat::DsdU8 => "dsdu8",
+            SampleFormat::DsdU8  => "dsdu8",
             SampleFormat::DsdU16 => "dsdu16",
             SampleFormat::DsdU32 => "dsdu32",
         }
@@ -264,58 +245,27 @@ pub trait SizedSample: Sample {
     const FORMAT: SampleFormat;
 }
 
-impl SizedSample for i8 {
-    const FORMAT: SampleFormat = SampleFormat::I8;
+macro_rules! impl_sized_sample {
+    ($($sample_type:ty => $format:expr),* $(,)?) => {
+        $(
+            impl SizedSample for $sample_type {
+                const FORMAT: SampleFormat = $format;
+            }
+        )*
+    };
 }
 
-impl SizedSample for i16 {
-    const FORMAT: SampleFormat = SampleFormat::I16;
-}
-
-impl SizedSample for I24 {
-    const FORMAT: SampleFormat = SampleFormat::I24;
-}
-
-impl SizedSample for i32 {
-    const FORMAT: SampleFormat = SampleFormat::I32;
-}
-
-// impl SizedSample for I48 {
-//     const FORMAT: SampleFormat = SampleFormat::I48;
-// }
-
-impl SizedSample for i64 {
-    const FORMAT: SampleFormat = SampleFormat::I64;
-}
-
-impl SizedSample for u8 {
-    const FORMAT: SampleFormat = SampleFormat::U8;
-}
-
-impl SizedSample for u16 {
-    const FORMAT: SampleFormat = SampleFormat::U16;
-}
-
-impl SizedSample for U24 {
-    const FORMAT: SampleFormat = SampleFormat::U24;
-}
-
-impl SizedSample for u32 {
-    const FORMAT: SampleFormat = SampleFormat::U32;
-}
-
-// impl SizedSample for U48 {
-//     const FORMAT: SampleFormat = SampleFormat::U48;
-// }
-
-impl SizedSample for u64 {
-    const FORMAT: SampleFormat = SampleFormat::U64;
-}
-
-impl SizedSample for f32 {
-    const FORMAT: SampleFormat = SampleFormat::F32;
-}
-
-impl SizedSample for f64 {
-    const FORMAT: SampleFormat = SampleFormat::F64;
+impl_sized_sample! {
+    i8  => SampleFormat::I8,
+    i16 => SampleFormat::I16,
+    I24 => SampleFormat::I24,
+    i32 => SampleFormat::I32,
+    i64 => SampleFormat::I64,
+    u8  => SampleFormat::U8,
+    u16 => SampleFormat::U16,
+    U24 => SampleFormat::U24,
+    u32 => SampleFormat::U32,
+    u64 => SampleFormat::U64,
+    f32 => SampleFormat::F32,
+    f64 => SampleFormat::F64,
 }
