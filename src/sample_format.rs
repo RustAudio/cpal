@@ -166,10 +166,10 @@ impl SampleFormat {
         matches!(
             self,
             SampleFormat::I8
-            | SampleFormat::I16
-            | SampleFormat::I24
-            | SampleFormat::I32
-            | SampleFormat::I64
+                | SampleFormat::I16
+                | SampleFormat::I24
+                | SampleFormat::I32
+                | SampleFormat::I64
         )
     }
 
@@ -179,10 +179,10 @@ impl SampleFormat {
         matches!(
             self,
             SampleFormat::U8
-            | SampleFormat::U16
-            | SampleFormat::U24
-            | SampleFormat::U32
-            | SampleFormat::U64
+                | SampleFormat::U16
+                | SampleFormat::U24
+                | SampleFormat::U32
+                | SampleFormat::U64
         )
     }
 
@@ -195,7 +195,10 @@ impl SampleFormat {
     #[inline]
     #[must_use]
     pub const fn is_dsd(self) -> bool {
-        matches!(self, SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32)
+        matches!(
+            self,
+            SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32
+        )
     }
 }
 
@@ -207,7 +210,7 @@ impl Display for SampleFormat {
             SampleFormat::I24 => "i24",
             SampleFormat::I32 => "i32",
             SampleFormat::I64 => "i64",
-            SampleFormat::U8  => "u8",
+            SampleFormat::U8 => "u8",
             SampleFormat::U16 => "u16",
             SampleFormat::U24 => "u24",
             SampleFormat::U32 => "u32",
