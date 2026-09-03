@@ -119,8 +119,8 @@ impl SampleFormat {
     #[must_use]
     pub const fn sample_size(self) -> usize {
         match self {
-            SampleFormat::I8  => mem::size_of::<i8>(),
-            SampleFormat::U8  => mem::size_of::<u8>(),
+            SampleFormat::I8 => mem::size_of::<i8>(),
+            SampleFormat::U8 => mem::size_of::<u8>(),
             SampleFormat::I16 => mem::size_of::<i16>(),
             SampleFormat::U16 => mem::size_of::<u16>(),
             SampleFormat::I24 => mem::size_of::<i32>(),
@@ -131,7 +131,7 @@ impl SampleFormat {
             SampleFormat::U64 => mem::size_of::<u64>(),
             SampleFormat::F32 => mem::size_of::<f32>(),
             SampleFormat::F64 => mem::size_of::<f64>(),
-            SampleFormat::DsdU8  => mem::size_of::<u8>(),
+            SampleFormat::DsdU8 => mem::size_of::<u8>(),
             SampleFormat::DsdU16 => mem::size_of::<u16>(),
             SampleFormat::DsdU32 => mem::size_of::<u32>(),
         }
@@ -144,8 +144,8 @@ impl SampleFormat {
     #[must_use]
     pub const fn bits_per_sample(self) -> u32 {
         match self {
-            SampleFormat::I8  => i8::BITS,
-            SampleFormat::U8  => u8::BITS,
+            SampleFormat::I8 => i8::BITS,
+            SampleFormat::U8 => u8::BITS,
             SampleFormat::I16 => i16::BITS,
             SampleFormat::U16 => u16::BITS,
             SampleFormat::I24 => 24,
@@ -202,7 +202,7 @@ impl SampleFormat {
 impl Display for SampleFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            SampleFormat::I8  => "i8",
+            SampleFormat::I8 => "i8",
             SampleFormat::I16 => "i16",
             SampleFormat::I24 => "i24",
             SampleFormat::I32 => "i32",
@@ -214,7 +214,7 @@ impl Display for SampleFormat {
             SampleFormat::U64 => "u64",
             SampleFormat::F32 => "f32",
             SampleFormat::F64 => "f64",
-            SampleFormat::DsdU8  => "dsdu8",
+            SampleFormat::DsdU8 => "dsdu8",
             SampleFormat::DsdU16 => "dsdu16",
             SampleFormat::DsdU32 => "dsdu32",
         }
@@ -256,12 +256,12 @@ macro_rules! impl_sized_sample {
 }
 
 impl_sized_sample! {
-    i8  => SampleFormat::I8,
+    i8 => SampleFormat::I8,
     i16 => SampleFormat::I16,
     I24 => SampleFormat::I24,
     i32 => SampleFormat::I32,
     i64 => SampleFormat::I64,
-    u8  => SampleFormat::U8,
+    u8 => SampleFormat::U8,
     u16 => SampleFormat::U16,
     U24 => SampleFormat::U24,
     u32 => SampleFormat::U32,
