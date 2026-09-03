@@ -36,10 +36,20 @@ mod emscripten {
         ) -> bool;
     }
 
+    /// Runs `func` on the browser main thread. For the Emscripten target,
+    /// always succeeds with [`Some`].
+    pub fn try_run<F, R>(func: F) -> Option<R>
+    where
+        F: FnOnce() -> R + Send,
+        R: Send,
+    {
+        Some(run(func))
+    }
+
     /// Run `func` on the browser main thread and return its result, blocking
     /// the caller until it completes. Runs inline when the caller already is
     /// the main thread.
-    pub fn run<F, R>(func: F) -> R
+    fn run<F, R>(func: F) -> R
     where
         F: FnOnce() -> R + Send,
         R: Send,
@@ -92,35 +102,12 @@ mod emscripten {
             slot.ret.take().expect("proxied task did not run")
         }
     }
-
-    /// Runs `func` on the browser main thread. For the Emscripten target,
-    /// always succeeds with [`Some`].
-    pub fn try_run<F, R>(func: F) -> Option<R>
-    where
-        F: FnOnce() -> R + Send,
-        R: Send,
-    {
-        Some(run(func))
-    }
 }
 
 /// Proxying implementation for `wasm32-unknown-unknown`: will check to see
 /// if closures are running on the main thread, and fail if ever called from a worker.
 #[cfg(target_os = "unknown")]
 mod unknown {
-    /// Asserts that this is the main browser thread and runs `func`.
-    pub fn run<F, R>(func: F) -> R
-    where
-        F: FnOnce() -> R + Send,
-        R: Send,
-    {
-        assert!(
-            is_main_thread(),
-            "proxying closures is not supported on wasm32-unknown-unknown"
-        );
-        func()
-    }
-
     /// Attempts to run `func`. If this was not already the main browser thread,
     /// then returns [`None`] because proxying is not possible on this target.
     pub fn try_run<F, R>(func: F) -> Option<R>
@@ -133,6 +120,19 @@ mod unknown {
         } else {
             None
         }
+    }
+
+    /// Asserts that this is the main browser thread and runs `func`.
+    fn run<F, R>(func: F) -> R
+    where
+        F: FnOnce() -> R + Send,
+        R: Send,
+    {
+        assert!(
+            is_main_thread(),
+            "proxying closures is not supported on wasm32-unknown-unknown"
+        );
+        func()
     }
 
     /// Whether this is the main browser thread.

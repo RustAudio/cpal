@@ -311,7 +311,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        main_thread::run(|| {
+        main_thread::try_run(|| {
             validate_config(&config, sample_format)?;
 
             let n_channels = config.channels as usize;
@@ -558,7 +558,12 @@ impl DeviceTrait for Device {
                     buffer_size_frames,
                 })
             }
-        })
+        }).ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "Failed to create audio context",
+            )
+        })?
     }
 
     /// Create an output stream.
@@ -574,7 +579,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        main_thread::run(|| {
+        main_thread::try_run(|| {
             validate_config(&config, sample_format)?;
 
             let n_channels = config.channels as usize;
@@ -962,6 +967,12 @@ impl DeviceTrait for Device {
                 })
             }
         })
+        .ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "Failed to create audio context",
+            )
+        })?
     }
 
     /// Create a duplex stream.
@@ -984,7 +995,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        main_thread::run(|| {
+        main_thread::try_run(|| {
             validate_duplex_config(&config, input_sample_format, output_sample_format)?;
 
             let input_channels = config.input_channels as usize;
@@ -1347,7 +1358,12 @@ impl DeviceTrait for Device {
                     buffer_size_frames,
                 })
             }
-        })
+        }).ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "Failed to create audio context",
+            )
+        })?
     }
 }
 
