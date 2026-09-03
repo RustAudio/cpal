@@ -55,6 +55,8 @@ use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
+mod main_thread;
+
 /// Type alias for shared closure handles used in audio callbacks
 type ClosureHandle = Arc<RwLock<Option<Closure<dyn FnMut()>>>>;
 
@@ -309,6 +311,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        main_thread::run(|| {
         validate_config(&config, sample_format)?;
 
         let n_channels = config.channels as usize;
@@ -545,6 +548,7 @@ impl DeviceTrait for Device {
                 buffer_size_frames,
             })
         }
+    })
     }
 
     /// Create an output stream.
@@ -560,6 +564,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        main_thread::run(|| {
         validate_config(&config, sample_format)?;
 
         let n_channels = config.channels as usize;
@@ -941,6 +946,7 @@ impl DeviceTrait for Device {
                 buffer_size_frames,
             })
         }
+        })
     }
 
     /// Create a duplex stream.
@@ -963,6 +969,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        main_thread::run(|| {
         validate_duplex_config(&config, input_sample_format, output_sample_format)?;
 
         let input_channels = config.input_channels as usize;
@@ -1310,6 +1317,7 @@ impl DeviceTrait for Device {
                 buffer_size_frames,
             })
         }
+    })
     }
 }
 
@@ -1538,9 +1546,10 @@ fn default_output_device() -> Option<Device> {
 // Detects whether WebAudio is available: requires a window context (not a Worker) with an
 // AudioContext constructor present.
 fn is_webaudio_available() -> bool {
-    web_sys::window()
+    main_thread::try_run(|| web_sys::window()
         .and_then(|w| js_sys::Reflect::get(w.as_ref(), &JsValue::from("AudioContext")).ok())
-        .is_some_and(|v| v.is_truthy())
+        .is_some_and(|v| v.is_truthy()))
+        .unwrap_or(false)
 }
 
 fn buffer_time_step_secs(buffer_size_frames: usize, sample_rate: SampleRate) -> f64 {
