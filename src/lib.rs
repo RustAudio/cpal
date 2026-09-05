@@ -113,7 +113,7 @@
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let supported_config = device.default_output_config().unwrap();
-//! let err_fn = |err| eprintln!("an error occurred on the output audio stream: {}", err);
+//! let err_fn = |err| eprintln!("an error occurred on the output audio stream: {err}");
 //! let sample_format = supported_config.sample_format();
 //! let config = supported_config.into();
 //! let stream = match sample_format {
@@ -284,7 +284,7 @@ pub type FrameCount = u32;
 ///
 /// // Serialize to string (e.g., for storage in config file)
 /// let id_string = device_id.to_string();
-/// println!("Device ID: {}", id_string); // e.g., "wasapi:device_identifier"
+/// println!("Device ID: {id_string}"); // e.g., "wasapi:device_identifier"
 ///
 /// // Deserialize from string
 /// match DeviceId::from_str(&id_string) {
@@ -294,7 +294,7 @@ pub type FrameCount = u32;
 ///             println!("Found device: {:?}", device.id());
 ///         }
 ///     }
-///     Err(e) => eprintln!("Failed to parse device ID: {}", e),
+///     Err(e) => eprintln!("Failed to parse device ID: {e}"),
 /// }
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -400,7 +400,7 @@ impl std::str::FromStr for DeviceId {
 /// // Check supported buffer size range
 /// match config.buffer_size() {
 ///     SupportedBufferSize::Range { min, max } => {
-///         println!("Buffer size range: {} - {}", min, max);
+///         println!("Buffer size range: {min} - {max}");  
 ///         // Request a small buffer for low latency
 ///         let mut stream_config = config.config();
 ///         stream_config.buffer_size = BufferSize::Fixed(256);

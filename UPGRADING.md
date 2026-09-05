@@ -407,12 +407,12 @@ let device = host.device_by_id(&id);
 ```rust
 // Before (v0.17)
 for line in desc.extended() {   // &[String]
-    println!("{}", line);       // line: &String
+    println!("{line}");       // line: &String
 }
 
 // After (v0.18)
 for line in desc.extended() {   // impl Iterator<Item = &str>
-    println!("{}", line);       // line: &str — Display, write!, format! all unchanged
+    println!("{line}");        // line: &str — Display, write!, format! all unchanged
 }
 ```
 
@@ -540,7 +540,7 @@ let name = device.name()?;
 
 // New: For user-facing display
 let desc = device.description()?;
-println!("Device: {}", desc);  // or desc.name() for just the name
+println!("Device: {desc}");  // or desc.name() for just the name
 
 // New: For stable identification and persistence
 let id = device.id()?;
