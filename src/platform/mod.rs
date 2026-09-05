@@ -146,7 +146,7 @@ macro_rules! impl_platform_host {
         ///
         ///     // Parse host string (may fail if host is not available on this platform)
         ///     if let Ok(host_id) = HostId::from_str(host_string) {
-        ///         println!("Successfully parsed: {}", host_id);
+        ///         println!("Successfully parsed: {host_id}");
         ///     }
         /// }
         /// ```

@@ -249,19 +249,23 @@ pub(crate) use error_emit::try_emit_error;
     feature = "audioworklet",
 ))]
 #[inline]
-pub(crate) fn frames_to_duration(
+pub(crate) const fn frames_to_duration(
     frames: crate::FrameCount,
     rate: crate::SampleRate,
 ) -> std::time::Duration {
     if rate == 0 {
         return std::time::Duration::ZERO;
     }
+
+    let frames = frames as u64;
     let rate = rate as u64;
-    let secs = frames as u64 / rate;
+
+    let secs = frames / rate;
     // rem_frames < rate <= u32::MAX, so rem_frames * 1_000_000_000 < u64::MAX
-    let rem_frames = frames as u64 % rate;
+    let rem_frames = frames % rate;
     // Round to nearest so the duration isn't biased.
     let nanos = (rem_frames * 1_000_000_000 + rate / 2) / rate;
+
     std::time::Duration::new(secs, nanos as u32)
 }
 

@@ -58,7 +58,7 @@ impl Stream {
         let mut port_names: Vec<String> = vec![];
         for i in 0..channels {
             let port = client
-                .register_port(&format!("in_{}", i), jack::AudioIn::default())
+                .register_port(&format!("in_{i}"), jack::AudioIn::default())
                 .context(format!("Failed to register input port {i}"))?;
             if let Ok(port_name) = port.name() {
                 port_names.push(port_name);
@@ -117,7 +117,7 @@ impl Stream {
         let mut port_names: Vec<String> = vec![];
         for i in 0..channels {
             let port = client
-                .register_port(&format!("out_{}", i), jack::AudioOut::default())
+                .register_port(&format!("out_{i}"), jack::AudioOut::default())
                 .context(format!("Failed to register output port {i}"))?;
             if let Ok(port_name) = port.name() {
                 port_names.push(port_name);
