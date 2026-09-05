@@ -91,7 +91,7 @@ fn format_device_description(phys_dev: &PhysicalDevice, prefix: &str) -> String 
         _ => "",
     };
 
-    format!("{}\n{}", first_line, second_line)
+    format!("{first_line}\n{second_line}")
 }
 
 fn physical_devices() -> Vec<PhysicalDevice> {
@@ -133,7 +133,7 @@ fn physical_devices() -> Vec<PhysicalDevice> {
                 }
             };
 
-            let device_name = device_name.unwrap_or_else(|| format!("Device {}", device_index));
+            let device_name = device_name.unwrap_or_else(|| format!("Device {device_index}"));
             devices.push(PhysicalDevice {
                 card_index,
                 card_name: card_name.clone(),

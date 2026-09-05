@@ -87,7 +87,7 @@ impl Device {
         connect_ports_automatically: bool,
         start_server_automatically: bool,
     ) -> Result<Self, Error> {
-        let output_client_name = format!("{}_out", name);
+        let output_client_name = format!("{name}_out");
         Device::new_device(
             output_client_name,
             connect_ports_automatically,
@@ -101,7 +101,7 @@ impl Device {
         connect_ports_automatically: bool,
         start_server_automatically: bool,
     ) -> Result<Self, Error> {
-        let input_client_name = format!("{}_in", name);
+        let input_client_name = format!("{name}_in");
         Device::new_device(
             input_client_name,
             connect_ports_automatically,
