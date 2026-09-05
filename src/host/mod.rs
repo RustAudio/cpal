@@ -249,7 +249,7 @@ pub(crate) use error_emit::try_emit_error;
     feature = "audioworklet",
 ))]
 #[inline]
-pub(crate) fn frames_to_duration(
+pub(crate) const fn frames_to_duration(
     frames: crate::FrameCount,
     rate: crate::SampleRate,
 ) -> std::time::Duration {
