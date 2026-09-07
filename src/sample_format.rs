@@ -154,8 +154,8 @@ impl SampleFormat {
             SampleFormat::U32 => u32::BITS,
             SampleFormat::I64 => i64::BITS,
             SampleFormat::U64 => u64::BITS,
-            SampleFormat::F32 => 32, // f32/64::BITS is currently unstable, so we hardcode the values here.
-            SampleFormat::F64 => 64,
+            SampleFormat::F32 => 32, // f32::BITS is currently unstable, so we hardcode the values here.
+            SampleFormat::F64 => 64, // f64::BITS is currently unstable, so we hardcode the values here.
             SampleFormat::DsdU8 | SampleFormat::DsdU16 | SampleFormat::DsdU32 => 1,
         }
     }

@@ -400,7 +400,7 @@ impl std::str::FromStr for DeviceId {
 /// // Check supported buffer size range
 /// match config.buffer_size() {
 ///     SupportedBufferSize::Range { min, max } => {
-///         println!("Buffer size range: {min} - {max}");  
+///         println!("Buffer size range: {min} - {max}");
 ///         // Request a small buffer for low latency
 ///         let mut stream_config = config.config();
 ///         stream_config.buffer_size = BufferSize::Fixed(256);
