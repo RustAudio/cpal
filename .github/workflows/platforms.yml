@@ -654,6 +654,7 @@ jobs:
       - tvos
       - wasm-audioworklet
       - wasm-bindgen
+      - wasm-emscripten
       - wasm-wasip1
       - windows
     runs-on: ubuntu-latest
