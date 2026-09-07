@@ -489,7 +489,8 @@ impl jack::ProcessHandler for LocalProcessHandler {
         // it is less. A greater count is truncated to the temp buffers' capacity.
         let requested_frame_count = process_scope.n_frames() as usize;
         let current_frame_count = requested_frame_count.min(self.buffer_size);
-        if requested_frame_count > self.buffer_size {
+        let truncated = requested_frame_count > self.buffer_size;
+        if truncated {
             if !self.oversized_reported {
                 let message = format!(
                     "JACK delivered a {requested_frame_count}-frame period, exceeding the configured buffer size of {}; truncated",
@@ -522,7 +523,8 @@ impl jack::ProcessHandler for LocalProcessHandler {
                 self.sample_rate,
             );
 
-        let xrun = self.pending_xrun.swap(false, Ordering::Relaxed);
+        // A truncated cycle drops captured frames and inserts silence on playback.
+        let xrun = self.pending_xrun.swap(false, Ordering::Relaxed) || truncated;
 
         match &mut self.callback {
             ProcessCallback::Duplex(duplex_callback) => {
