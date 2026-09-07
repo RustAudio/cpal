@@ -12,6 +12,7 @@ pub use self::unknown::*;
 /// functions through Emscripten's queue to run on the main thread.
 #[cfg(target_os = "emscripten")]
 mod emscripten {
+    use crate::Error;
     use std::ffi::c_void;
 
     // Functions provided by `emscripten/proxying.h` and `emscripten/threading.h`
@@ -38,18 +39,7 @@ mod emscripten {
 
     /// Runs `func` on the browser main thread. For the Emscripten target,
     /// always succeeds with [`Some`].
-    pub fn try_run<F, R>(func: F) -> Option<R>
-    where
-        F: FnOnce() -> R + Send,
-        R: Send,
-    {
-        Some(run(func))
-    }
-
-    /// Run `func` on the browser main thread and return its result, blocking
-    /// the caller until it completes. Runs inline when the caller already is
-    /// the main thread.
-    fn run<F, R>(func: F) -> R
+    pub fn try_run<F, R>(func: F) -> Result<R, Error>
     where
         F: FnOnce() -> R + Send,
         R: Send,
@@ -80,7 +70,7 @@ mod emscripten {
         // will invoke `trampoline` and not return until it is finished.
         unsafe {
             if emscripten_is_main_runtime_thread() {
-                return func();
+                return Ok(func());
             }
 
             let mut slot = SyncSlot {
@@ -99,7 +89,7 @@ mod emscripten {
                 ok,
                 "emscripten_proxy_sync to the browser main thread failed"
             );
-            slot.ret.take().expect("proxied task did not run")
+            Ok(slot.ret.take().expect("proxied task did not run"))
         }
     }
 }
@@ -108,35 +98,22 @@ mod emscripten {
 /// if closures are running on the main thread, and fail if ever called from a worker.
 #[cfg(target_os = "unknown")]
 mod unknown {
+    use crate::{Error, ErrorKind};
+
     /// Attempts to run `func`. If this was not already the main browser thread,
     /// then returns [`None`] because proxying is not possible on this target.
-    pub fn try_run<F, R>(func: F) -> Option<R>
+    pub fn try_run<F, R>(func: F) -> Result<R, Error>
     where
         F: FnOnce() -> R + Send,
         R: Send,
     {
-        if is_main_thread() {
-            Some(run(func))
+        if web_sys::window().is_some() {
+            Ok(func())
         } else {
-            None
+            Err(Error::with_message(
+                ErrorKind::UnsupportedOperation,
+                "cannot perform webaudio operations on a worker thread",
+            ))
         }
-    }
-
-    /// Asserts that this is the main browser thread and runs `func`.
-    fn run<F, R>(func: F) -> R
-    where
-        F: FnOnce() -> R + Send,
-        R: Send,
-    {
-        assert!(
-            is_main_thread(),
-            "proxying closures is not supported on wasm32-unknown-unknown"
-        );
-        func()
-    }
-
-    /// Whether this is the main browser thread.
-    fn is_main_thread() -> bool {
-        web_sys::window().is_some()
     }
 }

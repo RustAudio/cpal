@@ -558,11 +558,6 @@ impl DeviceTrait for Device {
                     buffer_size_frames,
                 })
             }
-        }).ok_or_else(|| {
-            Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                "Failed to create audio context",
-            )
         })?
     }
 
@@ -966,12 +961,6 @@ impl DeviceTrait for Device {
                     buffer_size_frames,
                 })
             }
-        })
-        .ok_or_else(|| {
-            Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                "Failed to create audio context",
-            )
         })?
     }
 
@@ -1358,11 +1347,6 @@ impl DeviceTrait for Device {
                     buffer_size_frames,
                 })
             }
-        }).ok_or_else(|| {
-            Error::with_message(
-                ErrorKind::UnsupportedConfig,
-                "Failed to create audio context",
-            )
         })?
     }
 }
