@@ -524,31 +524,48 @@ jobs:
 
   # WebAssembly - Emscripten (WebAudio host)
   wasm-emscripten:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: no-atomics
+            toolchain: ${{ env.MSRV_WASM }}
+            rustflags: ""
+            build-std: ""
+            components: ""
+          - name: atomics
+            toolchain: nightly
+            rustflags: -C target-feature=+atomics,+bulk-memory,+mutable-globals
+            build-std: -Z build-std=std,panic_abort
+            components: rust-src
+    name: wasm-emscripten (${{ matrix.name }})
     runs-on: ubuntu-latest
     env:
       TARGET: wasm32-unknown-emscripten
+      RUSTFLAGS: ${{ matrix.rustflags }}
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust MSRV (${{ env.MSRV_WASM }})
+      - name: Install Rust ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.MSRV_WASM }}
+          toolchain: ${{ matrix.toolchain }}
           targets: ${{ env.TARGET }}
+          components: ${{ matrix.components }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: wasm-emscripten
+          key: wasm-emscripten-${{ matrix.name }}
 
       - name: Check examples (default features)
-        run: cargo +${{ env.MSRV_WASM }} check --examples --workspace --verbose --target ${{ env.TARGET }}
+        run: cargo +${{ matrix.toolchain }} check --examples --workspace --verbose ${{ matrix.build-std }} --target ${{ env.TARGET }}
 
       - name: Check examples (wasm-bindgen feature)
-        run: cargo +${{ env.MSRV_WASM }} check --examples --features wasm-bindgen --workspace --verbose --target ${{ env.TARGET }}
+        run: cargo +${{ matrix.toolchain }} check --examples --features wasm-bindgen --workspace --verbose ${{ matrix.build-std }} --target ${{ env.TARGET }}
 
       - name: Check all features
-        run: cargo +${{ env.MSRV_WASM }} check --workspace --all-features --verbose --target ${{ env.TARGET }}
+        run: cargo +${{ matrix.toolchain }} check --workspace --all-features --verbose ${{ matrix.build-std }} --target ${{ env.TARGET }}
 
   # WebAssembly - WASI Preview 1
   wasm-wasip1:
