@@ -61,7 +61,7 @@ mod emscripten {
             // `emscripten_proxy_sync` keeps that thread blocked until this returns,
             // so the pointer stays valid and unaliased for the call.
             let slot = unsafe { &mut *arg.cast::<SyncSlot<F, R>>() };
-            let func = slot.func.take().expect("proxied task run twice");
+            let func = slot.func.take().expect("proxied task ran twice");
             slot.ret = Some(func());
         }
 
