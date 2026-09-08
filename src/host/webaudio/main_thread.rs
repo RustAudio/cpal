@@ -38,7 +38,7 @@ mod emscripten {
     }
 
     /// Runs `func` on the browser main thread. For the Emscripten target,
-    /// always succeeds with [`Some`].
+    /// always succeeds with [`Ok`].
     pub fn try_run<F, R>(func: F) -> Result<R, Error>
     where
         F: FnOnce() -> R + Send,
@@ -78,17 +78,13 @@ mod emscripten {
                 ret: None,
             };
 
-            let ok = emscripten_proxy_sync(
+            emscripten_proxy_sync(
                 emscripten_proxy_get_system_queue(),
                 emscripten_main_runtime_thread_id(),
                 trampoline::<F, R>,
                 (&raw mut slot).cast(),
             );
 
-            assert!(
-                ok,
-                "emscripten_proxy_sync to the browser main thread failed"
-            );
             Ok(slot.ret.take().expect("proxied task did not run"))
         }
     }
@@ -101,7 +97,7 @@ mod unknown {
     use crate::{Error, ErrorKind};
 
     /// Attempts to run `func`. If this was not already the main browser thread,
-    /// then returns [`None`] because proxying is not possible on this target.
+    /// then returns [`Err`] because proxying is not possible on this target.
     pub fn try_run<F, R>(func: F) -> Result<R, Error>
     where
         F: FnOnce() -> R + Send,
