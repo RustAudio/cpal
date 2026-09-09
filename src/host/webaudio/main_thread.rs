@@ -85,7 +85,7 @@ mod emscripten {
                 (&raw mut slot).cast(),
             );
 
-            Ok(slot.ret.take().expect("proxied task did not run"))
+            Ok(slot.ret.expect("proxied task did not run"))
         }
     }
 }
