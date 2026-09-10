@@ -12,7 +12,7 @@ pub use self::unknown::*;
 /// functions through Emscripten's queue to run on the main thread.
 #[cfg(target_os = "emscripten")]
 mod emscripten {
-    use crate::Error;
+    use crate::{Error, ErrorKind};
     use std::ffi::c_void;
 
     // Functions provided by `emscripten/proxying.h` and `emscripten/threading.h`
@@ -37,8 +37,7 @@ mod emscripten {
         ) -> bool;
     }
 
-    /// Runs `func` on the browser main thread. For the Emscripten target,
-    /// always succeeds with [`Ok`].
+    /// Runs `func` on the browser main thread.
     pub fn try_run<F, R>(func: F) -> Result<R, Error>
     where
         F: FnOnce() -> R + Send,
@@ -85,7 +84,9 @@ mod emscripten {
                 (&raw mut slot).cast(),
             );
 
-            Ok(slot.ret.expect("proxied task did not run"))
+            slot.ret.ok_or_else(|| {
+                Error::with_message(ErrorKind::BackendError, "proxied task did not run")
+            })
         }
     }
 }
