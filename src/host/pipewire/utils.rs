@@ -68,6 +68,10 @@ pub fn find_socket_path() -> Option<&'static PathBuf> {
                 }
             }
 
+            if let Some(p) = socket_in(Path::new("/run/pipewire")) {
+                return Some(p);
+            }
+
             None
         })
         .as_ref()
