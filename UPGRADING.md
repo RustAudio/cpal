@@ -11,6 +11,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Replace `InputCallbackInfo`/`OutputCallbackInfo` with `CallbackInfo`.
 - [ ] Replace `InputStreamTimestamp`/`OutputStreamTimestamp` with `StreamTimestamp`; `capture`/`playback` is now `device`.
 - [ ] Remove `ErrorKind::Xrun` match arms; read `CallbackInfo::xrun()` instead.
+- [ ] Update `SampleFormat` method calls to use `self` instead of `&self`; methods are now `const`.
 
 ## 1. `DeviceTrait` and `StreamTrait` require `Send + Sync`
 
@@ -112,8 +113,7 @@ formats.retain(|f| f.is_int());
 
 **Impact:** `SampleFormat` can now be used in a `const` environment.
 
-**Why:** `SampleFormat` is a simple enum, there was no reason why it shouldn't be const-friendly, and since every method was both `inline` and it implements `Copy`, there
-is no performance downside to it taking `self`, but simply more legible than derefrencing.
+**Why:** `SampleFormat` is a simple enum, there was no reason why it shouldn't be const-friendly, and since every method was both `inline` and it implements `Copy`, there is no performance downside to it taking `self`, but simply more legible than dereferencing.
 
 [`SampleFormat`]: https://docs.rs/cpal/latest/cpal/enum.SampleFormat.html
 ---
@@ -430,13 +430,13 @@ let device = host.device_by_id(&id);
 
 ```rust
 // Before (v0.17)
-for line in desc.extended() {   // &[String]
+for line in desc.extended() { // &[String]
     println!("{line}");       // line: &String
 }
 
 // After (v0.18)
-for line in desc.extended() {   // impl Iterator<Item = &str>
-    println!("{line}");        // line: &str — Display, write!, format! all unchanged
+for line in desc.extended() { // impl Iterator<Item = &str>
+    println!("{line}");       // line: &str — Display, write!, format! all unchanged
 }
 ```
 
