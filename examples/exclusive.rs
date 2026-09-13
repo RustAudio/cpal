@@ -2,7 +2,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::{
     Arc,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicUsize, Ordering},
     mpsc,
 };
 use std::time::{Duration, Instant};
@@ -31,7 +31,7 @@ fn wait_check_errors(errors: &mpsc::Receiver<cpal::Error>, duration: Duration) -
 
 fn run_stage(
     stream: &cpal::Stream,
-    callbacks: &AtomicU64,
+    callbacks: &AtomicUsize,
     errors: &mpsc::Receiver<cpal::Error>,
     label: &str,
 ) -> Result<()> {
@@ -101,7 +101,7 @@ fn main() -> Result<()> {
     let device = device.exclusive(true);
     let supported = device.default_output_config()?;
     println!("{}: {:?}", device, supported);
-    let callbacks = Arc::new(AtomicU64::new(0));
+    let callbacks = Arc::new(AtomicUsize::new(0));
     let callback_count = Arc::clone(&callbacks);
     let (error_tx, errors) = mpsc::channel();
     let stream = device.build_output_stream_raw(
