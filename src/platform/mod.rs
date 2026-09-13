@@ -284,7 +284,7 @@ macro_rules! impl_platform_host {
             /// the stream. `false` restores the backend's default mode.
             ///
             /// Capabilities and stream support remain backend- and device-dependent; query
-            /// [`DeviceTrait::supports_exclusive`] and configuration methods before use.
+            /// [`DeviceTrait::supports_exclusive`](crate::traits::DeviceTrait::supports_exclusive) and configuration methods before use.
             /// Exclusive mode selects an access mode and does not imply bit-perfect playback.
             #[must_use]
             pub fn exclusive(mut self, exclusive: bool) -> Self {
