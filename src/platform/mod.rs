@@ -6,6 +6,9 @@
 
 pub use self::platform_impl::*;
 
+#[cfg(all(test, feature = "custom"))]
+mod exclusive_tests;
+
 #[cfg(all(
     feature = "jack",
     any(
@@ -84,7 +87,7 @@ macro_rules! impl_platform_host {
         /// The `Device` implementation associated with the platform's dynamically dispatched
         /// [`Host`] type.
         #[derive(Clone)]
-        pub struct Device(DeviceInner);
+        pub struct Device(DeviceInner, bool);
 
         /// The `Devices` iterator associated with the platform's dynamically dispatched [`Host`]
         /// type.
@@ -273,6 +276,54 @@ macro_rules! impl_platform_host {
         }
 
         impl Device {
+            /// Requests exclusive access for subsequent configuration queries and streams.
+            ///
+            /// Select the mode before querying configurations. Unsupported backends return
+            /// [`crate::ErrorKind::UnsupportedOperation`] rather than falling back to shared
+            /// access. Selection is infallible; device availability is checked when building
+            /// the stream. `false` restores the backend's default mode.
+            ///
+            /// Capabilities and stream support remain backend- and device-dependent; query
+            /// [`DeviceTrait::supports_exclusive`] and configuration methods before use.
+            /// Exclusive mode selects an access mode and does not imply bit-perfect playback.
+            #[must_use]
+            pub fn exclusive(mut self, exclusive: bool) -> Self {
+                self.1 = exclusive;
+                #[cfg(windows)]
+                match &mut self.0 {
+                    DeviceInner::Wasapi(device) => {
+                        *device = device.clone().exclusive(exclusive);
+                    }
+                    #[allow(unreachable_patterns)]
+                    _ => {}
+                }
+                self
+            }
+
+            #[cfg(windows)]
+            fn wasapi_device(&self) -> Option<crate::host::wasapi::Device> {
+                match &self.0 {
+                    DeviceInner::Wasapi(device) => Some(device.clone().exclusive(self.1 || device.is_exclusive())),
+                    #[allow(unreachable_patterns)]
+                    _ => None,
+                }
+            }
+
+            fn check_exclusive(&self) -> Result<(), crate::Error> {
+                #[cfg(windows)]
+                if self.wasapi_device().is_some() {
+                    return Ok(());
+                }
+                if self.1 {
+                    Err(crate::Error::with_message(
+                        crate::ErrorKind::UnsupportedOperation,
+                        "Exclusive access is not implemented by this backend",
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+
             /// Returns a reference to the underlying platform-specific [`DeviceInner`].
             pub fn as_inner(&self) -> &DeviceInner { &self.0 }
 
@@ -280,7 +331,11 @@ macro_rules! impl_platform_host {
             pub fn as_inner_mut(&mut self) -> &mut DeviceInner { &mut self.0 }
 
             /// Consumes this `Device`, returning the underlying platform-specific [`DeviceInner`].
-            pub fn into_inner(self) -> DeviceInner { self.0 }
+            pub fn into_inner(self) -> DeviceInner {
+                #[cfg(windows)]
+                if let Some(device) = self.wasapi_device() { return DeviceInner::Wasapi(device); }
+                self.0
+            }
         }
 
         impl Host {
@@ -388,6 +443,14 @@ macro_rules! impl_platform_host {
             type SupportedOutputConfigs = SupportedOutputConfigs;
             type Stream = Stream;
 
+            fn supports_exclusive(&self) -> bool {
+                #[cfg(windows)]
+                if let Some(device) = self.wasapi_device() {
+                    return device.supports_exclusive();
+                }
+                false
+            }
+
             fn description(&self) -> Result<crate::DeviceDescription, crate::Error> {
                 match self.0 {
                     $(
@@ -407,6 +470,11 @@ macro_rules! impl_platform_host {
             }
 
             fn supports_input(&self) -> bool {
+                #[cfg(windows)]
+                if let Some(device) = self.wasapi_device() { return device.supports_input(); }
+                if self.1 || self.check_exclusive().is_err() {
+                    return false;
+                }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -416,6 +484,9 @@ macro_rules! impl_platform_host {
             }
 
             fn supports_output(&self) -> bool {
+                if self.check_exclusive().is_err() {
+                    return false;
+                }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -425,6 +496,11 @@ macro_rules! impl_platform_host {
             }
 
             fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, crate::Error> {
+                self.check_exclusive()?;
+                #[cfg(windows)]
+                if let Some(device) = self.wasapi_device() {
+                    return device.supported_input_configs().map(SupportedInputConfigsInner::Wasapi).map(SupportedInputConfigs);
+                }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -438,6 +514,11 @@ macro_rules! impl_platform_host {
             }
 
             fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, crate::Error> {
+                self.check_exclusive()?;
+                #[cfg(windows)]
+                if let Some(device) = self.wasapi_device() {
+                    return device.supported_output_configs().map(SupportedOutputConfigsInner::Wasapi).map(SupportedOutputConfigs);
+                }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -451,6 +532,9 @@ macro_rules! impl_platform_host {
             }
 
             fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
+                self.check_exclusive()?;
+                #[cfg(windows)]
+                if let Some(device) = self.wasapi_device() { return device.default_input_config(); }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -460,6 +544,9 @@ macro_rules! impl_platform_host {
             }
 
             fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, crate::Error> {
+                self.check_exclusive()?;
+                #[cfg(windows)]
+                if let Some(device) = self.wasapi_device() { return device.default_output_config(); }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -480,6 +567,11 @@ macro_rules! impl_platform_host {
                 D: FnMut(&crate::Data, &crate::CallbackInfo) + Send + 'static,
                 E: FnMut(crate::Error) + Send + 'static,
             {
+                self.check_exclusive()?;
+                #[cfg(windows)]
+                if let Some(device) = self.wasapi_device() {
+                    return device.build_input_stream_raw(config, sample_format, data_callback, error_callback, timeout).map(StreamInner::Wasapi).map(Stream::from);
+                }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -509,6 +601,11 @@ macro_rules! impl_platform_host {
                 D: FnMut(&mut crate::Data, &crate::CallbackInfo) + Send + 'static,
                 E: FnMut(crate::Error) + Send + 'static,
             {
+                self.check_exclusive()?;
+                #[cfg(windows)]
+                if let Some(device) = self.wasapi_device() {
+                    return device.build_output_stream_raw(config, sample_format, data_callback, error_callback, timeout).map(StreamInner::Wasapi).map(Stream::from);
+                }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -527,6 +624,9 @@ macro_rules! impl_platform_host {
             }
 
             fn supports_duplex(&self) -> bool {
+                if self.1 || self.check_exclusive().is_err() {
+                    return false;
+                }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -550,6 +650,8 @@ macro_rules! impl_platform_host {
                     + 'static,
                 E: FnMut(crate::Error) + Send + 'static,
             {
+                self.check_exclusive()?;
+                if self.1 { return Err(crate::Error::new(crate::ErrorKind::UnsupportedOperation)); }
                 match self.0 {
                     $(
                         $(#[cfg($feat)])?
@@ -756,7 +858,15 @@ macro_rules! impl_platform_host {
 
         impl From<DeviceInner> for Device {
             fn from(d: DeviceInner) -> Self {
-                Device(d)
+                #[cfg(not(windows))]
+                let exclusive = false;
+                #[cfg(windows)]
+                let exclusive = match &d {
+                    DeviceInner::Wasapi(device) => device.is_exclusive(),
+                    #[allow(unreachable_patterns)]
+                    _ => false,
+                };
+                Device(d, exclusive)
             }
         }
 
