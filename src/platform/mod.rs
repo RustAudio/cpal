@@ -848,7 +848,7 @@ macro_rules! impl_platform_host {
                 $(
                     $(#[cfg($feat)])?
                     HostId::$HostVariant => {
-                        <$Host>::new()
+                        <$Host as crate::traits::HostTrait>::new()
                             .map(HostInner::$HostVariant)
                             .map(Host::from)
                     }
@@ -887,7 +887,6 @@ mod platform_impl {
     use crate::host::pipewire::Host as PipeWireHost;
     #[cfg(feature = "pulseaudio")]
     use crate::host::pulseaudio::Host as PulseAudioHost;
-    use crate::traits::HostTrait as _;
     impl_platform_host!(
         #[cfg(feature = "pipewire")] PipeWire => PipeWireHost,
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
@@ -900,17 +899,17 @@ mod platform_impl {
     pub fn default_host() -> Host {
         #[cfg(feature = "pipewire")]
         if <PipeWireHost as crate::traits::HostTrait>::is_available() {
-            if let Ok(host) = PipeWireHost::new() {
+            if let Ok(host) = <PipeWireHost as crate::traits::HostTrait>::new() {
                 return host.into();
             }
         }
         #[cfg(feature = "pulseaudio")]
         if <PulseAudioHost as crate::traits::HostTrait>::is_available() {
-            if let Ok(host) = PulseAudioHost::new() {
+            if let Ok(host) = <PulseAudioHost as crate::traits::HostTrait>::new() {
                 return host.into();
             }
         }
-        AlsaHost::new()
+        <AlsaHost as crate::traits::HostTrait>::new()
             .expect("the default host should always be available")
             .into()
     }
@@ -921,7 +920,6 @@ mod platform_impl {
     #[cfg(all(feature = "jack", target_os = "macos"))]
     use super::JackHost;
     use crate::host::coreaudio::Host as CoreAudioHost;
-    use crate::traits::HostTrait as _;
 
     impl_platform_host!(
         CoreAudio => CoreAudioHost,
@@ -931,7 +929,7 @@ mod platform_impl {
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        CoreAudioHost::new()
+        <CoreAudioHost as crate::traits::HostTrait>::new()
             .expect("the default host should always be available")
             .into()
     }
@@ -946,7 +944,6 @@ mod platform_impl {
     #[cfg(all(feature = "audioworklet", target_feature = "atomics"))]
     use crate::host::audioworklet::Host as AudioWorkletHost;
     use crate::host::webaudio::Host as WebAudioHost;
-    use crate::traits::HostTrait as _;
 
     impl_platform_host!(
         WebAudio => WebAudioHost,
@@ -962,11 +959,13 @@ mod platform_impl {
     /// where `AudioContext` is unavailable.
     pub fn default_host() -> Host {
         assert!(
-            WebAudioHost::is_available(),
+            <WebAudioHost as crate::traits::HostTrait>::is_available(),
             "WebAudio is not available in this context; \
              AudioContext requires a Window (not a Worker or Service Worker)"
         );
-        WebAudioHost::new().unwrap().into()
+        <WebAudioHost as crate::traits::HostTrait>::new()
+            .unwrap()
+            .into()
     }
 }
 
@@ -977,7 +976,6 @@ mod platform_impl {
     #[cfg(feature = "asio")]
     use crate::host::asio::Host as AsioHost;
     use crate::host::wasapi::Host as WasapiHost;
-    use crate::traits::HostTrait as _;
 
     impl_platform_host!(
         #[cfg(feature = "asio")] Asio "ASIO" => AsioHost,
@@ -988,7 +986,7 @@ mod platform_impl {
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        WasapiHost::new()
+        <WasapiHost  as crate::traits::HostTrait>::new()
             .expect("the default host should always be available")
             .into()
     }
@@ -997,7 +995,6 @@ mod platform_impl {
 #[cfg(target_os = "android")]
 mod platform_impl {
     use crate::host::aaudio::Host as AAudioHost;
-    use crate::traits::HostTrait as _;
     impl_platform_host!(
         AAudio => AAudioHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
@@ -1005,7 +1002,7 @@ mod platform_impl {
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        AAudioHost::new()
+        <AAudioHost as crate::traits::HostTrait>::new()
             .expect("the default host should always be available")
             .into()
     }
@@ -1028,7 +1025,6 @@ mod platform_impl {
 )))]
 mod platform_impl {
     use crate::host::null::Host as NullHost;
-    use crate::traits::HostTrait as _;
 
     impl_platform_host!(
         #[cfg(not(feature = "custom"))] Null => NullHost,
@@ -1038,7 +1034,7 @@ mod platform_impl {
     /// The default host for the current compilation target platform.
     #[cfg(feature = "custom")]
     pub fn default_host() -> Host {
-        CustomHost::new()
+        <CustomHost as crate::traits::HostTrait>::new()
             .expect("the default host should always be available")
             .into()
     }
@@ -1046,7 +1042,7 @@ mod platform_impl {
     /// The default host for the current compilation target platform.
     #[cfg(not(feature = "custom"))]
     pub fn default_host() -> Host {
-        NullHost::new()
+        <NullHost as crate::traits::HostTrait>::new()
             .expect("the default host should always be available")
             .into()
     }
