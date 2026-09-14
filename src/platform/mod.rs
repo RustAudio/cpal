@@ -1024,7 +1024,10 @@ mod platform_impl {
     ),
 )))]
 mod platform_impl {
+    #[cfg(not(feature = "custom"))]
     use crate::host::null::Host as NullHost;
+    #[cfg(feature = "custom")]
+    use crate::host::custom::Host as CustomHost;
 
     impl_platform_host!(
         #[cfg(not(feature = "custom"))] Null => NullHost,
