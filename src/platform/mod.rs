@@ -937,17 +937,21 @@ mod platform_impl {
 
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 mod platform_impl {
-    #[cfg(all(feature = "audioworklet", target_feature = "atomics"))]
+    #[cfg(all(
+        target_os = "unknown",
+        feature = "audioworklet",
+        target_feature = "atomics"
+    ))]
     use crate::host::audioworklet::Host as AudioWorkletHost;
     use crate::host::webaudio::Host as WebAudioHost;
 
     impl_platform_host!(
         WebAudio => WebAudioHost,
-        #[cfg(all(feature = "audioworklet", target_feature = "atomics"))] AudioWorklet => AudioWorkletHost,
+        #[cfg(all(target_os = "unknown", feature = "audioworklet", target_feature = "atomics"))] AudioWorklet => AudioWorkletHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 
@@ -1019,7 +1023,7 @@ mod platform_impl {
     target_os = "android",
     all(
         target_arch = "wasm32",
-        target_os = "unknown",
+        any(target_os = "emscripten", target_os = "unknown"),
         feature = "wasm-bindgen"
     ),
 )))]

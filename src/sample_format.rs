@@ -30,7 +30,7 @@ pub use dasp_sample::U24;
 pub use dasp_sample::{FromSample, Sample};
 #[cfg(all(
     target_arch = "wasm32",
-    target_os = "unknown",
+    any(target_os = "emscripten", target_os = "unknown"),
     feature = "wasm-bindgen"
 ))]
 use wasm_bindgen::prelude::*;
@@ -56,7 +56,7 @@ use wasm_bindgen::prelude::*;
 #[cfg_attr(
     all(
         target_arch = "wasm32",
-        target_os = "unknown",
+        any(target_os = "emscripten", target_os = "unknown"),
         feature = "wasm-bindgen"
     ),
     wasm_bindgen

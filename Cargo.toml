@@ -199,8 +199,8 @@ objc2-avf-audio = { version = "0.3", default-features = false, features = [
   "AVAudioSessionTypes",
 ] }
 
-[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-wasm-bindgen = { version = "0.2", optional = true }
+[target.'cfg(all(target_arch = "wasm32", any(target_os = "emscripten", target_os = "unknown")))'.dependencies]
+wasm-bindgen = { version = "0.2.127", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 futures-channel = { version = "0.3", optional = true }
 futures-util = { version = "0.3", default-features = false, optional = true, features = [

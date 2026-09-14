@@ -77,6 +77,12 @@ jobs:
             features: --features wasm-bindgen
             os: ubuntu-latest
 
+          # WASM - Emscripten (WebAudio host)
+          - target: wasm32-unknown-emscripten
+            name: WASM-emscripten
+            features: --features wasm-bindgen
+            os: ubuntu-latest
+
           # WASM - WASI
           - target: wasm32-wasip1
             name: WASI

@@ -12,8 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StreamTrait::stop` ends a stream gracefully, draining buffered audio before halting (blocking up to a caller-supplied timeout). Dropping a stream still halts immediately without draining.
 - `CallbackInfo::xrun()` reports buffer over/underruns via the data callback.
 - `DeviceTrait::build_duplex_stream()`, `build_duplex_stream_raw()`, `default_duplex_config()`, and `supports_duplex()` for capture and playback from one device-level callback.
+- **ALSA**: Duplex streams are now supported.
 - **AudioWorklet**: Input and duplex streams are now supported.
+- **JACK**: Duplex streams are now supported.
 - **WebAudio**: Input and duplex streams are now supported.
+- **WebAudio**: Added support for Emscripten targets via [wasm-bindgen/Emscripten integration](https://github.com/wasm-bindgen/wasm-bindgen/issues/5237).
 
 ### Changed
 
@@ -26,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `InputStreamTimestamp`/`OutputStreamTimestamp` merged into `StreamTimestamp`; `capture`/`playback` renamed `device`.
 - Renamed the `wasm-beep` and `audioworklet-beep` examples to `webaudio` and `audioworklet`.
 - **ALSA**: Update `alsa` dependency to 0.12.
+- **CoreAudio**: `DeviceDescription::interface_type()` now reports the device transport instead of only marking aggregate devices.
 - **Linux**: `realtime` can now promote threads without requiring `realtime-dbus`.
 - **PipeWire**: Set `node.rate` property so that `default.clock.allowed-rates` PipeWire config works.
 
@@ -41,12 +45,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **ALSA**: Fix a remaining timestamp segfault on 32-bit platforms with a 64-bit kernel `time_t`.
+- **ALSA**: Improved enumeration accuracy for supported format, channel and rate combinations.
 - **ASIO**: Fix a deadlock when dropping a `Stream` that owns another ASIO `Stream`.
 - **ASIO**: Fix loading a driver while a previous driver was still unloading.
+- **ASIO**: `Stream` no longer risks blocking or panicking in the driver callback while another stream is being created or destroyed.
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.
 - **AudioWorklet**: Fix dropouts in output streams when the callback buffer grows.
+- **CoreAudio**: Fix the device running at a different sample rate from the stream on hardware that reports a continuous rate range.
+- **CoreAudio**: Fix `supported_configs()` only reporting `F32`, even on hardware that also supports other sample formats.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
+- **JACK**: Streams no longer panic when the server delivers a larger period than the negotiated buffer size.
+- **PipeWire**: Fix an empty chunk being emitted when a cycle requests no frames.
+- **PipeWire**: Fix capture reading from the wrong offset in the buffer on some devices.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
+- **WASAPI**: Revert "Default device changes no longer report `DeviceChanged`" as it was misinformed.
+- **WASAPI**: Output streams now start with real audio immediately instead of undefined content in the render buffer.
+- **WASAPI**: A stream paused immediately after starting no longer plays silence before real audio on resume.
+- **WASAPI**: Fix `I64` and `F64` incorrectly reported as supported output formats.
 
 ## [0.18.2] - 2026-08-16
 
