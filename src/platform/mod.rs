@@ -581,6 +581,19 @@ macro_rules! impl_platform_host {
                 false
             }
 
+            fn new() -> Result<Self, crate::Error>
+            where
+                Self: Sized,
+            {
+                $(
+                    $(#[cfg($feat)])?
+                    if let Ok(host) = <$Host>::new() {
+                        return Ok(host.into());
+                    }
+                )*
+                Err(crate::Error::new(crate::ErrorKind::HostUnavailable))
+            }
+
             fn devices(&self) -> Result<Self::Devices, crate::Error> {
                 match self.0 {
                     $(
@@ -874,6 +887,7 @@ mod platform_impl {
     use crate::host::pipewire::Host as PipeWireHost;
     #[cfg(feature = "pulseaudio")]
     use crate::host::pulseaudio::Host as PulseAudioHost;
+    use crate::traits::HostTrait as _;
     impl_platform_host!(
         #[cfg(feature = "pipewire")] PipeWire => PipeWireHost,
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
@@ -907,6 +921,7 @@ mod platform_impl {
     #[cfg(all(feature = "jack", target_os = "macos"))]
     use super::JackHost;
     use crate::host::coreaudio::Host as CoreAudioHost;
+    use crate::traits::HostTrait as _;
 
     impl_platform_host!(
         CoreAudio => CoreAudioHost,
@@ -962,6 +977,7 @@ mod platform_impl {
     #[cfg(feature = "asio")]
     use crate::host::asio::Host as AsioHost;
     use crate::host::wasapi::Host as WasapiHost;
+    use crate::traits::HostTrait as _;
 
     impl_platform_host!(
         #[cfg(feature = "asio")] Asio "ASIO" => AsioHost,
@@ -981,6 +997,7 @@ mod platform_impl {
 #[cfg(target_os = "android")]
 mod platform_impl {
     use crate::host::aaudio::Host as AAudioHost;
+    use crate::traits::HostTrait as _;
     impl_platform_host!(
         AAudio => AAudioHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
@@ -994,6 +1011,7 @@ mod platform_impl {
     }
 }
 
+// A compilation on a platform with no known host backends
 #[cfg(not(any(
     windows,
     target_os = "linux",
@@ -1010,6 +1028,7 @@ mod platform_impl {
 )))]
 mod platform_impl {
     use crate::host::null::Host as NullHost;
+    use crate::traits::HostTrait as _;
 
     impl_platform_host!(
         #[cfg(not(feature = "custom"))] Null => NullHost,

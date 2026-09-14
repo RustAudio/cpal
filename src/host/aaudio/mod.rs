@@ -158,15 +158,13 @@ struct BufferTuningState {
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 pub type Devices = std::vec::IntoIter<Device>;
 
-impl Host {
-    pub fn new() -> Result<Self, Error> {
-        Ok(Host)
-    }
-}
-
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
+    fn new() -> Result<Self, Error> {
+        Ok(Host)
+    }
 
     fn is_available() -> bool {
         true

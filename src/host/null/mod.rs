@@ -33,13 +33,6 @@ pub struct SupportedInputConfigs;
 #[derive(Clone)]
 pub struct SupportedOutputConfigs;
 
-impl Host {
-    #[allow(dead_code)]
-    pub fn new() -> Result<Self, Error> {
-        Ok(Self)
-    }
-}
-
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
@@ -104,6 +97,10 @@ impl DeviceTrait for Device {
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
+    fn new() -> Result<Self, Error> {
+        Ok(Self)
+    }
 
     fn is_available() -> bool {
         false

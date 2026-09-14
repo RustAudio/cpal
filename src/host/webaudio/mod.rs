@@ -157,8 +157,11 @@ const SCRIPT_PROCESSOR_VALID_BUFFER_SIZES: [usize; 7] = [256, 512, 1024, 2048, 4
 const SCRIPT_PROCESSOR_MIN_BUFFER_SIZE: usize = 256;
 const SCRIPT_PROCESSOR_MAX_BUFFER_SIZE: usize = 16384;
 
-impl Host {
-    pub fn new() -> Result<Self, Error> {
+impl HostTrait for Host {
+    type Devices = Devices;
+    type Device = Device;
+
+    fn new() -> Result<Self, Error> {
         if Self::is_available() {
             Ok(Self)
         } else {
@@ -168,11 +171,6 @@ impl Host {
             ))
         }
     }
-}
-
-impl HostTrait for Host {
-    type Devices = Devices;
-    type Device = Device;
 
     fn is_available() -> bool {
         is_webaudio_available()

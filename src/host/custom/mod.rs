@@ -28,11 +28,6 @@ use crate::{
 pub struct Host(Box<dyn HostErased>);
 
 impl Host {
-    // this only exists for impl_platform_host, which requires it
-    pub(crate) fn new() -> Result<Self, Error> {
-        Err(Error::new(ErrorKind::HostUnavailable))
-    }
-
     /// Construct a custom host from an arbitrary [`HostTrait`] implementation.
     pub fn from_host<T>(host: T) -> Self
     where
@@ -355,6 +350,10 @@ where
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
+    fn new() -> Result<Self, Error> {
+        Err(Error::new(ErrorKind::HostUnavailable))
+    }
 
     fn is_available() -> bool {
         false

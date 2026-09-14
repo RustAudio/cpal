@@ -44,17 +44,6 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new() -> Result<Self, Error> {
-        let mut host = Host {
-            name: format!("cpal_client_{}", std::process::id()),
-            connect_ports_automatically: true,
-            start_server_automatically: false,
-            devices_created: vec![],
-        };
-        // Devices don't exist for JACK, they have to be created
-        host.initialize_default_devices();
-        Ok(host)
-    }
     /// Configures whether created ports should automatically connect to system playback/capture
     /// ports.
     ///
@@ -112,6 +101,18 @@ impl Host {
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
+    fn new() -> Result<Self, Error> {
+        let mut host = Host {
+            name: format!("cpal_client_{}", std::process::id()),
+            connect_ports_automatically: true,
+            start_server_automatically: false,
+            devices_created: vec![],
+        };
+        // Devices don't exist for JACK, they have to be created
+        host.initialize_default_devices();
+        Ok(host)
+    }
 
     /// JACK is available if
     /// - the jack feature flag is set
