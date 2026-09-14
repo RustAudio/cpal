@@ -188,15 +188,8 @@ fn set_sample_rate(
         };
         coreaudio::Error::from_os_status(status)?;
 
-        // Wait for the reported_rate to change.
-        //
-        // This should not take longer than a few ms. Use the caller's timeout if provided,
-        // otherwise default to 1 second.
-        wait_for_rate(
-            &receiver,
-            target_sample_rate,
-            timeout.unwrap_or(Duration::from_secs(1)),
-        )?;
+        // Wait for the reported_rate to change. This should not take longer than a few ms.
+        wait_for_rate(&receiver, target_sample_rate, timeout)?;
         // listener dropped here; its Drop impl calls unregister() automatically.
     }
     Ok(())
@@ -205,24 +198,30 @@ fn set_sample_rate(
 /// Block until the rate listener reports `target_sample_rate`, giving up after `timeout`.
 ///
 /// Notifications carrying some other rate can arrive first, so `timeout` bounds the whole wait
-/// rather than each individual receive.
+/// rather than each individual receive. A `timeout` of `None` waits indefinitely.
 fn wait_for_rate(
     receiver: &Receiver<f64>,
     target_sample_rate: SampleRate,
-    timeout: Duration,
+    timeout: Option<Duration>,
 ) -> Result<(), Error> {
-    let deadline = Instant::now() + timeout;
+    let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
 
     loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "Sample rate update timed out",
-            ));
-        }
+        let received = match deadline {
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(Error::with_message(
+                        ErrorKind::DeviceNotAvailable,
+                        "Sample rate update timed out",
+                    ));
+                }
+                receiver.recv_timeout(remaining)
+            }
+            None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        };
 
-        match receiver.recv_timeout(remaining) {
+        match received {
             Ok(reported_rate) => {
                 if (reported_rate - target_sample_rate as f64).abs() < 1.0 {
                     return Ok(());
@@ -1244,7 +1243,7 @@ mod tests {
         });
 
         let start = Instant::now();
-        assert!(wait_for_rate(&receiver, 48_000, TIMEOUT).is_err());
+        assert!(wait_for_rate(&receiver, 48_000, Some(TIMEOUT)).is_err());
         let elapsed = start.elapsed();
 
         drop(receiver);
@@ -1262,6 +1261,6 @@ mod tests {
         sender.send(44_100.0).unwrap();
         sender.send(48_000.0).unwrap();
 
-        assert!(wait_for_rate(&receiver, 48_000, Duration::from_secs(5)).is_ok());
+        assert!(wait_for_rate(&receiver, 48_000, Some(Duration::from_secs(5))).is_ok());
     }
 }
