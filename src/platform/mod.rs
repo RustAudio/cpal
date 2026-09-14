@@ -1012,11 +1012,20 @@ mod platform_impl {
     use crate::host::null::Host as NullHost;
 
     impl_platform_host!(
-        Null => NullHost,
-        #[cfg(feature = "custom")] Custom => super::CustomHost,
+        #[cfg(not(feature = "custom"))] Null => NullHost,
+        #[cfg(feature = "custom")] Custom => CustomHost,
     );
 
     /// The default host for the current compilation target platform.
+    #[cfg(feature = "custom")]
+    pub fn default_host() -> Host {
+        CustomHost::new()
+            .expect("the default host should always be available")
+            .into()
+    }
+
+    /// The default host for the current compilation target platform.
+    #[cfg(not(feature = "custom"))]
     pub fn default_host() -> Host {
         NullHost::new()
             .expect("the default host should always be available")
