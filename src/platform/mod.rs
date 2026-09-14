@@ -986,7 +986,7 @@ mod platform_impl {
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        <WasapiHost  as crate::traits::HostTrait>::new()
+        <WasapiHost as crate::traits::HostTrait>::new()
             .expect("the default host should always be available")
             .into()
     }
