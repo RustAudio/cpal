@@ -86,7 +86,9 @@ pub(crate) mod webaudio;
 #[cfg(feature = "custom")]
 pub(crate) mod custom;
 
-#[cfg(not(any(
+#[cfg(all(
+    not(feature = "custom"),
+    not(any(
     windows,
     target_os = "linux",
     target_os = "dragonfly",
@@ -99,7 +101,8 @@ pub(crate) mod custom;
         target_os = "unknown",
         feature = "wasm-bindgen"
     ),
-)))]
+    )),
+))]
 pub(crate) mod null;
 
 #[cfg(any(
