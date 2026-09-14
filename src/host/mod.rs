@@ -89,18 +89,18 @@ pub(crate) mod custom;
 #[cfg(all(
     not(feature = "custom"),
     not(any(
-    windows,
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_vendor = "apple",
-    target_os = "android",
-    all(
-        target_arch = "wasm32",
-        target_os = "unknown",
-        feature = "wasm-bindgen"
-    ),
+        windows,
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_vendor = "apple",
+        target_os = "android",
+        all(
+            target_arch = "wasm32",
+            target_os = "unknown",
+            feature = "wasm-bindgen"
+        ),
     )),
 ))]
 pub(crate) mod null;
