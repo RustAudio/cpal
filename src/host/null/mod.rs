@@ -6,8 +6,10 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::{
-    CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, FrameCount,
-    SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig, SupportedStreamConfigRange,
+    CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
+    ErrorKind::DeviceNotAvailable,
+    FrameCount, SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
+    SupportedStreamConfigRange,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
