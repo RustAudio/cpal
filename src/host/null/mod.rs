@@ -49,19 +49,19 @@ impl DeviceTrait for Device {
     }
 
     fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn build_input_stream_raw<D, E>(
@@ -76,7 +76,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     /// Create an output stream.
@@ -92,7 +92,7 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 }
 
@@ -123,15 +123,15 @@ impl HostTrait for Host {
 
 impl StreamTrait for Stream {
     fn start(&self) -> Result<(), Error> {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn pause(&self) -> Result<(), Error> {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn stop(&self, _timeout: Option<std::time::Duration>) -> Result<(), Error> {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn now(&self) -> StreamInstant {
@@ -139,7 +139,7 @@ impl StreamTrait for Stream {
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        Error::with_message(DeviceNotAvailable, "Null host in use")
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 }
 
