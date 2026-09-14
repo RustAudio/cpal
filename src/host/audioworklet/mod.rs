@@ -203,8 +203,11 @@ enum Command {
     Pause,
 }
 
-impl Host {
-    pub fn new() -> Result<Self, Error> {
+impl HostTrait for Host {
+    type Devices = Devices;
+    type Device = Device;
+
+    fn new() -> Result<Self, Error> {
         if Self::is_available() {
             Ok(Host)
         } else {
@@ -214,11 +217,6 @@ impl Host {
             ))
         }
     }
-}
-
-impl HostTrait for Host {
-    type Devices = Devices;
-    type Device = Device;
 
     fn is_available() -> bool {
         if let Some(window) = web_sys::window() {

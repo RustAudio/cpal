@@ -48,6 +48,10 @@ impl HostTrait for MyHost {
         true
     }
 
+    fn new() -> Result<Self, Error> {
+        Ok(Self)
+    }
+
     fn devices(&self) -> Result<Self::Devices, Error> {
         Ok(std::iter::once(MyDevice))
     }

@@ -48,6 +48,10 @@ pub trait HostTrait {
     /// Whether or not the host is available on the system.
     fn is_available() -> bool;
 
+    fn new() -> Result<Self, Error>
+    where
+        Self: Sized;
+
     /// An iterator yielding all [`Device`](DeviceTrait)s currently available to the host on the system.
     ///
     /// Can be empty if the system does not support audio in general.

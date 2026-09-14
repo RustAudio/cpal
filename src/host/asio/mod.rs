@@ -36,8 +36,11 @@ pub struct Host {
     asio: Arc<sys::Asio>,
 }
 
-impl Host {
-    pub fn new() -> Result<Self, Error> {
+impl HostTrait for Host {
+    type Devices = Devices;
+    type Device = Device;
+
+    fn new() -> Result<Self, Error> {
         com::com_initialized();
         let asio = GLOBAL_ASIO
             .get_or_init(|| Arc::new(sys::Asio::new()))
@@ -45,11 +48,6 @@ impl Host {
         let host = Host { asio };
         Ok(host)
     }
-}
-
-impl HostTrait for Host {
-    type Devices = Devices;
-    type Device = Device;
 
     fn is_available() -> bool {
         true

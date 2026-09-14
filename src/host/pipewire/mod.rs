@@ -29,19 +29,6 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new() -> Result<Self, Error> {
-        let _pw = PwInitGuard::new();
-        let connect_automatically = Arc::new(AtomicBool::new(true));
-        let devices = init_devices(connect_automatically.clone()).ok_or_else(|| {
-            Error::with_message(ErrorKind::HostUnavailable, "PipeWire is not available")
-        })?;
-        Ok(Self {
-            _pw,
-            devices,
-            connect_automatically,
-        })
-    }
-
     /// Configures whether created streams should automatically connect to system playback/capture
     /// nodes via the session manager.
     ///
@@ -59,6 +46,19 @@ impl Host {
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
+    fn new() -> Result<Self, Error> {
+        let _pw = PwInitGuard::new();
+        let connect_automatically = Arc::new(AtomicBool::new(true));
+        let devices = init_devices(connect_automatically.clone()).ok_or_else(|| {
+            Error::with_message(ErrorKind::HostUnavailable, "PipeWire is not available")
+        })?;
+        Ok(Self {
+            _pw,
+            devices,
+            connect_automatically,
+        })
+    }
 
     fn is_available() -> bool {
         utils::find_socket_path().is_some()
