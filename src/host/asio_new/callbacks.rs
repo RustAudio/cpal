@@ -27,7 +27,7 @@ const SUPPORTED_MESSAGE_SELECTORS: &[MessageSelector] = &[
     MessageSelector::LATENCIES_CHANGED,
     MessageSelector::SUPPORTS_TIME_INFO,
     MessageSelector::SUPPORTS_TIME_CODE,
-    MessageSelector::OVERLOAD
+    MessageSelector::OVERLOAD,
 ];
 
 type Bare<T> = BareFnMutSync<'static, T>;
@@ -36,7 +36,7 @@ type Bare<T> = BareFnMutSync<'static, T>;
 pub struct Callbacks {
     pointers: Pointers,
     closures: Option<Closures>,
-    _marker : PhantomPinned
+    _marker: PhantomPinned,
 }
 
 impl Callbacks {
@@ -55,10 +55,7 @@ impl Callbacks {
         mutable.pointers = Pointers::noop();
 
         // it is now safe to overwrite the closures
-        mutable.closures = context
-            .pipe(Mutex::new)
-            .pipe(Closures::new)
-            .pipe(Some);
+        mutable.closures = context.pipe(Mutex::new).pipe(Closures::new).pipe(Some);
 
         // This makes `self` self-referential, which is why it needs to be pinned
         mutable.pointers = mutable
@@ -74,16 +71,16 @@ impl Default for Callbacks {
         Self {
             pointers: Pointers::noop(),
             closures: None,
-            _marker : PhantomPinned
+            _marker: PhantomPinned,
         }
     }
 }
 
 struct Closures {
-    buffer_switch          : Bare<BufferSwitch>,
-    sample_rate_did_change : Bare<SampleRateDidChange>,
-    asio_message           : Bare<AsioMessage>,
-    buffer_switch_time_info: Bare<BufferSwitchTimeInfo>
+    buffer_switch: Bare<BufferSwitch>,
+    sample_rate_did_change: Bare<SampleRateDidChange>,
+    asio_message: Bare<AsioMessage>,
+    buffer_switch_time_info: Bare<BufferSwitchTimeInfo>,
 }
 
 impl Closures {
@@ -94,19 +91,19 @@ impl Closures {
         let arc4 = Arc::clone(&arc1);
 
         Self {
-            sample_rate_did_change : create_sample_rate_did_change (arc1),
-            asio_message           : create_asio_message           (arc2),
+            sample_rate_did_change: create_sample_rate_did_change(arc1),
+            asio_message: create_asio_message(arc2),
             buffer_switch_time_info: create_buffer_switch_time_info(arc3),
-            buffer_switch          : create_buffer_switch          (arc4),
+            buffer_switch: create_buffer_switch(arc4),
         }
     }
 
     fn to_pointers(&self) -> Pointers {
         Pointers {
-            buffer_switch          : self.buffer_switch          .bare(),
+            buffer_switch: self.buffer_switch.bare(),
             buffer_switch_time_info: self.buffer_switch_time_info.bare(),
-            sample_rate_did_change : self.sample_rate_did_change .bare(),
-            asio_message           : self.asio_message           .bare(),
+            sample_rate_did_change: self.sample_rate_did_change.bare(),
+            asio_message: self.asio_message.bare(),
         }
     }
 }
@@ -114,10 +111,16 @@ impl Closures {
 impl Debug for Closures {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct(stringify!(Closures))
-            .field("buffer_switch"          , &self.buffer_switch          .bare())
-            .field("sample_rate_did_change" , &self.sample_rate_did_change .bare())
-            .field("asio_message"           , &self.asio_message           .bare())
-            .field("buffer_switch_time_info", &self.buffer_switch_time_info.bare())
+            .field("buffer_switch", &self.buffer_switch.bare())
+            .field(
+                "sample_rate_did_change",
+                &self.sample_rate_did_change.bare(),
+            )
+            .field("asio_message", &self.asio_message.bare())
+            .field(
+                "buffer_switch_time_info",
+                &self.buffer_switch_time_info.bare(),
+            )
             .finish()
     }
 }
@@ -133,11 +136,16 @@ fn create_buffer_switch(context_handle: context_handle_type!()) -> Bare<BufferSw
     Bare::new_system(closure)
 }
 
-fn create_sample_rate_did_change(context_handle: context_handle_type!()) -> Bare<SampleRateDidChange> {
+fn create_sample_rate_did_change(
+    context_handle: context_handle_type!(),
+) -> Bare<SampleRateDidChange> {
     let closure = move |new_rate| {
         let mut context = context_handle.lock();
         // `ErrorKind::Other` because this isn't fatal
-        context.throw(Other, format!("ASIO driver changed the sample rate (to {new_rate})"));
+        context.throw(
+            Other,
+            format!("ASIO driver changed the sample rate (to {new_rate})"),
+        );
     };
 
     Bare::new_system(closure)
@@ -150,14 +158,12 @@ fn create_asio_message(context_handle: context_handle_type!()) -> Bare<AsioMessa
         match selector {
             MessageSelector::SELECTOR_SUPPORTED => {
                 SUPPORTED_MESSAGE_SELECTORS
-                .contains(&MessageSelector(value))
-                .conv::<Bool>()
-                .0
+                    .contains(&MessageSelector(value))
+                    .conv::<Bool>()
+                    .0
             }
 
-            MessageSelector::ENGINE_VERSION => {
-                ASIO_VERSION_MAJOR
-            }
+            MessageSelector::ENGINE_VERSION => ASIO_VERSION_MAJOR,
 
             MessageSelector::RESET_REQUEST => {
                 context.throw(StreamInvalidated, "ASIO driver requested a reset");
@@ -166,10 +172,16 @@ fn create_asio_message(context_handle: context_handle_type!()) -> Bare<AsioMessa
 
             MessageSelector::BUFFER_SIZE_CHANGE => {
                 if value.is_negative() {
-                    context.throw(BackendError, format!("ASIO driver reported invalid buffer size: {value}"));
+                    context.throw(
+                        BackendError,
+                        format!("ASIO driver reported invalid buffer size: {value}"),
+                    );
                     Bool::FALSE.0
                 } else {
-                    context.throw(StreamInvalidated, format!("ASIO driver changed its buffer size (to {value})"));
+                    context.throw(
+                        StreamInvalidated,
+                        format!("ASIO driver changed its buffer size (to {value})"),
+                    );
                     Bool::TRUE.0
                 }
             }
@@ -177,31 +189,35 @@ fn create_asio_message(context_handle: context_handle_type!()) -> Bare<AsioMessa
             MessageSelector::RESYNC_REQUEST => {
                 context.throw(StreamInvalidated, "ASIO driver requested a resync");
                 Bool::TRUE.0
-            },
+            }
 
             MessageSelector::LATENCIES_CHANGED => {
                 context.update_latencies();
                 Bool::TRUE.0
             }
 
-            MessageSelector::SUPPORTS_TIME_INFO => {
-                Bool::TRUE.0
-            }
+            MessageSelector::SUPPORTS_TIME_INFO => Bool::TRUE.0,
 
-            _ => Bool::FALSE.0
+            _ => Bool::FALSE.0,
         }
     };
 
     Bare::new_system(closure)
 }
 
-fn create_buffer_switch_time_info(context_handle: context_handle_type!()) -> Bare<BufferSwitchTimeInfo> {
+fn create_buffer_switch_time_info(
+    context_handle: context_handle_type!(),
+) -> Bare<BufferSwitchTimeInfo> {
     let closure = move |time_ptr: *mut Time, buffer_side: c_long, direct_process: Bool| {
         let mut context = context_handle.lock();
 
         match unsafe { time_ptr.as_ref() } {
-            Some(time) => context.process_buffers(direct_process, buffer_side as _, StreamInstant::from_millis(time.time_info.system_time as _)),
-            None       => context.throw(BackendError, "ASIO driver produced invalid time pointer")
+            Some(time) => context.process_buffers(
+                direct_process,
+                buffer_side as _,
+                StreamInstant::from_millis(time.time_info.system_time as _),
+            ),
+            None => context.throw(BackendError, "ASIO driver produced invalid time pointer"),
         }
 
         time_ptr
@@ -211,29 +227,37 @@ fn create_buffer_switch_time_info(context_handle: context_handle_type!()) -> Bar
 }
 
 pub struct Context<DataCb, ErrorCb> {
-    pub session    : Arc<Session>,
-    pub data_cb    : DataCb,
-    pub error_cb   : ErrorCb,
+    pub session: Arc<Session>,
+    pub data_cb: DataCb,
+    pub error_cb: ErrorCb,
     pub sample_rate: SampleRate,
-    pub simplex_in : Simplex<In>,
+    pub simplex_in: Simplex<In>,
     pub simplex_out: Simplex<Out>,
 }
 
 impl<DataCb, ErrorCb> Context<DataCb, ErrorCb>
 where
-    DataCb : FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
-    ErrorCb: FnMut(Error) + Send + 'static
+    DataCb: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+    ErrorCb: FnMut(Error) + Send + 'static,
 {
-    fn process_buffers(&mut self, direct_process: Bool, buffer_side: usize, cb_time: StreamInstant) {
+    fn process_buffers(
+        &mut self,
+        direct_process: Bool,
+        buffer_side: usize,
+        cb_time: StreamInstant,
+    ) {
         // The ASIO spec contexts `direct_process` to always be true on Windows,
         // and dropped support for other platforms. But just in case:
         if direct_process == Bool::FALSE {
-            self.throw(RealtimeDenied, "ASIO driver prohibits processing within the buffer switch callback");
+            self.throw(
+                RealtimeDenied,
+                "ASIO driver prohibits processing within the buffer switch callback",
+            );
             return;
         }
 
-        let     data_in   = self.simplex_in.data(buffer_side);
-        let mut data_out  = self.simplex_out.data(buffer_side);
+        let data_in = self.simplex_in.data(buffer_side);
+        let mut data_out = self.simplex_out.data(buffer_side);
         let callback_info = self.create_cb_info(cb_time);
 
         self.simplex_in.interleave(buffer_side);
@@ -242,24 +266,27 @@ where
     }
 
     fn create_cb_info(&self, cb_time: StreamInstant) -> DuplexCallbackInfo {
-        let time_in  = cb_time - self.simplex_in .latency;
+        let time_in = cb_time - self.simplex_in.latency;
         let time_out = cb_time + self.simplex_out.latency;
 
         [time_in, time_out]
-        .map (| dev_time | StreamTimestamp { callback: cb_time, device: dev_time })
-        .map (| timestamp| CallbackInfo::new(timestamp, false))
-        .pipe(|[in_, out]| DuplexCallbackInfo::new(in_, out))
+            .map(|dev_time| StreamTimestamp {
+                callback: cb_time,
+                device: dev_time,
+            })
+            .map(|timestamp| CallbackInfo::new(timestamp, false))
+            .pipe(|[in_, out]| DuplexCallbackInfo::new(in_, out))
     }
 
     fn update_latencies(&mut self) {
         match self.session.latencies(self.sample_rate) {
             Ok([latency_in, latency_out]) => {
-                self.simplex_in .latency = latency_in;
+                self.simplex_in.latency = latency_in;
                 self.simplex_out.latency = latency_out;
             }
             Err(error) => {
                 (self.error_cb)(error);
-            },
+            }
         }
     }
     fn throw(&mut self, kind: ErrorKind, message: impl Into<Cow<'static, str>>) {

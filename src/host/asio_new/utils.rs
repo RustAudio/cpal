@@ -43,11 +43,31 @@ use azo::sys::SampleType as AsioFormat;
 pub const fn sample_format_asio2cpal(asio_format: AsioFormat) -> Option<CpalFormat> {
     // FIXME: consider using `cfg_select!` here once the MSRV has risen to 1.95+
     const BIG_ENDIAN: bool = cfg!(target_endian = "big");
-    const PCM_I16: AsioFormat = if BIG_ENDIAN { AsioFormat::PCM_I16_MSB    } else { AsioFormat::PCM_I16_LSB    };
-    const PCM_I24: AsioFormat = if BIG_ENDIAN { AsioFormat::PCM_I32_MSB_24 } else { AsioFormat::PCM_I32_LSB_24 };
-    const PCM_I32: AsioFormat = if BIG_ENDIAN { AsioFormat::PCM_I32_MSB    } else { AsioFormat::PCM_I32_LSB    };
-    const PCM_F32: AsioFormat = if BIG_ENDIAN { AsioFormat::PCM_F32_MSB    } else { AsioFormat::PCM_F32_LSB    };
-    const DSD_U8 : AsioFormat = if BIG_ENDIAN { AsioFormat::DSD_I8_MSB_1   } else { AsioFormat::DSD_I8_LSB_1   };
+    const PCM_I16: AsioFormat = if BIG_ENDIAN {
+        AsioFormat::PCM_I16_MSB
+    } else {
+        AsioFormat::PCM_I16_LSB
+    };
+    const PCM_I24: AsioFormat = if BIG_ENDIAN {
+        AsioFormat::PCM_I32_MSB_24
+    } else {
+        AsioFormat::PCM_I32_LSB_24
+    };
+    const PCM_I32: AsioFormat = if BIG_ENDIAN {
+        AsioFormat::PCM_I32_MSB
+    } else {
+        AsioFormat::PCM_I32_LSB
+    };
+    const PCM_F32: AsioFormat = if BIG_ENDIAN {
+        AsioFormat::PCM_F32_MSB
+    } else {
+        AsioFormat::PCM_F32_LSB
+    };
+    const DSD_U8: AsioFormat = if BIG_ENDIAN {
+        AsioFormat::DSD_I8_MSB_1
+    } else {
+        AsioFormat::DSD_I8_LSB_1
+    };
 
     #[deny(nonstandard_style, reason = "prevent accidental wildcard patterns")]
     match asio_format {
@@ -55,7 +75,7 @@ pub const fn sample_format_asio2cpal(asio_format: AsioFormat) -> Option<CpalForm
         PCM_I24 => Some(CpalFormat::I24),
         PCM_I32 => Some(CpalFormat::I32),
         PCM_F32 => Some(CpalFormat::F32),
-        DSD_U8  => Some(CpalFormat::DsdU8),
+        DSD_U8 => Some(CpalFormat::DsdU8),
 
         _ => None, // no matching counterpart in cpal
     }

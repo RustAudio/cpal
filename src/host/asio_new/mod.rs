@@ -31,11 +31,7 @@ pub struct Host(Arc<session::Factory>);
 impl Host {
     /// Required by the `impl_platform_host!` macro
     pub fn new() -> CpalResult<Self> {
-        session::Factory
-            ::new()
-            .pipe(Arc::new)
-            .pipe(Self)
-            .pipe(Ok)
+        session::Factory::new().pipe(Arc::new).pipe(Self).pipe(Ok)
     }
 }
 
@@ -78,10 +74,7 @@ impl HostTrait for Host {
 
         let clsid = id.id().try_into().ok()?;
 
-        self.0
-            .get_session(&clsid)
-            .ok()
-            .map(Device)
+        self.0.get_session(&clsid).ok().map(Device)
     }
 }
 
@@ -101,11 +94,7 @@ impl Iterator for Devices {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.1
-            .find_map(|metadata|
-                self.0
-                    .get_session(&metadata.clsid)
-                    .ok()
-            )
+            .find_map(|metadata| self.0.get_session(&metadata.clsid).ok())
             .map(Device)
     }
 }
@@ -121,17 +110,13 @@ pub struct Device(Arc<Session>);
 
 impl Device {
     fn new(session: Session) -> Self {
-        session
-            .pipe(Arc::new)
-            .pipe(Self)
+        session.pipe(Arc::new).pipe(Self)
     }
 }
 
 impl Clone for Device {
     fn clone(&self) -> Self {
-        self.0
-            .pipe_ref(Arc::clone)
-            .pipe(Self)
+        self.0.pipe_ref(Arc::clone).pipe(Self)
     }
 }
 
@@ -192,21 +177,21 @@ impl DeviceTrait for Device {
 
     fn build_input_stream_raw<DataCb, ErrorCb>(
         &self,
-        config     : StreamConfig,
-        format     : SampleFormat,
+        config: StreamConfig,
+        format: SampleFormat,
         mut data_cb: DataCb,
-        error_cb   : ErrorCb,
-        timeout    : Option<Duration>,
+        error_cb: ErrorCb,
+        timeout: Option<Duration>,
     ) -> CpalResult<Self::Stream>
     where
         DataCb: FnMut(&Data, &CallbackInfo) + Send + 'static,
         ErrorCb: FnMut(Error) + Send + 'static,
     {
         let duplex_cfg = DuplexStreamConfig {
-            input_channels : config.channels,
+            input_channels: config.channels,
             output_channels: 0,
-            sample_rate    : config.sample_rate,
-            buffer_size    : config.buffer_size
+            sample_rate: config.sample_rate,
+            buffer_size: config.buffer_size,
         };
 
         self.build_duplex_stream_raw(
@@ -215,7 +200,7 @@ impl DeviceTrait for Device {
             format,
             move |data, _, cbi| data_cb(data, &cbi.input()),
             error_cb,
-            timeout
+            timeout,
         )
     }
 
@@ -232,10 +217,10 @@ impl DeviceTrait for Device {
         ErrorCb: FnMut(Error) + Send + 'static,
     {
         let duplex_cfg = DuplexStreamConfig {
-            input_channels : 0,
+            input_channels: 0,
             output_channels: config.channels,
-            sample_rate    : config.sample_rate,
-            buffer_size    : config.buffer_size
+            sample_rate: config.sample_rate,
+            buffer_size: config.buffer_size,
         };
 
         self.build_duplex_stream_raw(
@@ -244,35 +229,56 @@ impl DeviceTrait for Device {
             format,
             move |_, data, cbi| data_cb(data, &cbi.output()),
             error_cb,
-            timeout
+            timeout,
         )
     }
 
     fn build_duplex_stream_raw<DataCb, ErrorCb>(
         &self,
-        DuplexStreamConfig { input_channels, output_channels, sample_rate, buffer_size }: DuplexStreamConfig,
-        format_in : SampleFormat,
+        DuplexStreamConfig {
+            input_channels,
+            output_channels,
+            sample_rate,
+            buffer_size,
+        }: DuplexStreamConfig,
+        format_in: SampleFormat,
         format_out: SampleFormat,
-        data_cb   : DataCb,
-        error_cb  : ErrorCb,
-        _timeout  : Option<Duration>,
+        data_cb: DataCb,
+        error_cb: ErrorCb,
+        _timeout: Option<Duration>,
     ) -> CpalResult<Self::Stream>
     where
         DataCb: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         ErrorCb: FnMut(Error) + Send + 'static,
-    {   
-        let cfg_in  = simplex::Config { format: format_in , channels: input_channels , input: true  };
-        let cfg_out = simplex::Config { format: format_out, channels: output_channels, input: false };
+    {
+        let cfg_in = simplex::Config {
+            format: format_in,
+            channels: input_channels,
+            input: true,
+        };
+        let cfg_out = simplex::Config {
+            format: format_out,
+            channels: output_channels,
+            input: false,
+        };
 
-        Session::build_stream(&self.0, cfg_in, cfg_out, sample_rate, buffer_size, data_cb, error_cb)
+        Session::build_stream(
+            &self.0,
+            cfg_in,
+            cfg_out,
+            sample_rate,
+            buffer_size,
+            data_cb,
+            error_cb,
+        )
     }
 }
 
 #[derive(Debug)]
 pub struct Stream {
-    session    : Arc<Session>,
+    session: Arc<Session>,
     frame_count: FrameCount,
-    _callbacks : Pin<Box<Callbacks>>
+    _callbacks: Pin<Box<Callbacks>>,
 }
 
 unsafe impl Send for Stream {}
