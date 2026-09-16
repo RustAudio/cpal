@@ -429,6 +429,7 @@ impl DeviceTrait for Device {
                     invalidated,
                 } = stream_data;
 
+                let invalidated_cmd = invalidated.clone();
                 let default_monitor = if let Some(key) = device.default_metadata_key() {
                     match core.get_registry_rc() {
                         Ok(registry) => Some(DefaultDeviceMonitor::new(
@@ -466,6 +467,8 @@ impl DeviceTrait for Device {
                     }
                     StreamCommand::Drain => {}
                     StreamCommand::Stop => {
+                        // Flag an intentional stop to prevent the stream reporting a disconnected event.
+                        invalidated_cmd.store(true, Ordering::Relaxed);
                         if let Err(e) = stream_clone.disconnect() {
                             emit_error(
                                 &error_callback_cmd,
@@ -618,6 +621,7 @@ impl DeviceTrait for Device {
                     invalidated,
                 } = stream_data;
 
+                let invalidated_cmd = invalidated.clone();
                 let default_monitor = if let Some(key) = device.default_metadata_key() {
                     match core.get_registry_rc() {
                         Ok(registry) => Some(DefaultDeviceMonitor::new(
@@ -668,6 +672,8 @@ impl DeviceTrait for Device {
                         }
                     }
                     StreamCommand::Stop => {
+                        // Flag an intentional stop to prevent the stream reporting a disconnected event.
+                        invalidated_cmd.store(true, Ordering::Relaxed);
                         if let Err(e) = stream_clone.disconnect() {
                             emit_error(
                                 &error_callback_cmd,
