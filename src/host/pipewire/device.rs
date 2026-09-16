@@ -47,8 +47,6 @@ use crate::{
 
 pub type Devices = std::vec::IntoIter<Device>;
 
-const INIT_TIMEOUT: Duration = Duration::from_secs(2);
-
 // This enum record whether it is created by human or just default device
 #[derive(Clone, Debug, Default, Copy)]
 pub(crate) enum Class {
@@ -373,7 +371,6 @@ impl DeviceTrait for Device {
         let mut latch = Latch::new();
         let waiter = latch.waiter();
         let device = self.clone();
-        let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
             BufferSize::Fixed(n) => n,
             BufferSize::Default => self.quantum,
@@ -506,12 +503,7 @@ impl DeviceTrait for Device {
                 )
             })?;
 
-        let init_result = init_rx.recv_timeout(wait_timeout).unwrap_or_else(|_| {
-            Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "PipeWire timed out",
-            ))
-        });
+        let init_result = recv_init(&init_rx, timeout);
 
         if let Err(e) = init_result {
             drop(latch);
@@ -565,7 +557,6 @@ impl DeviceTrait for Device {
         let mut latch = Latch::new();
         let waiter = latch.waiter();
         let device = self.clone();
-        let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
             BufferSize::Fixed(n) => n,
             BufferSize::Default => self.quantum,
@@ -713,12 +704,7 @@ impl DeviceTrait for Device {
                 )
             })?;
 
-        let init_result = init_rx.recv_timeout(wait_timeout).unwrap_or_else(|_| {
-            Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "PipeWire timed out",
-            ))
-        });
+        let init_result = recv_init(&init_rx, timeout);
 
         if let Err(e) = init_result {
             drop(latch);
@@ -739,6 +725,32 @@ impl DeviceTrait for Device {
         stream.signal_ready();
         Ok(stream)
     }
+}
+
+/// Waits for the worker thread to report whether the stream came up.
+///
+/// Honors `build_*_stream`'s timeout contract: `None` waits indefinitely.
+fn recv_init(
+    init_rx: &mpsc::Receiver<Result<(), Error>>,
+    timeout: Option<Duration>,
+) -> Result<(), Error> {
+    let received = match timeout {
+        None => init_rx
+            .recv()
+            .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+        Some(timeout) => init_rx.recv_timeout(timeout),
+    };
+    received.unwrap_or_else(|err| {
+        Err(match err {
+            mpsc::RecvTimeoutError::Timeout => {
+                Error::with_message(ErrorKind::DeviceNotAvailable, "PipeWire timed out")
+            }
+            mpsc::RecvTimeoutError::Disconnected => Error::with_message(
+                ErrorKind::BackendError,
+                "PipeWire worker stopped before reporting the stream state",
+            ),
+        })
+    })
 }
 
 #[derive(Clone, Default)]
@@ -789,6 +801,9 @@ fn remote_props() -> Option<PropertiesBox> {
     props.insert(*pw::keys::REMOTE_NAME, socket.to_string_lossy().as_ref());
     Some(props)
 }
+
+// Enumeration does not take a configurable timeout.
+const ENUMERATION_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device>> {
     let _pw = PwInitGuard::new();
@@ -1077,7 +1092,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
         loop_quit.quit();
     });
     thread::spawn(move || {
-        if cancel_rx.recv_timeout(INIT_TIMEOUT).is_err() {
+        if cancel_rx.recv_timeout(ENUMERATION_TIMEOUT).is_err() {
             let _ = timeout_tx.send(());
         }
     });
