@@ -60,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PipeWire**: Building a stream without a timeout now waits indefinitely instead of failing after two seconds.
 - **PipeWire**: A worker thread that stops before the stream is ready is now reported as a backend error instead of a timeout.
 - **PipeWire**: Dropping a stream for a specific device no longer reports it as disconnected.
+- **PipeWire**: Removing a device now reports `DeviceNotAvailable` on streams using it.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
 - **WASAPI**: Revert "Default device changes no longer report `DeviceChanged`" as it was misinformed.
 - **WASAPI**: Output streams now start with real audio immediately instead of undefined content in the render buffer.
