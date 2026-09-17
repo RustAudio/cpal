@@ -41,6 +41,11 @@ pub mod audio {
 
 /// Returns the path of the PipeWire socket, checking the standard locations
 /// including the parent of `XDG_RUNTIME_DIR` for Snap sandboxes.
+///
+/// Mirrors libpipewire's own lookup order (`PIPEWIRE_RUNTIME_DIR` ->
+/// `XDG_RUNTIME_DIR` -> `/run/pipewire`) so cpal finds the same socket
+/// `pw-cli` and other native clients do, even when neither runtime dir
+/// env var is set.
 pub fn find_socket_path() -> Option<&'static PathBuf> {
     static SOCKET: OnceLock<Option<PathBuf>> = OnceLock::new();
     SOCKET
@@ -68,7 +73,7 @@ pub fn find_socket_path() -> Option<&'static PathBuf> {
                 }
             }
 
-            None
+            socket_in(Path::new("/run/pipewire"))
         })
         .as_ref()
 }
