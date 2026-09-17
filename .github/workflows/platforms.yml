@@ -199,8 +199,9 @@ jobs:
       - name: Install mipsel cross-toolchain and audio libs
         run: |
           dpkg --add-architecture mipsel
-          apt-get update -qq
-          apt-get install -y --no-install-recommends libclang-dev crossbuild-essential-mipsel $(for p in ${{ env.PACKAGES_LINUX }}; do echo "$p:mipsel"; done)
+          apt-get update
+          # ALSA only: dbus/jack/pipewire need libsystemd0:mipsel, which apt 2.6's resolver can't add without breaking Essential packages
+          apt-get install -y --no-install-recommends libclang-dev crossbuild-essential-mipsel libasound2-dev:mipsel
 
       - name: Install Rust nightly (for build-std)
         uses: dtolnay/rust-toolchain@nightly
@@ -215,8 +216,8 @@ jobs:
       - name: Check examples (default features)
         run: cargo +nightly check --examples --workspace --verbose --target ${{ env.TARGET }} -Z build-std
 
-      - name: Check examples (all features)
-        run: cargo +nightly check --examples --all-features --workspace --verbose --target ${{ env.TARGET }} -Z build-std
+      - name: Check examples (realtime, pulseaudio, custom)
+        run: cargo +nightly check --examples --features realtime,pulseaudio,custom --workspace --verbose --target ${{ env.TARGET }} -Z build-std
 
   # Windows (x86_64 and i686)
   windows:
