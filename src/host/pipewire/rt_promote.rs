@@ -41,18 +41,28 @@ impl RtPromoter {
         let join = thread::Builder::new()
             .name("cpal_rt_promote".to_owned())
             .spawn(move || {
+                let mut promoted = false;
                 loop {
                     if shutdown_bg.load(Ordering::Relaxed) {
+                        // Demote before pw::deinit() to prevent spurious SIGXCPU signals.
+                        if promoted {
+                            if let Err(e) =
+                                audio_thread_priority::demote_thread_from_real_time(thread_info)
+                            {
+                                emit_error(&error_callback_bg, Error::from(e));
+                            }
+                        }
                         return;
                     }
                     let frames = pending_frames_bg.swap(0, Ordering::Relaxed);
                     if frames != 0 {
-                        if let Err(e) = audio_thread_priority::promote_thread_to_real_time(
+                        match audio_thread_priority::promote_thread_to_real_time(
                             thread_info,
                             frames,
                             rate,
                         ) {
-                            emit_error(&error_callback_bg, Error::from(e));
+                            Ok(_) => promoted = true,
+                            Err(e) => emit_error(&error_callback_bg, Error::from(e)),
                         }
                         continue;
                     }
