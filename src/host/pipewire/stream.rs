@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -521,105 +521,135 @@ struct MetadataObjects {
     _metadata: Metadata,
 }
 
-pub struct DefaultDeviceMonitor {
-    _registry: RegistryRc,
-    _registry_listener: RegistryListener,
-    _meta_objects: Rc<RefCell<Option<MetadataObjects>>>,
-}
+/// Subscribes to the `"default"` metadata object and fires `error_callback` with
+/// [`ErrorKind::DeviceChanged`] whenever `key` changes.
+///
+/// The watch lasts as long as the returned listener is held.
+pub(super) fn watch_default_device(
+    registry: &RegistryRc,
+    key: &'static str,
+    error_callback: ErrorCallbackArc,
+    invalidated: Arc<AtomicBool>,
+    pending_device_changed: Arc<AtomicBool>,
+) -> RegistryListener {
+    // Both of these stay alive through the closure that captures them.
+    let meta_objects: Rc<RefCell<Option<MetadataObjects>>> = Rc::new(RefCell::new(None));
+    let registry_ref = registry.clone();
 
-impl DefaultDeviceMonitor {
-    /// Subscribe to the `"default"` metadata object and fire `error_callback` with
-    /// [`ErrorKind::DeviceChanged`] whenever its key changes.
-    pub(super) fn new(
-        registry: RegistryRc,
-        key: &'static str,
-        error_callback: ErrorCallbackArc,
-        invalidated: Arc<AtomicBool>,
-        pending_device_changed: Arc<AtomicBool>,
-    ) -> Self {
-        let meta_objects: Rc<RefCell<Option<MetadataObjects>>> = Rc::new(RefCell::new(None));
-        let meta_objects_ref = meta_objects.clone();
-        let registry_ref = registry.clone();
-
-        let registry_listener = registry
-            .add_listener_local()
-            .global(move |global| {
-                if global.type_ != ObjectType::Metadata {
+    registry
+        .add_listener_local()
+        .global(move |global| {
+            if global.type_ != ObjectType::Metadata {
+                return;
+            }
+            if !global.props.is_some_and(|props| {
+                props
+                    .get(super::utils::METADATA_NAME)
+                    .is_some_and(|v| v == super::utils::default::NAME)
+            }) {
+                return;
+            }
+            let metadata: Metadata = match registry_ref.bind(global) {
+                Ok(m) => m,
+                Err(e) => {
+                    emit_error(
+                        &error_callback,
+                        Error::with_message(
+                            ErrorKind::BackendError,
+                            format!("Failed to bind metadata object; device change notifications may be incomplete: {e}"),
+                        ),
+                    );
                     return;
                 }
-                if !global.props.is_some_and(|props| {
-                    props
-                        .get(super::utils::METADATA_NAME)
-                        .is_some_and(|v| v == super::utils::default::NAME)
-                }) {
-                    return;
-                }
-                let metadata: Metadata = match registry_ref.bind(global) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        emit_error(
-                            &error_callback,
-                            Error::with_message(
-                                ErrorKind::BackendError,
-                                format!("Failed to bind metadata object; device change notifications may be incomplete: {e}"),
-                            ),
-                        );
-                        return;
-                    }
-                };
-                let error_callback_cb = error_callback.clone();
-                let invalidated_cb = invalidated.clone();
-                let pending_device_changed_cb = pending_device_changed.clone();
+            };
+            let error_callback_cb = error_callback.clone();
+            let invalidated_cb = invalidated.clone();
+            let pending_device_changed_cb = pending_device_changed.clone();
 
-                let last_value: RefCell<Option<Option<String>>> = RefCell::new(None);
-                let listener = metadata
-                    .add_listener_local()
-                    .property(move |_subject, prop_key, _type, value| {
-                        if prop_key == Some(key) {
-                            let prev = last_value.borrow_mut().replace(value.map(str::to_owned));
-                            if let Some(old) = prev {
-                                if old.as_deref() != value {
-                                    if value.is_some() {
-                                        if try_emit_error(
-                                            &error_callback_cb,
-                                            Error::with_message(
-                                                ErrorKind::DeviceChanged,
-                                                "default device changed",
-                                            ),
-                                        )
-                                        .is_err()
-                                        {
-                                            pending_device_changed_cb
-                                                .store(true, Ordering::Relaxed);
-                                        }
-                                    } else if !invalidated_cb.swap(true, Ordering::Relaxed) {
-                                        emit_error(
-                                            &error_callback_cb,
-                                            Error::with_message(
-                                                ErrorKind::DeviceNotAvailable,
-                                                "default device removed",
-                                            ),
-                                        );
+            let last_value: RefCell<Option<Option<String>>> = RefCell::new(None);
+            let listener = metadata
+                .add_listener_local()
+                .property(move |_subject, prop_key, _type, value| {
+                    if prop_key == Some(key) {
+                        let prev = last_value.borrow_mut().replace(value.map(str::to_owned));
+                        if let Some(old) = prev {
+                            if old.as_deref() != value {
+                                if value.is_some() {
+                                    if try_emit_error(
+                                        &error_callback_cb,
+                                        Error::with_message(
+                                            ErrorKind::DeviceChanged,
+                                            "default device changed",
+                                        ),
+                                    )
+                                    .is_err()
+                                    {
+                                        pending_device_changed_cb
+                                            .store(true, Ordering::Relaxed);
                                     }
+                                } else if !invalidated_cb.swap(true, Ordering::Relaxed) {
+                                    emit_error(
+                                        &error_callback_cb,
+                                        Error::with_message(
+                                            ErrorKind::DeviceNotAvailable,
+                                            "default device removed",
+                                        ),
+                                    );
                                 }
                             }
                         }
-                        0
-                    })
-                    .register();
-                *meta_objects_ref.borrow_mut() = Some(MetadataObjects {
-                    _listener: listener,
-                    _metadata: metadata,
-                });
-            })
-            .register();
+                    }
+                    0
+                })
+                .register();
+            *meta_objects.borrow_mut() = Some(MetadataObjects {
+                _listener: listener,
+                _metadata: metadata,
+            });
+        })
+        .register()
+}
 
-        DefaultDeviceMonitor {
-            _registry: registry,
-            _registry_listener: registry_listener,
-            _meta_objects: meta_objects,
-        }
-    }
+/// Watches the registry for the node going away, and fires `error_callback` with
+/// [`ErrorKind::DeviceNotAvailable`] when it does.
+///
+/// The watch lasts as long as the returned listener is held.
+pub(super) fn watch_target_node(
+    registry: &RegistryRc,
+    object_serial: u32,
+    error_callback: ErrorCallbackArc,
+    invalidated: Arc<AtomicBool>,
+) -> RegistryListener {
+    // Removals are reported by global id, while a device is pinned by serial, so learn the
+    // mapping from the announcement of the node itself.
+    let node_id = Rc::new(Cell::new(None));
+    let node_id_global = node_id.clone();
+
+    registry
+        .add_listener_local()
+        .global(move |global| {
+            if global.type_ != ObjectType::Node {
+                return;
+            }
+            let is_target = global.props.is_some_and(|props| {
+                props
+                    .get(*pw::keys::OBJECT_SERIAL)
+                    .and_then(|serial| serial.parse::<u32>().ok())
+                    == Some(object_serial)
+            });
+            if is_target {
+                node_id_global.set(Some(global.id));
+            }
+        })
+        .global_remove(move |id| {
+            if node_id.get() == Some(id) && !invalidated.swap(true, Ordering::Relaxed) {
+                emit_error(
+                    &error_callback,
+                    Error::with_message(ErrorKind::DeviceNotAvailable, "Device disconnected"),
+                );
+            }
+        })
+        .register()
 }
 
 pub struct ConnectParams {

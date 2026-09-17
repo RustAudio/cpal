@@ -36,7 +36,8 @@ use crate::{
         latch::Latch,
         pipewire::{
             stream::{
-                DefaultDeviceMonitor, PwInitGuard, SUPPORTED_FORMATS, StreamCommand, StreamData,
+                PwInitGuard, SUPPORTED_FORMATS, StreamCommand, StreamData, watch_default_device,
+                watch_target_node,
             },
             utils::{DEVICE_ICON_NAME, METADATA_NAME, audio, clock, default},
         },
@@ -430,25 +431,30 @@ impl DeviceTrait for Device {
                 } = stream_data;
 
                 let invalidated_cmd = invalidated.clone();
-                let default_monitor = if let Some(key) = device.default_metadata_key() {
-                    match core.get_registry_rc() {
-                        Ok(registry) => Some(DefaultDeviceMonitor::new(
-                            registry,
-                            key,
-                            error_callback.clone(),
-                            invalidated,
-                            pending_device_changed,
-                        )),
-                        Err(e) => {
-                            let _ = init_tx.send(Err(Error::with_message(
-                                ErrorKind::BackendError,
-                                format!("Could not acquire registry: {e}"),
-                            )));
-                            return;
-                        }
+                let registry = match core.get_registry_rc() {
+                    Ok(registry) => registry,
+                    Err(e) => {
+                        let _ = init_tx.send(Err(Error::with_message(
+                            ErrorKind::BackendError,
+                            format!("Could not acquire registry: {e}"),
+                        )));
+                        return;
                     }
-                } else {
-                    None
+                };
+                let device_listener = match device.default_metadata_key() {
+                    Some(key) => watch_default_device(
+                        &registry,
+                        key,
+                        error_callback.clone(),
+                        invalidated,
+                        pending_device_changed,
+                    ),
+                    None => watch_target_node(
+                        &registry,
+                        device.object_serial,
+                        error_callback.clone(),
+                        invalidated,
+                    ),
                 };
                 let stream_clone = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
@@ -494,7 +500,8 @@ impl DeviceTrait for Device {
                 mainloop.run();
 
                 drop(listener);
-                drop(default_monitor);
+                drop(device_listener);
+                drop(registry);
                 drop(core_monitor);
                 drop(core);
                 drop(context);
@@ -622,25 +629,30 @@ impl DeviceTrait for Device {
                 } = stream_data;
 
                 let invalidated_cmd = invalidated.clone();
-                let default_monitor = if let Some(key) = device.default_metadata_key() {
-                    match core.get_registry_rc() {
-                        Ok(registry) => Some(DefaultDeviceMonitor::new(
-                            registry,
-                            key,
-                            error_callback.clone(),
-                            invalidated,
-                            pending_device_changed,
-                        )),
-                        Err(e) => {
-                            let _ = init_tx.send(Err(Error::with_message(
-                                ErrorKind::BackendError,
-                                format!("Could not acquire registry: {e}"),
-                            )));
-                            return;
-                        }
+                let registry = match core.get_registry_rc() {
+                    Ok(registry) => registry,
+                    Err(e) => {
+                        let _ = init_tx.send(Err(Error::with_message(
+                            ErrorKind::BackendError,
+                            format!("Could not acquire registry: {e}"),
+                        )));
+                        return;
                     }
-                } else {
-                    None
+                };
+                let device_listener = match device.default_metadata_key() {
+                    Some(key) => watch_default_device(
+                        &registry,
+                        key,
+                        error_callback.clone(),
+                        invalidated,
+                        pending_device_changed,
+                    ),
+                    None => watch_target_node(
+                        &registry,
+                        device.object_serial,
+                        error_callback.clone(),
+                        invalidated,
+                    ),
                 };
                 let stream_clone = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
@@ -698,7 +710,8 @@ impl DeviceTrait for Device {
 
                 mainloop.run();
                 drop(listener);
-                drop(default_monitor);
+                drop(device_listener);
+                drop(registry);
                 drop(core_monitor);
                 drop(core);
                 drop(context);
