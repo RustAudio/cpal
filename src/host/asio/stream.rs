@@ -538,6 +538,14 @@ impl Device {
         ));
 
         let playback_state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let playback_state_wrapper = Arc::clone(&playback_state);
+        let mut data_callback = move |data: &mut Data, info: &CallbackInfo| {
+            if StreamState::load(&playback_state_wrapper, Ordering::Relaxed) == StreamState::Playing
+            {
+                data_callback(data, info);
+            }
+        };
+
         let pending_xrun = Arc::new(AtomicBool::new(false));
         let driver_event_callback_id = self
             .add_event_callback(
@@ -564,12 +572,10 @@ impl Device {
         let time_base = Arc::new(TimeBase::default());
         let time_base_cb = Arc::clone(&time_base);
 
+        // Runs whether or not the stream is playing: the driver plays the buffers back as it finds
+        // them, so returning early here would loop the last cycle's audio. When not Playing, the
+        // user callback is suppressed above and the write below is silence instead.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
-            // If not playing, return early.
-            if StreamState::load(&playback_state_cb, Ordering::Relaxed) != StreamState::Playing {
-                return;
-            }
-
             // Guard against non-conformant drivers (e.g. Focusrite USB ASIO, ReaRoute) that
             // fire the buffer callback multiple times per buffer cycle with the same buffer
             // index.
@@ -601,7 +607,11 @@ impl Device {
             let hardware_output_latency = hardware_output_latency.load(Ordering::Relaxed) as usize;
 
             let callback_instant = time_base_cb.to_stream_instant(callback_info.system_time);
-            let xrun = pending_xrun_cb.swap(false, Ordering::Relaxed);
+            // Only consume it when the user callback will actually run, so a pause does not
+            // swallow the notice.
+            let xrun = StreamState::load(&playback_state_cb, Ordering::Relaxed)
+                == StreamState::Playing
+                && pending_xrun_cb.swap(false, Ordering::Relaxed);
 
             // Silence the ASIO buffer that is about to be used.
             //
