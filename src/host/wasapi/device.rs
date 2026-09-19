@@ -912,10 +912,12 @@ impl Device {
                 format_attempt.Format
             };
 
-            // obtaining the size of the samples buffer in number of frames
-            let max_frames_in_buffer = audio_client
-                .GetBufferSize()
-                .context("Failed to get buffer size")?;
+            let max_frames_in_buffer = buffer_size_in_frames(
+                &audio_client,
+                config.buffer_size,
+                config.sample_rate,
+                waveformatex.nBlockAlign,
+            )?;
 
             let period_frames =
                 shared_mode_period_frames(&audio_client, config.sample_rate, max_frames_in_buffer);
@@ -1017,6 +1019,16 @@ impl Device {
                 format_attempt.Format
             };
 
+            let max_frames_in_buffer = buffer_size_in_frames(
+                &audio_client,
+                config.buffer_size,
+                config.sample_rate,
+                waveformatex.nBlockAlign,
+            )?;
+
+            let period_frames =
+                shared_mode_period_frames(&audio_client, config.sample_rate, max_frames_in_buffer);
+
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event =
                 Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
@@ -1025,14 +1037,6 @@ impl Device {
             audio_client
                 .SetEventHandle(event)
                 .context("Failed to set event handle")?;
-
-            // obtaining the size of the samples buffer in number of frames
-            let max_frames_in_buffer = audio_client
-                .GetBufferSize()
-                .context("Failed to get buffer size")?;
-
-            let period_frames =
-                shared_mode_period_frames(&audio_client, config.sample_rate, max_frames_in_buffer);
 
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
             let render_client = audio_client
@@ -1456,6 +1460,58 @@ fn config_to_waveformatextensible(
 // whole `WAVEFORMATEXTENSIBLE`, not just its `WAVEFORMATEX` prefix.
 fn as_waveformatex_ptr(format: &Audio::WAVEFORMATEXTENSIBLE) -> *const Audio::WAVEFORMATEX {
     ptr::from_ref(format).cast()
+}
+
+// WASAPI rounds a shared-mode ring up to a whole number of device periods, so a report somewhat
+// above the request is normal; more than `BUFFER_HEADROOM_SECONDS` above it is a driver reporting
+// nonsense. The headroom cannot stand alone: `requested` is caller-supplied, so without an
+// absolute ceiling a wild request plus a wild report admits a multi-gigabyte buffer.
+const BUFFER_HEADROOM_SECONDS: u32 = 10;
+const MAX_BUFFER_BYTES: usize = 1 << 30; // 1 GiB
+
+/// Get the size of the ring buffer WASAPI allocated, rejecting implausible values.
+fn buffer_size_in_frames(
+    audio_client: &Audio::IAudioClient,
+    buffer_size: BufferSize,
+    sample_rate: SampleRate,
+    bytes_per_frame: u16,
+) -> Result<FrameCount, Error> {
+    let requested = match buffer_size {
+        BufferSize::Fixed(frames) => frames,
+        BufferSize::Default => 0,
+    };
+    let max_frames_in_buffer =
+        unsafe { audio_client.GetBufferSize() }.context("Failed to get buffer size")?;
+    let cap = requested.saturating_add(sample_rate.saturating_mul(BUFFER_HEADROOM_SECONDS));
+    if max_frames_in_buffer > cap {
+        let allowance = match buffer_size {
+            BufferSize::Fixed(_) => {
+                format!(
+                    "{requested} requested plus {BUFFER_HEADROOM_SECONDS} s at {sample_rate} Hz"
+                )
+            }
+            BufferSize::Default => {
+                format!("{BUFFER_HEADROOM_SECONDS} s at {sample_rate} Hz above the engine default")
+            }
+        };
+        return Err(Error::with_message(
+            ErrorKind::BackendError,
+            format!(
+                "Audio client reported a buffer of {max_frames_in_buffer} frames, more than the \
+                 {cap} frames allowed ({allowance})"
+            ),
+        ));
+    }
+    // The stream derives byte counts from these two; keep the product within the address space
+    // and under the allocation ceiling.
+    let buffer_bytes = (max_frames_in_buffer as usize).checked_mul(bytes_per_frame as usize);
+    if buffer_bytes.is_none_or(|bytes| bytes > MAX_BUFFER_BYTES) {
+        return Err(Error::with_message(
+            ErrorKind::BackendError,
+            "Audio buffer size overflows the address space or exceeds the 1 GiB ceiling",
+        ));
+    }
+    Ok(max_frames_in_buffer)
 }
 
 /// Get the default device period in frames for a shared-mode stream.

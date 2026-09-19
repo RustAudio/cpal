@@ -695,6 +695,7 @@ fn run_input(
 
     let stream = &run_ctxt.stream;
     let scratch_len = if stream.sample_format == SampleFormat::I24 {
+        // The product is checked at build time by `buffer_size_in_frames`.
         stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
     } else {
         // The scratch buffer won't be used in this case.
