@@ -593,7 +593,8 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                     // and may already hold real, unplayed data.
                     let cold_start = match run_context.stream.client_flow {
                         AudioClientFlow::Render { .. } => {
-                            get_available_frames(&run_context.stream)? > 0
+                            let (available, _) = get_available_frames(&run_context.stream)?;
+                            available > 0
                         }
                         AudioClientFlow::Capture { .. } => false,
                     };
@@ -668,15 +669,26 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Error
     Ok(handle_idx)
 }
 
-// Get the number of available frames that are available for writing/reading.
+// Get the number of frames available for writing, along with the number of
+// frames still queued in the buffer.
 #[inline]
-fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
+fn get_available_frames(stream: &StreamInner) -> Result<(FrameCount, FrameCount), Error> {
     unsafe {
         let padding = stream
             .audio_client
             .GetCurrentPadding()
             .context("Failed to get current padding")?;
-        Ok(stream.max_frames_in_buffer - padding)
+        // Underflowing here would size the render buffer slice from a huge frame count.
+        let available = stream
+            .max_frames_in_buffer
+            .checked_sub(padding)
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::BackendError,
+                    "IAudioClient::GetCurrentPadding returned more frames than the buffer holds",
+                )
+            })?;
+        Ok((available, padding))
     }
 }
 
@@ -959,12 +971,11 @@ fn process_output(
     frames_written: &mut u64,
 ) -> Result<(), Error> {
     // The number of frames available for writing.
-    let frames_available = match get_available_frames(stream)? {
-        0 => return Ok(()), // TODO: Can this happen?
-        n => n,
-    };
+    let (frames_available, padding) = get_available_frames(stream)?;
+    if frames_available == 0 {
+        return Ok(()); // TODO: Can this happen?
+    }
 
-    let padding = stream.max_frames_in_buffer - frames_available;
     let fill_usec = (padding as u64)
         .saturating_mul(1_000_000)
         .saturating_div(stream.config.sample_rate as u64)
