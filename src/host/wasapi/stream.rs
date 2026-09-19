@@ -884,6 +884,32 @@ fn process_commands_and_await_signal(
     ControlFlow::Continue(handle_idx != 0)
 }
 
+/// Releases the packet acquired via `IAudioCaptureClient::GetBuffer` on drop.
+///
+/// WASAPI requires every successful `GetBuffer` to be paired with a `ReleaseBuffer`, so the
+/// packet must be released on every path out of processing, including errors and panics.
+struct CapturePacket<'a> {
+    capture_client: &'a Audio::IAudioCaptureClient,
+    frames: u32,
+}
+
+impl CapturePacket<'_> {
+    /// Releases the packet, surfacing the failure that `Drop` would have to swallow.
+    fn release(self) -> Result<(), Error> {
+        let this = mem::ManuallyDrop::new(self);
+        unsafe { this.capture_client.ReleaseBuffer(this.frames) }
+            .context("Failed to release capture buffer")
+    }
+}
+
+impl Drop for CapturePacket<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.capture_client.ReleaseBuffer(self.frames);
+        }
+    }
+}
+
 // The loop for processing pending input data.
 fn process_input(
     stream: &StreamInner,
@@ -911,19 +937,20 @@ fn process_input(
                 Some(&mut device_position),
                 Some(&mut qpc_position),
             )?;
+            let packet = CapturePacket {
+                capture_client: &capture_client,
+                frames: frames_available,
+            };
 
-            // An empty packet is reported as `AUDCLNT_S_BUFFER_EMPTY`, a *success* code, so
-            // it surfaces here rather than as an error. Releasing a zero-size packet is
-            // optional, but keeps GetBuffer and ReleaseBuffer strictly alternating.
+            // An empty packet is reported as `AUDCLNT_S_BUFFER_EMPTY`, a *success* code, so it
+            // surfaces here rather than as an error.
             if frames_available == 0 {
-                let _ = capture_client.ReleaseBuffer(0);
                 return Ok(());
             }
 
             // A non-empty packet without a buffer is a driver bug; fail rather than hand the
             // callback a null buffer.
             if buffer.is_null() {
-                let _ = capture_client.ReleaseBuffer(frames_available);
                 return Err(Error::with_message(
                     ErrorKind::BackendError,
                     "IAudioCaptureClient::GetBuffer returned a null buffer for a non-empty packet",
@@ -981,10 +1008,7 @@ fn process_input(
                 data_callback(&data, &CallbackInfo { timestamp, xrun });
             }
 
-            // Release the buffer.
-            capture_client
-                .ReleaseBuffer(frames_available)
-                .context("Failed to release capture buffer")?;
+            packet.release()?;
         }
     }
 }
