@@ -918,12 +918,22 @@ fn process_input(
     scratch_buffer: &mut [i64],
 ) -> Result<(), Error> {
     unsafe {
+        // `GetNextPacketSize` is implemented by the audio engine and reports an empty packet
+        // once the ring is drained, but a data callback slower than realtime refills the ring
+        // while this loop runs, so the drain never reaches zero -- and the bound guarantees
+        // `run_input` still polls its commands. What is left stays queued.
+        let max_frames_per_event = stream.max_frames_in_buffer.max(1);
+        let mut frames_drained: FrameCount = 0;
         loop {
+            if frames_drained >= max_frames_per_event {
+                return Ok(());
+            }
             let mut frames_available = match capture_client.GetNextPacketSize() {
                 Ok(0) => return Ok(()),
                 Ok(f) => f,
                 Err(err) => return Err(Error::from(err)),
             };
+            frames_drained = frames_drained.saturating_add(frames_available);
             // Re-initialized every packet: the driver need not write the out-params, and a
             // stale buffer from the previous packet would pass for freshly captured data.
             let mut buffer: *mut u8 = ptr::null_mut();
