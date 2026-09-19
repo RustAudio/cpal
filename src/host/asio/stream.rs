@@ -1287,7 +1287,10 @@ unsafe fn asio_channel_slice_mut<T>(
 
 fn load_driver_err(e: sys::LoadDriverError) -> Error {
     match e {
-        sys::LoadDriverError::LoadDriverFailed | sys::LoadDriverError::DriverAlreadyExists => {
+        sys::LoadDriverError::DriverAlreadyExists => {
+            Error::with_message(ErrorKind::DeviceBusy, e.to_string())
+        }
+        sys::LoadDriverError::LoadDriverFailed => {
             Error::with_message(ErrorKind::DeviceNotAvailable, e.to_string())
         }
         sys::LoadDriverError::InitializationFailed(asio_err) => build_stream_err(asio_err),
