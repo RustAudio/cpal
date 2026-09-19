@@ -126,6 +126,12 @@ pub trait HostTrait {
 ///
 /// Please note that `Device`s may become invalid if they get disconnected. Therefore, all the
 /// methods that involve a device return a `Result` allowing the user to handle this case.
+///
+/// # Timeouts
+///
+/// The `timeout` passed to the stream builders bounds different stages of the stream lifecycle
+/// depending on the backend, and some backends ignore it entirely. The host module
+/// documentation for each backend says what its `timeout` covers.
 pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// The iterator type yielding supported input stream formats.
     type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
@@ -370,7 +376,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
-    ///   this value.
+    ///   this value; see [Timeouts](DeviceTrait#timeouts).
     ///
     /// # Errors
     ///
@@ -428,7 +434,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
-    ///   this value.
+    ///   this value; see [Timeouts](DeviceTrait#timeouts).
     ///
     /// # Errors
     ///
@@ -488,7 +494,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
-    ///   this value.
+    ///   this value; see [Timeouts](DeviceTrait#timeouts).
     ///
     /// # Errors
     ///
@@ -535,7 +541,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
-    ///   this value.
+    ///   this value; see [Timeouts](DeviceTrait#timeouts).
     ///
     /// # Errors
     ///
@@ -579,7 +585,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
-    ///   this value.
+    ///   this value; see [Timeouts](DeviceTrait#timeouts).
     ///
     /// # Errors
     ///

@@ -1,6 +1,7 @@
 //! JACK backend implementation.
 //!
 //! Available on all platforms with the `jack` feature. Requires JACK server and client libraries.
+//! The stream-build `timeout` bounds the whole build, including opening the JACK client.
 
 extern crate jack;
 

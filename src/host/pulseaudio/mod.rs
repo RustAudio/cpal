@@ -1,3 +1,9 @@
+//! PulseAudio backend implementation.
+//!
+//! Default backend on Linux and BSD systems when PipeWire is unavailable.
+//!
+//! The stream-build `timeout` bounds stream creation.
+
 use std::{
     ffi::CString,
     fmt,

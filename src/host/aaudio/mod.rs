@@ -1,6 +1,8 @@
 //! AAudio backend implementation.
 //!
 //! Default backend on Android.
+//!
+//! The stream-build `timeout` is ignored.
 
 use std::{
     fmt,

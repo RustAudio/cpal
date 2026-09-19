@@ -1,6 +1,9 @@
 //! CoreAudio backend implementation.
 //!
 //! Default backend on macOS, iOS, and tvOS.
+//!
+//! On macOS the stream-build `timeout` bounds the device rate change made during setup, with a
+//! one-second default; on iOS it is ignored.
 
 use objc2_core_audio_types::{
     AudioStreamBasicDescription, kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked,

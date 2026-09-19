@@ -1,6 +1,9 @@
 //! ALSA backend implementation.
 //!
 //! Default backend on Linux and BSD systems.
+//!
+//! The stream-build `timeout` is not a setup bound: it becomes the `poll()` timeout of the
+//! stream's run loop, so it applies for the life of the stream, and `None` polls forever.
 
 extern crate alsa;
 #[cfg(feature = "realtime")]

@@ -2,6 +2,8 @@
 //!
 //! Available on WebAssembly with the `audioworklet` feature. Requires atomics support.
 //! See the `audioworklet` example for setup instructions.
+//!
+//! The stream-build `timeout` is ignored.
 
 use std::{
     cell::RefCell,

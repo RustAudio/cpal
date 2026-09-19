@@ -1,6 +1,10 @@
 //! WASAPI backend implementation.
 //!
 //! Default backend on Windows.
+//!
+//! The stream-build `timeout` bounds device activation only, and only for streams built from a
+//! default device: a build from a specific device, and the first build after a configuration
+//! query (which reuses the client that query activated), are not bounded.
 
 use std::io::Error as IoError;
 

@@ -1,3 +1,9 @@
+//! PipeWire backend implementation.
+//!
+//! Default backend on Linux when PipeWire is available.
+//!
+//! The stream-build `timeout` bounds stream initialization, waiting two seconds when given `None`.
+
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},

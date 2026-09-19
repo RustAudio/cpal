@@ -607,6 +607,9 @@ impl Device {
                 DeviceHandle::Specific(device) => {
                     // can fail if the device has been disconnected since we enumerated it, or if
                     // the device doesn't support playback for some reason
+                    //
+                    // not bounded by `activation_timeout`: `ActivateAudioInterfaceAsync` takes a
+                    // device interface path, and `IMMDevice` only exposes an opaque endpoint ID
                     device
                         .Activate(Com::CLSCTX_ALL, None)
                         .map_err(Error::from)?
