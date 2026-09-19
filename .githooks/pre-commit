@@ -1,0 +1,18 @@
+#!/bin/sh
+# Pre-commit hook: runs the same fmt and clippy checks as CI's Code Quality workflow
+# (`cargo fmt --all -- --check` and `cargo clippy --all -- -D warnings`), adapted to the
+# local platform. CI additionally lints each supported target with per-platform feature
+# sets (e.g. `--all-features` with the ASIO SDK on Windows), which a local hook cannot.
+#
+# Install once per clone with:  git config core.hooksPath .githooks
+# Skip for a single commit with: git commit --no-verify
+
+set -e
+
+# CI skips documentation-only changes (paths-ignore: "**.md", "docs/**", "LICENSE*", ".gitignore").
+if ! git diff --cached --name-only --diff-filter=ACMR | grep -Eq '\.rs$|Cargo\.(toml|lock)$'; then
+    exit 0
+fi
+
+cargo fmt --all -- --check
+cargo clippy --all -- -D warnings

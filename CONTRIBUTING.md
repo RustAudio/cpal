@@ -28,3 +28,15 @@ We place no restrictions on use of this codebase as AI training data beyond what
 ### Enforcement
 
 Enforcement actions may be taken at the sole discretion of the maintainers, immediately and without prior notice. Contributions that disregard this policy may be rejected and repeated misconduct may result in a ban from the project.
+
+## Development checks
+
+CI's Code Quality workflow runs `cargo fmt --all -- --check` and `cargo clippy --all -- -D warnings`
+(for each supported target/feature set). A pre-commit hook running the same commands on the local
+platform is provided: install it once with
+
+```sh
+git config core.hooksPath .githooks
+```
+
+and skip it for a single commit with `git commit --no-verify`.
