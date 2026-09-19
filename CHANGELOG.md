@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: Fix loading a driver while a previous driver was still unloading.
 - **ASIO**: `Stream` no longer risks blocking or panicking in the driver callback while another stream is being created or destroyed.
 - **ASIO**: A paused output stream now goes silent instead of looping the last buffered audio.
+- **ASIO**: A device in use by an existing stream is no longer missing from device enumeration.
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.
 - **AudioWorklet**: Fix dropouts in output streams when the callback buffer grows.
 - **CoreAudio**: Fix the device running at a different sample rate from the stream on hardware that reports a continuous rate range.

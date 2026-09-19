@@ -225,9 +225,9 @@ impl Iterator for Devices {
                         current_callback_flag: Arc::new(AtomicU32::new(u32::MAX)),
                     });
                 }
-                // A different driver is already loaded (e.g. an active Stream holds it). Stop
-                // cleanly rather than spinning through the rest of the list.
-                Err(sys::LoadDriverError::DriverAlreadyExists) => return None,
+                // Another driver is already loaded (e.g. an active Stream holds it). Only that
+                // driver's own entry can load now, so keep going to reach it instead of stopping.
+                Err(sys::LoadDriverError::DriverAlreadyExists) => continue,
                 // Driver failed to load for its own reasons; skip and try the next.
                 Err(_) => continue,
             }
