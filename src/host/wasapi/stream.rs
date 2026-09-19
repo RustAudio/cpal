@@ -972,6 +972,14 @@ fn process_input(
             let xrun = device_position != 0
                 && flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0;
 
+            // Every length below is derived from this frame count, and the scratch buffer is
+            // sized for a whole buffer's worth of it.
+            if frames_available > stream.max_frames_in_buffer {
+                return Err(Error::with_message(
+                    ErrorKind::BackendError,
+                    "IAudioCaptureClient::GetBuffer returned more frames than the buffer holds",
+                ));
+            }
             let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
             // A packet marked SILENT may hold uninitialized data: the engine is not required to
             // have written it. Fill equilibrium into the scratch buffer and serve that instead,
