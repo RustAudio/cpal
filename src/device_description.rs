@@ -222,7 +222,7 @@ impl fmt::Display for DeviceDescription {
         write!(f, "{}", self.name)?;
 
         if let Some(mfr) = &self.manufacturer {
-            write!(f, " ({})", mfr)?;
+            write!(f, " ({mfr})")?;
         }
 
         if self.device_type != DeviceType::Unknown {

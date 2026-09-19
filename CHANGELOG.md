@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StreamTrait::play` is renamed to `start`.
 - `InputCallbackInfo`/`OutputCallbackInfo` merged into `CallbackInfo`.
 - `InputStreamTimestamp`/`OutputStreamTimestamp` merged into `StreamTimestamp`; `capture`/`playback` renamed `device`.
+- `StreamInstant` creation is now `const`.
+- `SampleFormat` methods are now `const`, and take `self`.
 - Renamed the `wasm-beep` and `audioworklet-beep` examples to `webaudio` and `audioworklet`.
 - **ALSA**: Update `alsa` dependency to 0.12.
 - **CoreAudio**: `DeviceDescription::interface_type()` now reports the device transport instead of only marking aggregate devices.

@@ -114,7 +114,7 @@ impl StreamInstant {
     }
 
     /// Returns the total number of nanoseconds contained by this `StreamInstant`.
-    pub fn as_nanos(&self) -> u128 {
+    pub const fn as_nanos(&self) -> u128 {
         self.secs as u128 * 1_000_000_000 + self.nanos as u128
     }
 
@@ -125,19 +125,19 @@ impl StreamInstant {
     /// years. Instead, consider using the pattern
     /// `StreamInstant::new(t.as_secs(), t.subsec_nanos())` if you cannot copy/clone the
     /// `StreamInstant` directly.
-    pub fn from_nanos(nanos: u64) -> Self {
+    pub const fn from_nanos(nanos: u64) -> Self {
         let secs = nanos / 1_000_000_000;
         let subsec_nanos = (nanos % 1_000_000_000) as u32;
         Self::new(secs, subsec_nanos)
     }
 
     /// Creates a new `StreamInstant` from the specified number of milliseconds.
-    pub fn from_millis(millis: u64) -> Self {
+    pub const fn from_millis(millis: u64) -> Self {
         Self::new(millis / 1_000, (millis % 1_000 * 1_000_000) as u32)
     }
 
     /// Creates a new `StreamInstant` from the specified number of microseconds.
-    pub fn from_micros(micros: u64) -> Self {
+    pub const fn from_micros(micros: u64) -> Self {
         Self::new(micros / 1_000_000, (micros % 1_000_000 * 1_000) as u32)
     }
 
@@ -171,7 +171,7 @@ impl StreamInstant {
     /// # Panics
     ///
     /// Panics if the carry from `nanos` overflows the seconds counter.
-    pub fn new(secs: u64, nanos: u32) -> Self {
+    pub const fn new(secs: u64, nanos: u32) -> Self {
         let carry = nanos / 1_000_000_000;
         let subsec_nanos = nanos % 1_000_000_000;
         let secs = secs
