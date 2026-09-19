@@ -15,7 +15,10 @@ use super::Device;
 use crate::{
     BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, Sample, SampleFormat,
     SampleRate, StreamConfig, StreamInstant, StreamTimestamp,
-    host::{com, equilibrium::fill_equilibrium, error_emit::emit_error, frames_to_duration},
+    host::{
+        com, equilibrium::fill_equilibrium, error_emit::emit_error, frames_to_duration,
+        wait_for_drain,
+    },
 };
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
@@ -38,11 +41,11 @@ impl TimeBase {
         let epoch = if ns < prev {
             self.epoch_ns
                 .fetch_add(TIMEGETIME_WRAP_NS, Ordering::Relaxed)
-                + TIMEGETIME_WRAP_NS
+                .wrapping_add(TIMEGETIME_WRAP_NS)
         } else {
             self.epoch_ns.load(Ordering::Relaxed)
         };
-        StreamInstant::from_nanos(epoch + ns)
+        StreamInstant::from_nanos(epoch.wrapping_add(ns))
     }
 }
 
@@ -78,6 +81,8 @@ pub struct Stream {
     callback_id: sys::BufferCallbackId,
     driver_event_callback_id: sys::DriverEventCallbackId,
     time_base: Arc<TimeBase>,
+    drain_frames: Arc<AtomicU32>,
+    sample_rate: SampleRate,
 }
 
 impl Stream {
@@ -96,6 +101,15 @@ impl Stream {
 
     pub fn pause(&self) -> Result<(), Error> {
         StreamState::Paused.store(&self.playback_state, Ordering::Relaxed);
+        Ok(())
+    }
+
+    pub fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        self.pause()?;
+        wait_for_drain(
+            frames_to_duration(self.drain_frames.load(Ordering::Relaxed), self.sample_rate),
+            timeout,
+        );
         Ok(())
     }
 
@@ -466,6 +480,8 @@ impl Device {
             callback_id,
             driver_event_callback_id,
             time_base: Arc::clone(&time_base),
+            drain_frames: Arc::new(AtomicU32::new(0)),
+            sample_rate: config.sample_rate,
         })
     }
 
@@ -547,6 +563,7 @@ impl Device {
         };
 
         let pending_xrun = Arc::new(AtomicBool::new(false));
+        let drain_frames = Arc::clone(&hardware_output_latency);
         let driver_event_callback_id = self
             .add_event_callback(
                 &driver,
@@ -883,6 +900,8 @@ impl Device {
             callback_id,
             driver_event_callback_id,
             time_base: Arc::clone(&time_base),
+            drain_frames,
+            sample_rate: config.sample_rate,
         })
     }
 
