@@ -57,18 +57,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JACK**: Streams no longer panic when the server delivers a larger period than the negotiated buffer size.
 - **PipeWire**: Fix an empty chunk being emitted when a cycle requests no frames.
 - **PipeWire**: Fix capture reading from the wrong offset in the buffer on some devices.
-- **WASAPI**: An oversized capture packet is now reported as a stream error instead of a panic or over-read.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
 - **WASAPI**: Revert "Default device changes no longer report `DeviceChanged`" as it was misinformed.
 - **WASAPI**: Output streams now start with real audio immediately instead of undefined content in the render buffer.
 - **WASAPI**: A stream paused immediately after starting no longer plays silence before real audio on resume.
 - **WASAPI**: Fix `I64` and `F64` incorrectly reported as supported output formats.
-- **WASAPI**: A driver reporting `WAVE_FORMAT_EXTENSIBLE` without the matching extension bytes no longer causes an out-of-bounds read; the format is reported as unsupported instead.
-- **WASAPI**: A configuration whose derived `WAVEFORMATEX` fields overflow is now rejected as `UnsupportedConfig` instead of panicking in debug builds and wrapping in release.
-- **WASAPI**: An implausible buffer size reported by the audio client is now rejected when the stream is built, instead of becoming a huge allocation on the audio thread.
-- **WASAPI**: Output streams now report a backend error instead of panicking or underflowing when a driver reports more padding than the buffer holds.
-- **WASAPI**: Empty capture packets are no longer handed to the data callback as a null buffer.
-- **WASAPI**: Input streams no longer stop responding to `stop()` and `Drop` if the driver never reports an empty capture packet.
+- **WASAPI**: Formats with a `cbSize` that doesn't cover the extension, and configurations whose
+  derived `WAVEFORMATEX` fields would overflow, are now rejected instead of being read out of
+  bounds, panicking, or wrapping.
+- **WASAPI**: A buffer size or padding count beyond the stream's negotiated bounds, or a capture
+  packet larger than its buffer, is now rejected with a backend error instead of panicking,
+  over-reading, or allocating gigabytes.
+- **WASAPI**: Empty capture packets are no longer delivered as a null buffer, packets the engine
+  marks silent now arrive as silence, and a slow data callback no longer leaves `stop()` and
+  `Drop` unserviced.
 
 ## [0.18.2] - 2026-08-16
 
