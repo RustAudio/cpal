@@ -28,3 +28,13 @@ We place no restrictions on use of this codebase as AI training data beyond what
 ### Enforcement
 
 Enforcement actions may be taken at the sole discretion of the maintainers, immediately and without prior notice. Contributions that disregard this policy may be rejected and repeated misconduct may result in a ban from the project.
+
+## Development checks
+
+A pre-commit hook running code quality checks is provided: install it once at your discretion with
+
+```sh
+git config core.hooksPath .githooks
+```
+
+It can then be skipped for a single commit with `git commit --no-verify`.
