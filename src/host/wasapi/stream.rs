@@ -706,14 +706,13 @@ fn run_input(
     }
 
     let stream = &run_ctxt.stream;
-    let scratch_len = if stream.sample_format == SampleFormat::I24 {
-        // The product is checked at build time by `buffer_size_in_frames`.
-        stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
-    } else {
-        // The scratch buffer won't be used in this case.
-        0 // Vec::with_capacity(0) does not allocate.
-    };
-    let mut scratch_buffer = vec![0; scratch_len].into_boxed_slice();
+    // Sized in i64 words, the widest sample, so a buffer served from the scratch through any
+    // format the callback accepts stays aligned. The I24 conversion shifts its samples through
+    // it as i32s, and packets the engine marks SILENT are served from it as bytes filled with
+    // equilibrium -- filling the engine's capture buffer in place would break the contract that
+    // it is read-only to the client. A zero length allocates no backing storage.
+    let scratch_len = stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize;
+    let mut scratch_buffer = vec![0i64; scratch_len.div_ceil(size_of::<i64>())].into_boxed_slice();
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -890,49 +889,77 @@ fn process_input(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
-    scratch_buffer: &mut [i32],
+    scratch_buffer: &mut [i64],
 ) -> Result<(), Error> {
     unsafe {
-        // Get the available data in the shared buffer.
-        let mut buffer: *mut u8 = ptr::null_mut();
-        let mut flags = mem::MaybeUninit::uninit();
         loop {
             let mut frames_available = match capture_client.GetNextPacketSize() {
                 Ok(0) => return Ok(()),
                 Ok(f) => f,
                 Err(err) => return Err(Error::from(err)),
             };
+            // Re-initialized every packet: the driver need not write the out-params, and a
+            // stale buffer from the previous packet would pass for freshly captured data.
+            let mut buffer: *mut u8 = ptr::null_mut();
+            let mut flags: u32 = 0;
             let mut qpc_position: u64 = 0;
             let mut device_position: u64 = 0;
-            let result = capture_client.GetBuffer(
+            capture_client.GetBuffer(
                 &mut buffer,
                 &mut frames_available,
-                flags.as_mut_ptr(),
+                &mut flags,
                 Some(&mut device_position),
                 Some(&mut qpc_position),
-            );
+            )?;
 
-            match result {
-                // TODO: Can this happen?
-                Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
-                Err(e) => return Err(Error::from(e)),
-                Ok(_) => (),
+            // An empty packet is reported as `AUDCLNT_S_BUFFER_EMPTY`, a *success* code, so
+            // it surfaces here rather than as an error. Releasing a zero-size packet is
+            // optional, but keeps GetBuffer and ReleaseBuffer strictly alternating.
+            if frames_available == 0 {
+                let _ = capture_client.ReleaseBuffer(0);
+                return Ok(());
             }
 
-            let flags = flags.assume_init();
+            // A non-empty packet without a buffer is a driver bug; fail rather than hand the
+            // callback a null buffer.
+            if buffer.is_null() {
+                let _ = capture_client.ReleaseBuffer(frames_available);
+                return Err(Error::with_message(
+                    ErrorKind::BackendError,
+                    "IAudioCaptureClient::GetBuffer returned a null buffer for a non-empty packet",
+                ));
+            }
+
             // The discontinuity flag is undefined on the first GetBuffer after Start,
             // where device_position is still 0.
             let xrun = device_position != 0
                 && flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0;
 
-            debug_assert!(!buffer.is_null());
             let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
-            let data = if stream.sample_format == SampleFormat::I24 {
+            // A packet marked SILENT may hold uninitialized data: the engine is not required to
+            // have written it. Fill equilibrium into the scratch buffer and serve that instead,
+            // so the callback and the i24 copy see zeros, not stale driver memory -- and the
+            // engine-owned capture buffer stays untouched, as required below.
+            let silent = flags & Audio::AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
+            let data = if silent {
+                // Filling the engine-owned capture buffer would violate its read-only
+                // contract, so fill the scratch instead and serve that. Bounding the slice
+                // first keeps a length error a panic rather than UB; viewing the i64 words
+                // as bytes never increases alignment, so the cast is sound.
+                let words = &mut scratch_buffer[..byte_count.div_ceil(size_of::<i64>())];
+                let zeros = slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), byte_count);
+                fill_equilibrium(zeros, stream.sample_format);
+                zeros.as_mut_ptr().cast()
+            } else if stream.sample_format == SampleFormat::I24 {
                 // WASAPI stores i24 in the upper bits
-                let source_data =
-                    slice::from_raw_parts(buffer.cast(), byte_count / size_of::<i32>());
-                // use a scratch buffer since the capture buffer isn't meant to be written
-                let dst = &mut scratch_buffer[..source_data.len()];
+                let sample_count = byte_count / size_of::<i32>();
+                let source_data = slice::from_raw_parts(buffer.cast(), sample_count);
+                // use a scratch buffer since the capture buffer isn't meant to be written.
+                // Bounding the slice first keeps a length error a panic rather than UB;
+                // viewing the i64 words as i32 samples only decreases alignment, so the cast
+                // is sound and the I24 samples stay 4-aligned.
+                let words = &mut scratch_buffer[..sample_count.div_ceil(2)];
+                let dst = slice::from_raw_parts_mut(words.as_mut_ptr().cast::<i32>(), sample_count);
                 dst.copy_from_slice(source_data);
                 for sample in dst.iter_mut() {
                     // On signed integers, >> is an arithmetic shift,
@@ -998,8 +1025,9 @@ fn process_output(
 ) -> Result<(), Error> {
     // The number of frames available for writing.
     let (frames_available, padding) = get_available_frames(stream)?;
+    // The ring can be full; the next audio event fires again once space frees up.
     if frames_available == 0 {
-        return Ok(()); // TODO: Can this happen?
+        return Ok(());
     }
 
     let fill_usec = (padding as u64)
