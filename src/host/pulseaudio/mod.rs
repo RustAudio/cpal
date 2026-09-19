@@ -128,8 +128,11 @@ pub struct Host {
     client: pulseaudio::Client,
 }
 
-impl Host {
-    pub fn new() -> Result<Self, Error> {
+impl HostTrait for Host {
+    type Devices = std::vec::IntoIter<Device>;
+    type Device = Device;
+
+    fn new() -> Result<Self, Error> {
         // `Client::from_env` does a blocking auth handshake with no socket timeout. If this never
         // returns, fall through to the next host with no other option than to leak the thread.
         let (tx, rx) = mpsc::channel();
@@ -153,11 +156,6 @@ impl Host {
 
         Ok(Self { client })
     }
-}
-
-impl HostTrait for Host {
-    type Devices = std::vec::IntoIter<Device>;
-    type Device = Device;
 
     fn is_available() -> bool {
         pulseaudio::socket_path_from_env().is_some()

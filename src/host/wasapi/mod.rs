@@ -32,15 +32,13 @@ mod stream;
 #[derive(Debug)]
 pub struct Host;
 
-impl Host {
-    pub fn new() -> Result<Self, Error> {
-        Ok(Host)
-    }
-}
-
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
+    fn new() -> Result<Self, Error> {
+        Ok(Host)
+    }
 
     fn is_available() -> bool {
         // Assume WASAPI is always available on Windows.

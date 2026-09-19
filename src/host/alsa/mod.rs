@@ -37,18 +37,6 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new() -> Result<Self, Error> {
-        let inner = AlsaContext::new().map_err(|e| {
-            Error::with_message(
-                ErrorKind::HostUnavailable,
-                format!("ALSA is not available: {e}"),
-            )
-        })?;
-        Ok(Self {
-            inner: Arc::new(inner),
-        })
-    }
-
     // "default" is a virtual ALSA device that redirects to the configured default. We cannot
     // determine its actual capabilities without opening it, so we return Unknown direction.
     fn default_device(&self) -> Device {
@@ -64,6 +52,18 @@ impl Host {
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
+    fn new() -> Result<Self, Error> {
+        let inner = AlsaContext::new().map_err(|e| {
+            Error::with_message(
+                ErrorKind::HostUnavailable,
+                format!("ALSA is not available: {e}"),
+            )
+        })?;
+        Ok(Self {
+            inner: Arc::new(inner),
+        })
+    }
 
     fn is_available() -> bool {
         // Assume ALSA is always available on Linux and BSD.

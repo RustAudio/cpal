@@ -54,15 +54,13 @@ impl fmt::Display for Device {
 
 pub struct Host;
 
-impl Host {
-    pub fn new() -> Result<Self, Error> {
-        Ok(Host)
-    }
-}
-
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
+    fn new() -> Result<Self, Error> {
+        Ok(Host)
+    }
 
     fn is_available() -> bool {
         true

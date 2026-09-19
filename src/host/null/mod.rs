@@ -6,8 +6,10 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::{
-    CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, FrameCount,
-    SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig, SupportedStreamConfigRange,
+    CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error,
+    ErrorKind::DeviceNotAvailable,
+    FrameCount, SampleFormat, StreamConfig, StreamInstant, SupportedStreamConfig,
+    SupportedStreamConfigRange,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -33,13 +35,6 @@ pub struct SupportedInputConfigs;
 #[derive(Clone)]
 pub struct SupportedOutputConfigs;
 
-impl Host {
-    #[allow(dead_code)]
-    pub fn new() -> Result<Self, Error> {
-        Ok(Self)
-    }
-}
-
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedInputConfigs;
     type SupportedOutputConfigs = SupportedOutputConfigs;
@@ -54,19 +49,19 @@ impl DeviceTrait for Device {
     }
 
     fn supported_input_configs(&self) -> Result<SupportedInputConfigs, Error> {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn supported_output_configs(&self) -> Result<SupportedOutputConfigs, Error> {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn build_input_stream_raw<D, E>(
@@ -81,7 +76,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     /// Create an output stream.
@@ -97,13 +92,17 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 }
 
 impl HostTrait for Host {
     type Devices = Devices;
     type Device = Device;
+
+    fn new() -> Result<Self, Error> {
+        Ok(Self)
+    }
 
     fn is_available() -> bool {
         false
@@ -124,23 +123,23 @@ impl HostTrait for Host {
 
 impl StreamTrait for Stream {
     fn start(&self) -> Result<(), Error> {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn pause(&self) -> Result<(), Error> {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn stop(&self, _timeout: Option<std::time::Duration>) -> Result<(), Error> {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 
     fn now(&self) -> StreamInstant {
-        unimplemented!()
+        StreamInstant::ZERO
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        unimplemented!()
+        Err(Error::with_message(DeviceNotAvailable, "Null host in use"))
     }
 }
 
