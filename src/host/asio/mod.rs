@@ -154,8 +154,8 @@ impl StreamTrait for Stream {
         Stream::pause(self)
     }
 
-    fn stop(&self, _timeout: Option<Duration>) -> Result<(), Error> {
-        Stream::pause(self)
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        Stream::stop(self, timeout)
     }
 
     fn now(&self) -> StreamInstant {
