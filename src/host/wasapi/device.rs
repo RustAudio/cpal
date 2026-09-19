@@ -205,7 +205,18 @@ pub unsafe fn is_format_supported(
     Ok(hr.0 == 0)
 }
 
+// Bytes that follow the `WAVEFORMATEX` header inside a `WAVEFORMATEXTENSIBLE`. The Windows ABI
+// fixes this at 22; the assert pins the size derivation below to the ABI value.
+const WAVEFORMATEXTENSIBLE_EXTRA_BYTES: u16 = 22;
+const _: () = assert!(
+    mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>() - mem::size_of::<Audio::WAVEFORMATEX>()
+        == WAVEFORMATEXTENSIBLE_EXTRA_BYTES as usize
+);
+
 // Get a cpal Format from a WAVEFORMATEX.
+//
+// Safety: `waveformatex_ptr` must point to a readable `WAVEFORMATEX` followed by the
+// `cbSize` extra bytes its header declares.
 unsafe fn format_from_waveformatex_ptr(
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
     audio_client: &Audio::IAudioClient,
@@ -224,6 +235,11 @@ unsafe fn format_from_waveformatex_ptr(
         (32, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F32,
         (64, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F64,
         (n_bits, KernelStreaming::WAVE_FORMAT_EXTENSIBLE) => {
+            // The extension is only there to be read if `cbSize` accounts for it.
+            if unsafe { (*waveformatex_ptr).cbSize } < WAVEFORMATEXTENSIBLE_EXTRA_BYTES {
+                return None;
+            }
+
             let waveformatextensible_ptr = waveformatex_ptr as *const Audio::WAVEFORMATEXTENSIBLE;
             let sub = unsafe { (*waveformatextensible_ptr).SubFormat };
             let valid_bits = unsafe { (*waveformatextensible_ptr).Samples.wValidBitsPerSample };
@@ -1391,9 +1407,7 @@ fn config_to_waveformatextensible(
     let cb_size = if format_tag == Audio::WAVE_FORMAT_PCM {
         0
     } else {
-        let extensible_size = mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>();
-        let ex_size = mem::size_of::<Audio::WAVEFORMATEX>();
-        (extensible_size - ex_size) as u16
+        WAVEFORMATEXTENSIBLE_EXTRA_BYTES
     };
 
     let waveformatex = Audio::WAVEFORMATEX {
