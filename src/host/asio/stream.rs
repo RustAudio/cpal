@@ -15,7 +15,10 @@ use super::Device;
 use crate::{
     BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, Sample, SampleFormat,
     SampleRate, StreamConfig, StreamInstant, StreamTimestamp,
-    host::{com, equilibrium::fill_equilibrium, error_emit::emit_error, frames_to_duration},
+    host::{
+        com, equilibrium::fill_equilibrium, error_emit::emit_error, frames_to_duration,
+        wait_for_drain,
+    },
 };
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
@@ -38,11 +41,11 @@ impl TimeBase {
         let epoch = if ns < prev {
             self.epoch_ns
                 .fetch_add(TIMEGETIME_WRAP_NS, Ordering::Relaxed)
-                + TIMEGETIME_WRAP_NS
+                .wrapping_add(TIMEGETIME_WRAP_NS)
         } else {
             self.epoch_ns.load(Ordering::Relaxed)
         };
-        StreamInstant::from_nanos(epoch + ns)
+        StreamInstant::from_nanos(epoch.wrapping_add(ns))
     }
 }
 
@@ -78,6 +81,8 @@ pub struct Stream {
     callback_id: sys::BufferCallbackId,
     driver_event_callback_id: sys::DriverEventCallbackId,
     time_base: Arc<TimeBase>,
+    drain_frames: Arc<AtomicU32>,
+    sample_rate: SampleRate,
 }
 
 impl Stream {
@@ -96,6 +101,15 @@ impl Stream {
 
     pub fn pause(&self) -> Result<(), Error> {
         StreamState::Paused.store(&self.playback_state, Ordering::Relaxed);
+        Ok(())
+    }
+
+    pub fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        self.pause()?;
+        wait_for_drain(
+            frames_to_duration(self.drain_frames.load(Ordering::Relaxed), self.sample_rate),
+            timeout,
+        );
         Ok(())
     }
 
@@ -466,6 +480,8 @@ impl Device {
             callback_id,
             driver_event_callback_id,
             time_base: Arc::clone(&time_base),
+            drain_frames: Arc::new(AtomicU32::new(0)),
+            sample_rate: config.sample_rate,
         })
     }
 
@@ -538,7 +554,16 @@ impl Device {
         ));
 
         let playback_state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
+        let playback_state_wrapper = Arc::clone(&playback_state);
+        let mut data_callback = move |data: &mut Data, info: &CallbackInfo| {
+            if StreamState::load(&playback_state_wrapper, Ordering::Relaxed) == StreamState::Playing
+            {
+                data_callback(data, info);
+            }
+        };
+
         let pending_xrun = Arc::new(AtomicBool::new(false));
+        let drain_frames = Arc::clone(&hardware_output_latency);
         let driver_event_callback_id = self
             .add_event_callback(
                 &driver,
@@ -564,12 +589,10 @@ impl Device {
         let time_base = Arc::new(TimeBase::default());
         let time_base_cb = Arc::clone(&time_base);
 
+        // Runs whether or not the stream is playing: the driver plays the buffers back as it finds
+        // them, so returning early here would loop the last cycle's audio. When not Playing, the
+        // user callback is suppressed above and the write below is silence instead.
         let callback_id = driver.add_callback(move |callback_info| unsafe {
-            // If not playing, return early.
-            if StreamState::load(&playback_state_cb, Ordering::Relaxed) != StreamState::Playing {
-                return;
-            }
-
             // Guard against non-conformant drivers (e.g. Focusrite USB ASIO, ReaRoute) that
             // fire the buffer callback multiple times per buffer cycle with the same buffer
             // index.
@@ -601,7 +624,11 @@ impl Device {
             let hardware_output_latency = hardware_output_latency.load(Ordering::Relaxed) as usize;
 
             let callback_instant = time_base_cb.to_stream_instant(callback_info.system_time);
-            let xrun = pending_xrun_cb.swap(false, Ordering::Relaxed);
+            // Only consume it when the user callback will actually run, so a pause does not
+            // swallow the notice.
+            let xrun = StreamState::load(&playback_state_cb, Ordering::Relaxed)
+                == StreamState::Playing
+                && pending_xrun_cb.swap(false, Ordering::Relaxed);
 
             // Silence the ASIO buffer that is about to be used.
             //
@@ -873,6 +900,8 @@ impl Device {
             callback_id,
             driver_event_callback_id,
             time_base: Arc::clone(&time_base),
+            drain_frames,
+            sample_rate: config.sample_rate,
         })
     }
 
@@ -1277,7 +1306,10 @@ unsafe fn asio_channel_slice_mut<T>(
 
 fn load_driver_err(e: sys::LoadDriverError) -> Error {
     match e {
-        sys::LoadDriverError::LoadDriverFailed | sys::LoadDriverError::DriverAlreadyExists => {
+        sys::LoadDriverError::DriverAlreadyExists => {
+            Error::with_message(ErrorKind::DeviceBusy, e.to_string())
+        }
+        sys::LoadDriverError::LoadDriverFailed => {
             Error::with_message(ErrorKind::DeviceNotAvailable, e.to_string())
         }
         sys::LoadDriverError::InitializationFailed(asio_err) => build_stream_err(asio_err),

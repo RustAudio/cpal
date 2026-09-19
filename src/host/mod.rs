@@ -270,6 +270,21 @@ pub(crate) fn frames_to_duration(
     std::time::Duration::new(secs, nanos as u32)
 }
 
+/// Waits out `window` of buffered audio, cut short by `timeout` when it is the smaller of the two.
+///
+/// Implements [`StreamTrait::stop`]'s timeout contract for the backends that approximate a drain
+/// by sleeping, rather than blocking on a native drain primitive: `None` waits the full window and
+/// `Some(Duration::ZERO)` returns immediately.
+///
+/// [`StreamTrait::stop`]: crate::traits::StreamTrait::stop
+#[cfg(windows)]
+pub(crate) fn wait_for_drain(window: std::time::Duration, timeout: Option<std::time::Duration>) {
+    let wait = timeout.map_or(window, |t| window.min(t));
+    if !wait.is_zero() {
+        std::thread::sleep(wait);
+    }
+}
+
 /// Clamps a timestamp so it never precedes one we've already returned.
 #[allow(dead_code)]
 fn non_decreasing(floor: &mut u64, instant: crate::StreamInstant) -> crate::StreamInstant {
