@@ -127,6 +127,13 @@ pub trait HostTrait {
 /// Please note that `Device`s may become invalid if they get disconnected. Therefore, all the
 /// methods that involve a device return a `Result` allowing the user to handle this case.
 pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
+    /// Whether this backend implements exclusive access for this device.
+    ///
+    /// This does not guarantee that the device is currently available exclusively.
+    fn supports_exclusive(&self) -> bool {
+        false
+    }
+
     /// The iterator type yielding supported input stream formats.
     type SupportedInputConfigs: Iterator<Item = SupportedStreamConfigRange>;
     /// The iterator type yielding supported output stream formats.

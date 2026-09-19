@@ -296,6 +296,11 @@ pub enum PlaybackState {
 }
 
 pub struct StreamInner {
+    pub exclusive: bool,
+    pub qpc_frequency: u64,
+    pub needs_priming: bool,
+    pub frames_written: u64,
+    pub real_frames_end: u64,
     pub audio_client: Audio::IAudioClient,
     pub audio_clock: Audio::IAudioClock,
     pub client_flow: AudioClientFlow,
@@ -446,6 +451,8 @@ impl Stream {
         let mut latch = Latch::new();
         let waiter = latch.waiter();
 
+        let mut run_context = run_context;
+        run_context.stream.qpc_frequency = qpc_frequency as u64;
         let thread = thread::Builder::new()
             .name("cpal_wasapi_out".to_owned())
             .spawn(move || {
@@ -552,25 +559,37 @@ impl StreamTrait for Stream {
     }
 
     fn now(&self) -> StreamInstant {
-        let mut counter: i64 = 0;
-        unsafe {
-            Performance::QueryPerformanceCounter(&mut counter)
-                .expect("QueryPerformanceCounter failed");
-        }
-        // Convert to 100-nanosecond units first, matching the precision of WASAPI QPCPosition
-        // values delivered to callbacks. This keeps `now()` on the same 100 ns grid as
-        // callback/capture/playback instants, avoiding false sub-100 ns deltas.
-        let units_100ns = counter as u128 * 10_000_000 / self.qpc_frequency as u128;
-        let nanos = units_100ns * 100;
-        StreamInstant::new(
-            (nanos / 1_000_000_000) as u64,
-            (nanos % 1_000_000_000) as u32,
-        )
+        current_qpc(self.qpc_frequency).expect("QueryPerformanceCounter failed")
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
         Ok(self.period_frames)
     }
+}
+
+fn current_qpc(frequency: u64) -> Result<StreamInstant, Error> {
+    if frequency == 0 {
+        return Err(Error::with_message(
+            ErrorKind::BackendError,
+            "QPC frequency is zero",
+        ));
+    }
+    let mut counter = 0i64;
+    unsafe {
+        Performance::QueryPerformanceCounter(&mut counter)?;
+    }
+    if counter < 0 {
+        return Err(Error::with_message(
+            ErrorKind::BackendError,
+            "QPC counter is negative",
+        ));
+    }
+    // Match WASAPI's 100ns grid, including Stream::now().
+    let nanos = (counter as u128 * 10_000_000 / frequency as u128) * 100;
+    Ok(StreamInstant::new(
+        (nanos / 1_000_000_000) as u64,
+        (nanos % 1_000_000_000) as u32,
+    ))
 }
 
 impl Drop for StreamInner {
@@ -593,7 +612,11 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                     // and may already hold real, unplayed data.
                     let cold_start = match run_context.stream.client_flow {
                         AudioClientFlow::Render { .. } => {
-                            get_available_frames(&run_context.stream)? > 0
+                            if run_context.stream.exclusive {
+                                run_context.stream.needs_priming
+                            } else {
+                                get_available_frames(&run_context.stream)? > 0
+                            }
                         }
                         AudioClientFlow::Capture { .. } => false,
                     };
@@ -629,6 +652,10 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                         .audio_client
                         .Reset()
                         .context("Failed to reset audio client")?;
+                    run_context.stream.frames_written = 0;
+                    run_context.stream.real_frames_end = 0;
+                    run_context.stream.needs_priming = true;
+                    run_context.stream.fill_usec.store(0, Ordering::Relaxed);
                 }
             },
             Command::Terminate => {
@@ -676,7 +703,11 @@ fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
             .audio_client
             .GetCurrentPadding()
             .context("Failed to get current padding")?;
-        Ok(stream.max_frames_in_buffer - padding)
+        Ok(crate::host::wasapi_policy::packet_frames(
+            false,
+            stream.max_frames_in_buffer,
+            padding,
+        ))
     }
 }
 
@@ -757,7 +788,6 @@ fn run_output(
             return;
         }
     };
-    let mut frames_written: u64 = 0;
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -769,18 +799,20 @@ fn run_output(
             AudioClientFlow::Render { ref render_client } => render_client.clone(),
             _ => unreachable!(),
         };
-        if let Err(err) = process_output(
-            &run_ctxt.stream,
+        let outcome = match process_output(
+            &mut run_ctxt.stream,
             render_client,
             data_callback,
             clock_frequency,
-            &mut frames_written,
         ) {
-            emit_error(error_callback, err);
-            break;
-        }
+            Ok(outcome) => outcome,
+            Err(err) => {
+                emit_error(error_callback, err);
+                break;
+            }
+        };
         if run_ctxt.stream.playback_state == PlaybackState::Priming {
-            if run_ctxt.stream.skip_callback.load(Ordering::Relaxed) {
+            if !crate::host::wasapi_policy::start_after_prime(outcome) {
                 // process_output submitted nothing this cycle; stay stopped.
                 run_ctxt.stream.playback_state = PlaybackState::Stopped;
             } else {
@@ -869,7 +901,9 @@ fn process_commands_and_await_signal(
         );
         return ControlFlow::Continue(false);
     }
-    ControlFlow::Continue(handle_idx != 0)
+    ControlFlow::Continue(
+        handle_idx != 0 && run_context.stream.playback_state == PlaybackState::Playing,
+    )
 }
 
 // The loop for processing pending input data.
@@ -951,36 +985,81 @@ fn process_input(
 
 // The loop for writing output data.
 fn process_output(
-    stream: &StreamInner,
+    stream: &mut StreamInner,
     render_client: Audio::IAudioRenderClient,
     data_callback: &mut dyn FnMut(&mut Data, &CallbackInfo),
     clock_frequency: u64,
-    frames_written: &mut u64,
-) -> Result<(), Error> {
+) -> Result<crate::host::wasapi_policy::RenderOutcome, Error> {
+    use crate::host::wasapi_policy::RenderOutcome;
     // The number of frames available for writing.
-    let frames_available = match get_available_frames(stream)? {
-        0 => return Ok(()), // TODO: Can this happen?
-        n => n,
+    let frames_available = if stream.exclusive {
+        crate::host::wasapi_policy::packet_frames(true, stream.max_frames_in_buffer, 0)
+    } else {
+        match get_available_frames(stream)? {
+            0 => return Ok(RenderOutcome::Skipped),
+            n => n,
+        }
     };
 
-    let padding = stream.max_frames_in_buffer - frames_available;
+    let played_frames = if stream.exclusive {
+        let (_, position) = clock_position(stream)?;
+        crate::host::wasapi_policy::played_frames(
+            position,
+            stream.config.sample_rate,
+            clock_frequency,
+        )
+    } else {
+        0
+    };
+    let padding = if stream.exclusive {
+        stream
+            .real_frames_end
+            .saturating_sub(played_frames)
+            .min(u32::MAX as u64) as u32
+    } else {
+        stream.max_frames_in_buffer - frames_available
+    };
     let fill_usec = (padding as u64)
         .saturating_mul(1_000_000)
         .saturating_div(stream.config.sample_rate as u64)
-        .saturating_add(
+        .saturating_add(if stream.exclusive {
+            // IAudioClock already tracks device playback. Do not add the endpoint's
+            // maximum stream latency to the measured outstanding frame duration.
+            0
+        } else {
             stream
                 .stream_latency
                 .as_micros()
                 .try_into()
-                .unwrap_or(u64::MAX),
-        );
+                .unwrap_or(u64::MAX)
+        });
     stream.fill_usec.store(fill_usec, Ordering::Relaxed);
 
     if stream.skip_callback.load(Ordering::Relaxed) {
-        // Skip the period instead of queuing silence a future resume would replay.
-        return Ok(());
+        if stream.exclusive && stream.playback_state == PlaybackState::Playing {
+            unsafe {
+                let _ = render_client.GetBuffer(frames_available)?;
+                render_client
+                    .ReleaseBuffer(frames_available, Audio::AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)?;
+            }
+            stream.frames_written = crate::host::wasapi_policy::submission_end(
+                stream.frames_written,
+                played_frames,
+                frames_available,
+            );
+        }
+        return Ok(RenderOutcome::Skipped);
+    }
+    if stream.exclusive {
+        stream.frames_written = stream.frames_written.max(played_frames);
     }
 
+    let timestamp = output_timestamp(
+        stream,
+        stream.config.sample_rate,
+        clock_frequency,
+        stream.frames_written,
+    )?;
     unsafe {
         let buffer = render_client.GetBuffer(frames_available)?;
 
@@ -993,8 +1072,7 @@ fn process_output(
         let data = buffer as *mut ();
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
-        let sample_rate = stream.config.sample_rate;
-        let timestamp = output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
+
         // WASAPI exposes no render-side xrun signal.
         data_callback(
             &mut data,
@@ -1018,10 +1096,28 @@ fn process_output(
 
         render_client.ReleaseBuffer(frames_available, 0)?;
 
-        *frames_written += frames_available as u64;
+        stream.frames_written = crate::host::wasapi_policy::submission_end(
+            stream.frames_written,
+            played_frames,
+            frames_available,
+        );
+        stream.real_frames_end = stream.frames_written;
+        stream.needs_priming = false;
+        let fill = if stream.exclusive {
+            stream
+                .real_frames_end
+                .saturating_sub(played_frames)
+                .saturating_mul(1_000_000)
+                / stream.config.sample_rate as u64
+        } else {
+            fill_usec.saturating_add(
+                frames_available as u64 * 1_000_000 / stream.config.sample_rate as u64,
+            )
+        };
+        stream.fill_usec.store(fill, Ordering::Relaxed);
     }
 
-    Ok(())
+    Ok(RenderOutcome::Submitted)
 }
 
 /// Reads the stream's `IAudioClock` in a single `GetPosition` call, returning the callback
@@ -1093,6 +1189,15 @@ fn output_timestamp(
         u64::try_from(written_nanos.saturating_sub(consumed_nanos)).unwrap_or(u64::MAX);
     let buffered = Duration::from_nanos(buffered_nanos);
 
+    if stream.exclusive {
+        let now = current_qpc(stream.qpc_frequency)?;
+        return Ok(crate::host::wasapi_policy::exclusive_timestamp(
+            callback, now, buffered,
+        ));
+    }
+
+    // Preserve the shared-mode snapshot and latency behavior. Exclusive playback
+    // is already clock-position based and must not add maximum stream latency again.
     let playback = callback + (buffered + stream.stream_latency);
     Ok(StreamTimestamp {
         callback,

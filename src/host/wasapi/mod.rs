@@ -1,6 +1,14 @@
 //! WASAPI backend implementation.
 //!
 //! Default backend on Windows.
+//!
+//! Select `device.exclusive(true)` before querying output configurations to bypass
+//! shared-engine conversion. Exclusive discovery is limited to formats and sample rates
+//! accepted by the endpoint; packed 24-bit samples and exclusive input/loopback are
+//! unsupported. Requested buffer sizes may be increased to satisfy the endpoint's
+//! period/alignment requirements; query the stream's actual buffer size after construction.
+//! Exclusive access can fail because another application owns the endpoint or system
+//! policy disables it. Exclusive mode does not by itself guarantee bit-perfect playback.
 
 use std::io::Error as IoError;
 
