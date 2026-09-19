@@ -1377,7 +1377,8 @@ const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 5] = [
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
 //
-// Returns `None` if the WAVEFORMATEXTENSIBLE does not support the given format.
+// Returns `None` if the format is unsupported, or if the config does not fit the WAVEFORMATEX
+// field widths.
 fn config_to_waveformatextensible(
     config: StreamConfig,
     sample_format: SampleFormat,
@@ -1397,8 +1398,9 @@ fn config_to_waveformatextensible(
     let channels = config.channels;
     let sample_rate = config.sample_rate;
     let sample_bytes = sample_format.sample_size() as u16;
-    let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
-    let block_align = channels * sample_bytes;
+    // A wide channel count overflows nBlockAlign, and a high sample rate overflows nAvgBytesPerSec.
+    let block_align = channels.checked_mul(sample_bytes)?;
+    let avg_bytes_per_sec = sample_rate.checked_mul(u32::from(block_align))?;
     // wBitsPerSample is the container word size; wValidBitsPerSample is the actual bit depth.
     // For I24 the container is 32 bits (sample_size() == 4) but only 24 bits are significant.
     let container_bits = 8 * sample_bytes;
