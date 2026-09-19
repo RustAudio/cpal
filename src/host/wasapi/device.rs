@@ -1545,3 +1545,43 @@ fn buffer_size_to_duration(buffer_size: &BufferSize, sample_rate: SampleRate) ->
 fn buffer_duration_to_frames(buffer_duration: i64, sample_rate: SampleRate) -> FrameCount {
     ((buffer_duration * sample_rate as i64 * 100 + 500_000_000) / 1_000_000_000) as FrameCount
 }
+
+// Tests below pin the overflow guard and field layout of the WAVEFORMATEXTENSIBLE
+// conversion; both are visible to real drivers only through a misconfigured stream.
+#[test]
+fn test_config_to_waveformatextensible_overflow_and_layout() {
+    let cfg = |channels: u16, sample_rate: SampleRate| StreamConfig {
+        channels,
+        sample_rate,
+        buffer_size: BufferSize::Default,
+    };
+
+    // The rate is expressible, but 2ch F64 at 300 MHz overflows the u32 nAvgBytesPerSec field.
+    assert!(config_to_waveformatextensible(cfg(2, 300_000_000), SampleFormat::F64, None).is_none());
+    // 9_000 channels of F64 overflow the u16 nBlockAlign field.
+    assert!(config_to_waveformatextensible(cfg(9_000, 48_000), SampleFormat::F64, None).is_none());
+
+    // Plain PCM path: a stereo I16 stream at 48 kHz.
+    let pcm = config_to_waveformatextensible(cfg(2, 48_000), SampleFormat::I16, None)
+        .expect("2ch I16 at 48 kHz must convert");
+    assert_eq!(pcm.Format.wFormatTag as u32, Audio::WAVE_FORMAT_PCM);
+    assert_eq!(pcm.Format.nBlockAlign as u32, 4);
+    // `WAVEFORMATEX` is packed, so read this u32 into a local instead of forming a reference to it.
+    let avg_bytes_per_sec = pcm.Format.nAvgBytesPerSec;
+    assert_eq!(avg_bytes_per_sec, 192_000);
+    assert_eq!(pcm.Format.cbSize as u32, 0);
+
+    // Extensible path: I24 rides in a 32-bit container.
+    let ext = config_to_waveformatextensible(cfg(2, 48_000), SampleFormat::I24, None)
+        .expect("2ch I24 at 48 kHz must convert");
+    assert_eq!(
+        ext.Format.wFormatTag as u32,
+        KernelStreaming::WAVE_FORMAT_EXTENSIBLE
+    );
+    assert_eq!(ext.Format.wBitsPerSample as u32, 32);
+    assert_eq!(
+        ext.Format.cbSize as u32,
+        WAVEFORMATEXTENSIBLE_EXTRA_BYTES as u32
+    );
+    assert_eq!(unsafe { ext.Samples.wValidBitsPerSample } as u32, 24);
+}
