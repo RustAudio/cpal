@@ -963,17 +963,9 @@ fn process_output(
     };
 
     let padding = stream.max_frames_in_buffer - frames_available;
-    let fill_usec = (padding as u64)
-        .saturating_mul(1_000_000)
-        .saturating_div(stream.config.sample_rate as u64)
-        .saturating_add(
-            stream
-                .stream_latency
-                .as_micros()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        );
-    stream.fill_usec.store(fill_usec, Ordering::Relaxed);
+    stream
+        .fill_usec
+        .store(fill_usec(stream, padding), Ordering::Relaxed);
 
     if stream.skip_callback.load(Ordering::Relaxed) {
         // Skip the period instead of queuing silence a future resume would replay.
@@ -1020,7 +1012,27 @@ fn process_output(
         *frames_written += frames_available as u64;
     }
 
+    // Republish now the write has landed, so a concurrent stop() drains the whole tail.
+    stream.fill_usec.store(
+        fill_usec(stream, padding + frames_available),
+        Ordering::Relaxed,
+    );
+
     Ok(())
+}
+
+// Time until the device has played out `frames` of queued audio, including its own latency.
+fn fill_usec(stream: &StreamInner, frames: FrameCount) -> u64 {
+    (frames as u64)
+        .saturating_mul(1_000_000)
+        .saturating_div(stream.config.sample_rate as u64)
+        .saturating_add(
+            stream
+                .stream_latency
+                .as_micros()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        )
 }
 
 /// Reads the stream's `IAudioClock` in a single `GetPosition` call, returning the callback
