@@ -5,7 +5,7 @@ use std::{
     ptr::NonNull,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -30,7 +30,7 @@ use crate::{
     SupportedStreamConfigRange,
     host::{
         ErrorCallbackArc, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
-        try_emit_error,
+        secs_to_nanos, try_emit_error, wait_for_drain,
     },
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -221,11 +221,11 @@ impl DeviceTrait for Device {
         let mut audio_unit = setup_stream_audio_unit(config, sample_format, true)?;
         // Buffer depth used to offset capture timestamps. AVAudioSession auto-reroutes to a new device,
         // which changes this depth, and is then refreshed by the session event manager.
-        let latency_frames = Arc::new(AtomicUsize::new(input_latency_frames()));
+        let latency_nanos = Arc::new(AtomicU64::new(input_latency_nanos()));
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let session_error_callback = error_callback.clone();
-        let session_latency_frames = latency_frames.clone();
+        let session_latency_nanos = latency_nanos.clone();
 
         let draining = Arc::new(AtomicBool::new(false));
 
@@ -234,7 +234,7 @@ impl DeviceTrait for Device {
             &mut audio_unit,
             sample_format,
             config.sample_rate,
-            latency_frames,
+            latency_nanos,
             draining.clone(),
             data_callback,
             move |e| {
@@ -249,15 +249,16 @@ impl DeviceTrait for Device {
         let session_manager = SessionEventManager::new(
             session_error_callback,
             Latch::new(),
-            Some((session_latency_frames, true)),
+            (session_latency_nanos, true),
             Arc::downgrade(&inner),
         );
         let stream = Stream {
             inner,
             session_manager,
-            // Draining is meaningless for capture, so the drain window is zero.
             draining,
-            drain_window: Duration::ZERO,
+            // Capture never drains, so there is nothing to wait out.
+            drain_nanos: Arc::new(AtomicU64::new(0)),
+            sample_rate: config.sample_rate,
         };
         stream.signal_ready();
         Ok(stream)
@@ -286,22 +287,21 @@ impl DeviceTrait for Device {
 
         // Buffer depth used to offset playback timestamps. AVAudioSession auto-reroutes to a new device,
         // which changes this depth, and is then refreshed by the session event manager.
-        let latency_frames = Arc::new(AtomicUsize::new(output_latency_frames()));
+        let latency_nanos = Arc::new(AtomicU64::new(output_latency_nanos()));
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
         let session_error_callback = error_callback.clone();
-        let session_latency_frames = latency_frames.clone();
+        let session_latency_nanos = latency_nanos.clone();
 
         let draining = Arc::new(AtomicBool::new(false));
-        let drain_window =
-            frames_to_duration(get_device_buffer_frames() as FrameCount, config.sample_rate);
+        let drain_nanos = latency_nanos.clone();
 
         // Set up output callback
         setup_output_callback(
             &mut audio_unit,
             sample_format,
             config.sample_rate,
-            latency_frames,
+            latency_nanos,
             draining.clone(),
             data_callback,
             move |e| {
@@ -316,14 +316,15 @@ impl DeviceTrait for Device {
         let session_manager = SessionEventManager::new(
             session_error_callback,
             Latch::new(),
-            Some((session_latency_frames, false)),
+            (session_latency_nanos, false),
             Arc::downgrade(&inner),
         );
         let stream = Stream {
             inner,
             session_manager,
             draining,
-            drain_window,
+            drain_nanos,
+            sample_rate: config.sample_rate,
         };
         stream.signal_ready();
         Ok(stream)
@@ -334,7 +335,9 @@ pub struct Stream {
     inner: Arc<Mutex<StreamInner>>,
     session_manager: SessionEventManager,
     draining: Arc<AtomicBool>,
-    drain_window: Duration,
+    // Shared with the session manager so stop() sees the current depth. Zero on capture: no drain.
+    drain_nanos: Arc<AtomicU64>,
+    sample_rate: SampleRate,
 }
 
 impl Stream {
@@ -390,12 +393,10 @@ impl StreamTrait for Stream {
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
         self.draining.store(true, Ordering::Relaxed);
 
-        if timeout != Some(Duration::ZERO) {
-            let wait = timeout.map_or(self.drain_window, |t| self.drain_window.min(t));
-            if !wait.is_zero() {
-                std::thread::sleep(wait);
-            }
-        }
+        wait_for_drain(
+            Duration::from_nanos(self.drain_nanos.load(Ordering::Relaxed)),
+            timeout,
+        );
 
         self.halt()
     }
@@ -406,7 +407,7 @@ impl StreamTrait for Stream {
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        Ok(get_device_buffer_frames() as FrameCount)
+        Ok(device_buffer_frames(self.sample_rate) as FrameCount)
     }
 }
 
@@ -465,40 +466,34 @@ fn set_audio_session_buffer_size(
     Ok(())
 }
 
-/// Get the actual buffer size from AVAudioSession.
+/// IO buffer size in frames at `sample_rate`.
 ///
-/// This queries the current IO buffer duration from AVAudioSession and converts
-/// it to frames based on the current sample rate.
-fn get_device_buffer_frames() -> usize {
+/// AVAudioSession reports a duration, and its own rate is the hardware's; the audio unit resamples
+/// between that and the stream's, so convert at the stream's rate to get frames per callback.
+fn device_buffer_frames(sample_rate: SampleRate) -> usize {
+    // SAFETY: AVAudioSession methods are safe to call on the singleton instance
+    let buffer_duration = unsafe { AVAudioSession::sharedInstance().IOBufferDuration() };
+    // Round: the duration comes from an integer frame count, so the product is a whole number
+    // that floating-point can render as N.9999, which truncation would drop to N-1.
+    (buffer_duration * sample_rate as f64).round() as usize
+}
+
+/// Total capture buffer depth: the IO buffer plus the hardware input latency.
+pub(super) fn input_latency_nanos() -> u64 {
     // SAFETY: AVAudioSession methods are safe to call on the singleton instance
     unsafe {
         let audio_session = AVAudioSession::sharedInstance();
-        let buffer_duration = audio_session.IOBufferDuration();
-        let sample_rate = audio_session.sampleRate();
-        // Round: the duration comes from an integer frame count, so the product is a whole number
-        // that floating-point can render as N.9999, which truncation would drop to N-1.
-        (buffer_duration * sample_rate).round() as usize
+        secs_to_nanos(audio_session.IOBufferDuration() + audio_session.inputLatency())
     }
 }
 
-/// Total capture buffer depth in frames: the IO buffer plus the hardware input latency.
-pub(super) fn input_latency_frames() -> usize {
+/// Total playback buffer depth: the IO buffer plus the hardware output latency.
+pub(super) fn output_latency_nanos() -> u64 {
     // SAFETY: AVAudioSession methods are safe to call on the singleton instance
-    let extra = unsafe {
+    unsafe {
         let audio_session = AVAudioSession::sharedInstance();
-        (audio_session.inputLatency() * audio_session.sampleRate()).round() as usize
-    };
-    get_device_buffer_frames() + extra
-}
-
-/// Total playback buffer depth in frames: the IO buffer plus the hardware output latency.
-pub(super) fn output_latency_frames() -> usize {
-    // SAFETY: AVAudioSession methods are safe to call on the singleton instance
-    let extra = unsafe {
-        let audio_session = AVAudioSession::sharedInstance();
-        (audio_session.outputLatency() * audio_session.sampleRate()).round() as usize
-    };
-    get_device_buffer_frames() + extra
+        secs_to_nanos(audio_session.IOBufferDuration() + audio_session.outputLatency())
+    }
 }
 
 // Typical iOS hardware buffer frame limits according to Apple Technical Q&A QA1631.
@@ -625,12 +620,32 @@ unsafe fn extract_audio_buffer(
     (buffer, data)
 }
 
+/// Buffer depth for one callback.
+///
+/// Refreshed on route changes by the session event manager; falls back to this buffer's own frame
+/// count, converted at the stream's rate, when the depth is unknown (zero).
+#[inline]
+fn resolve_delay(
+    latency_nanos: &AtomicU64,
+    len: usize,
+    channels: usize,
+    sample_rate: SampleRate,
+) -> Duration {
+    match latency_nanos.load(Ordering::Relaxed) {
+        0 => frames_to_duration(
+            len.checked_div(channels).unwrap_or(0) as FrameCount,
+            sample_rate,
+        ),
+        n => Duration::from_nanos(n),
+    }
+}
+
 /// Setup input callback with proper latency calculation.
 fn setup_input_callback<D, E>(
     audio_unit: &mut AudioUnit,
     sample_format: SampleFormat,
     sample_rate: SampleRate,
-    latency_frames: Arc<AtomicUsize>,
+    latency_nanos: Arc<AtomicU64>,
     draining: Arc<AtomicBool>,
     mut data_callback: D,
     mut error_callback: E,
@@ -656,16 +671,12 @@ where
                 Ok(cb) => cb,
             };
 
-            // Refreshed on route changes by the session event manager; fall back to this buffer's
-            // own frame count if the depth is unknown (zero).
-            let latency_frames = match latency_frames.load(Ordering::Relaxed) {
-                0 => {
-                    let channels = buffer.mNumberChannels as usize;
-                    data.len().checked_div(channels).unwrap_or(0)
-                }
-                n => n,
-            };
-            let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
+            let delay = resolve_delay(
+                &latency_nanos,
+                data.len(),
+                buffer.mNumberChannels as usize,
+                sample_rate,
+            );
             let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
             let timestamp = StreamTimestamp {
                 callback,
@@ -691,7 +702,7 @@ fn setup_output_callback<D, E>(
     audio_unit: &mut AudioUnit,
     sample_format: SampleFormat,
     sample_rate: SampleRate,
-    latency_frames: Arc<AtomicUsize>,
+    latency_nanos: Arc<AtomicU64>,
     draining: Arc<AtomicBool>,
     mut data_callback: D,
     mut error_callback: E,
@@ -730,16 +741,12 @@ where
             Ok(cb) => cb,
         };
 
-        // Refreshed on route changes by the session event manager; fall back to this buffer's
-        // own frame count if the depth is unknown (zero).
-        let latency_frames = match latency_frames.load(Ordering::Relaxed) {
-            0 => {
-                let channels = buffer.mNumberChannels as usize;
-                data.len().checked_div(channels).unwrap_or(0)
-            }
-            n => n,
-        };
-        let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
+        let delay = resolve_delay(
+            &latency_nanos,
+            data.len(),
+            buffer.mNumberChannels as usize,
+            sample_rate,
+        );
         let playback = callback + delay;
         let timestamp = StreamTimestamp {
             callback,

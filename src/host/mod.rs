@@ -274,6 +274,19 @@ pub(crate) const fn frames_to_duration(
     std::time::Duration::new(secs, nanos as u32)
 }
 
+/// Converts a duration in seconds, as reported by the platform's audio session, to nanoseconds.
+///
+/// Returns 0 for a value that is not finite and positive.
+#[cfg(all(target_vendor = "apple", not(target_os = "macos")))]
+#[inline]
+pub(crate) fn secs_to_nanos(secs: f64) -> u64 {
+    if secs.is_finite() && secs > 0.0 {
+        (secs * 1_000_000_000.0).round() as u64
+    } else {
+        0
+    }
+}
+
 /// Waits out `window` of buffered audio, cut short by `timeout` when it is the smaller of the two.
 ///
 /// Implements [`StreamTrait::stop`]'s timeout contract for the backends that approximate a drain
@@ -281,7 +294,10 @@ pub(crate) const fn frames_to_duration(
 /// `Some(Duration::ZERO)` returns immediately.
 ///
 /// [`StreamTrait::stop`]: crate::traits::StreamTrait::stop
-#[cfg(windows)]
+#[cfg(any(
+    all(windows, feature = "asio"),
+    all(target_vendor = "apple", not(target_os = "macos"))
+))]
 pub(crate) fn wait_for_drain(window: std::time::Duration, timeout: Option<std::time::Duration>) {
     let wait = timeout.map_or(window, |t| window.min(t));
     if !wait.is_zero() {
