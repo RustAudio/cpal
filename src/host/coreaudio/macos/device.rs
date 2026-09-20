@@ -15,7 +15,7 @@ use coreaudio::audio_unit::{
     audio_format::LinearPcmFlags,
     macos_helpers::{
         audio_unit_from_device_id_uninitialized, find_matching_physical_format, get_device_name,
-        get_supported_physical_stream_formats, set_device_physical_stream_format,
+        get_supported_physical_stream_formats,
     },
     render_callback::{self, data},
 };
@@ -39,7 +39,7 @@ use objc2_core_audio::{
     kAudioDeviceTransportTypeThunderbolt, kAudioDeviceTransportTypeUSB,
     kAudioDeviceTransportTypeVirtual, kAudioObjectPropertyClass, kAudioObjectPropertyElementMain,
     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput,
+    kAudioObjectPropertyScopeOutput, kAudioStreamPropertyPhysicalFormat,
 };
 use objc2_core_audio_types::{
     AudioBuffer, AudioBufferList, AudioStreamBasicDescription, AudioValueRange,
@@ -65,6 +65,81 @@ use crate::{
     traits::DeviceTrait,
 };
 
+const PHYSICAL_FORMAT_ADDRESS: AudioObjectPropertyAddress = AudioObjectPropertyAddress {
+    mSelector: kAudioStreamPropertyPhysicalFormat,
+    mScope: kAudioObjectPropertyScopeGlobal,
+    mElement: kAudioObjectPropertyElementMain,
+};
+
+fn physical_format(
+    device_id: AudioDeviceID,
+) -> Result<AudioStreamBasicDescription, coreaudio::Error> {
+    let address = PHYSICAL_FORMAT_ADDRESS;
+    let mut asbd = mem::MaybeUninit::<AudioStreamBasicDescription>::zeroed();
+    let mut data_size = size_of::<AudioStreamBasicDescription>() as u32;
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            device_id,
+            NonNull::from(&address),
+            0,
+            null(),
+            NonNull::from(&mut data_size),
+            NonNull::from(&mut asbd).cast(),
+        )
+    };
+    coreaudio::Error::from_os_status(status)?;
+    Ok(unsafe { asbd.assume_init() })
+}
+
+fn asbds_are_equal(
+    left: &AudioStreamBasicDescription,
+    right: &AudioStreamBasicDescription,
+) -> bool {
+    left.mSampleRate as u32 == right.mSampleRate as u32
+        && left.mFormatID == right.mFormatID
+        && left.mFormatFlags == right.mFormatFlags
+        && left.mBytesPerPacket == right.mBytesPerPacket
+        && left.mFramesPerPacket == right.mFramesPerPacket
+        && left.mBytesPerFrame == right.mBytesPerFrame
+        && left.mChannelsPerFrame == right.mChannelsPerFrame
+        && left.mBitsPerChannel == right.mBitsPerChannel
+}
+
+/// Set the device's physical stream format and wait until it reports the new one.
+///
+/// Gives up at `deadline`, or waits indefinitely if it is `None`. A failed read, such as after
+/// the device disconnects, ends the wait.
+fn set_physical_stream_format(
+    device_id: AudioDeviceID,
+    new_asbd: AudioStreamBasicDescription,
+    deadline: Option<Instant>,
+) -> Result<(), coreaudio::Error> {
+    if asbds_are_equal(&physical_format(device_id)?, &new_asbd) {
+        return Ok(());
+    }
+
+    let address = PHYSICAL_FORMAT_ADDRESS;
+    let status = unsafe {
+        AudioObjectSetPropertyData(
+            device_id,
+            NonNull::from(&address),
+            0,
+            null(),
+            size_of::<AudioStreamBasicDescription>() as u32,
+            NonNull::from(&new_asbd).cast(),
+        )
+    };
+    coreaudio::Error::from_os_status(status)?;
+
+    while !asbds_are_equal(&physical_format(device_id)?, &new_asbd) {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Err(coreaudio::Error::UnsupportedStreamFormat);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    Ok(())
+}
+
 /// Try to find a matching physical stream format on the device and apply it.
 ///
 /// Setting the physical format ensures the hardware runs at the requested bit depth and sample
@@ -74,6 +149,7 @@ fn set_physical_format(
     sample_rate: SampleRate,
     channels: ChannelCount,
     sample_format: SampleFormat,
+    deadline: Option<Instant>,
 ) -> Result<AudioStreamBasicDescription, coreaudio::Error> {
     let core_format = match sample_format {
         SampleFormat::I8 => CoreAudioSampleFormat::I8,
@@ -91,7 +167,7 @@ fn set_physical_format(
     };
     let asbd = find_matching_physical_format(device_id, stream_format)
         .ok_or(coreaudio::Error::UnsupportedStreamFormat)?;
-    set_device_physical_stream_format(device_id, asbd).map(|_| asbd)
+    set_physical_stream_format(device_id, asbd, deadline).map(|_| asbd)
 }
 
 /// Read the device's current nominal sample rate.
@@ -127,7 +203,7 @@ fn nominal_sample_rate(audio_device_id: AudioObjectID) -> Result<f64, coreaudio:
 fn set_sample_rate(
     audio_device_id: AudioObjectID,
     target_sample_rate: SampleRate,
-    timeout: Option<Duration>,
+    deadline: Option<Instant>,
 ) -> Result<(), Error> {
     let sample_rate = nominal_sample_rate(audio_device_id)?;
     let mut property_address = AudioObjectPropertyAddress {
@@ -224,7 +300,7 @@ fn set_sample_rate(
         coreaudio::Error::from_os_status(status)?;
 
         // Wait for the reported_rate to change. This should not take longer than a few ms.
-        wait_for_rate(&receiver, target_sample_rate, timeout)?;
+        wait_for_rate(&receiver, target_sample_rate, deadline)?;
         // listeners are removed when they drop here
     }
     Ok(())
@@ -238,18 +314,16 @@ enum RateEvent {
     Unavailable,
 }
 
-/// Block until the rate listener reports `target_sample_rate`, giving up after `timeout`.
+/// Block until the rate listener reports `target_sample_rate`, giving up at `deadline`.
 ///
-/// Notifications carrying some other rate can arrive first, so `timeout` bounds the whole wait
-/// rather than each individual receive. A `timeout` of `None` waits indefinitely, ending early
+/// Notifications carrying some other rate can arrive first, so `deadline` bounds the whole wait
+/// rather than each individual receive. A `deadline` of `None` waits indefinitely, ending early
 /// only if the device disappears.
 fn wait_for_rate(
     receiver: &Receiver<RateEvent>,
     target_sample_rate: SampleRate,
-    timeout: Option<Duration>,
+    deadline: Option<Instant>,
 ) -> Result<(), Error> {
-    let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
-
     loop {
         let received = match deadline {
             Some(deadline) => {
@@ -860,6 +934,9 @@ impl Device {
     {
         crate::validate_stream_config(&config)?;
 
+        // One budget for every wait below, not one per step.
+        let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
+
         // Input is not automatically rerouted, so its buffer depth is constant and its timestamp monotonic.
 
         // Set the physical stream format (bit depth + sample rate) on the hardware device.
@@ -871,10 +948,11 @@ impl Device {
             config.sample_rate,
             config.channels,
             sample_format,
+            deadline,
         )
         .is_ok_and(|asbd| (asbd.mSampleRate - config.sample_rate as f64).abs() < 1.0)
         {
-            set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
+            set_sample_rate(self.audio_device_id, config.sample_rate, deadline)?;
         }
 
         let mut loopback_aggregate: Option<LoopbackDevice> = None;
@@ -1009,6 +1087,9 @@ impl Device {
     {
         crate::validate_stream_config(&config)?;
 
+        // One budget for every wait below, not one per step.
+        let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
+
         // Keep `playback` monotonic: a default output device reroute can lower the device buffer depth,
         // pulling `playback` backward.
         let mut data_callback = crate::host::monotonic_output_callback(data_callback);
@@ -1022,10 +1103,11 @@ impl Device {
             config.sample_rate,
             config.channels,
             sample_format,
+            deadline,
         )
         .is_ok_and(|asbd| (asbd.mSampleRate - config.sample_rate as f64).abs() < 1.0)
         {
-            set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
+            set_sample_rate(self.audio_device_id, config.sample_rate, deadline)?;
         }
 
         let mode = if self.is_default_output {
@@ -1336,7 +1418,7 @@ mod tests {
         });
 
         let start = Instant::now();
-        assert!(wait_for_rate(&receiver, 48_000, Some(TIMEOUT)).is_err());
+        assert!(wait_for_rate(&receiver, 48_000, Some(start + TIMEOUT)).is_err());
         let elapsed = start.elapsed();
 
         drop(receiver);
@@ -1354,7 +1436,14 @@ mod tests {
         sender.send(RateEvent::Changed(44_100.0)).unwrap();
         sender.send(RateEvent::Changed(48_000.0)).unwrap();
 
-        assert!(wait_for_rate(&receiver, 48_000, Some(Duration::from_secs(5))).is_ok());
+        assert!(
+            wait_for_rate(
+                &receiver,
+                48_000,
+                Some(Instant::now() + Duration::from_secs(5))
+            )
+            .is_ok()
+        );
     }
 
     /// The wait must end when the device disappears, whether it is unbounded or has a long timeout.
@@ -1368,7 +1457,8 @@ mod tests {
             });
 
             let start = Instant::now();
-            assert!(wait_for_rate(&receiver, 48_000, timeout).is_err());
+            let deadline = timeout.map(|timeout| start + timeout);
+            assert!(wait_for_rate(&receiver, 48_000, deadline).is_err());
             let elapsed = start.elapsed();
             disconnect.join().unwrap();
 
