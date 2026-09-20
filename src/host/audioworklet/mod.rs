@@ -24,7 +24,7 @@ use crate::{
     DeviceDirection, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,
     FrameCount, Sample, SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    host::frames_to_duration,
+    host::{frames_to_duration, secs_to_nanos},
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -1369,10 +1369,5 @@ fn total_latency_nanos(ctx: &web_sys::AudioContext) -> u64 {
             .unwrap_or(0.0)
     };
     // `baseLatency` is fixed for the context lifetime; `outputLatency` can change.
-    let secs = read("baseLatency") + read("outputLatency");
-    if secs.is_finite() && secs > 0.0 {
-        (secs * 1_000_000_000.0).round() as u64
-    } else {
-        0
-    }
+    secs_to_nanos(read("baseLatency") + read("outputLatency"))
 }

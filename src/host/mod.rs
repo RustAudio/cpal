@@ -277,7 +277,16 @@ pub(crate) const fn frames_to_duration(
 /// Converts a duration in seconds, as reported by the platform's audio session, to nanoseconds.
 ///
 /// Returns 0 for a value that is not finite and positive.
-#[cfg(all(target_vendor = "apple", not(target_os = "macos")))]
+#[cfg(any(
+    all(target_vendor = "apple", not(target_os = "macos")),
+    all(
+        target_arch = "wasm32",
+        target_os = "unknown",
+        feature = "wasm-bindgen",
+        feature = "audioworklet",
+        target_feature = "atomics"
+    ),
+))]
 #[inline]
 pub(crate) fn secs_to_nanos(secs: f64) -> u64 {
     if secs.is_finite() && secs > 0.0 {
@@ -294,7 +303,19 @@ pub(crate) fn secs_to_nanos(secs: f64) -> u64 {
 /// `Some(Duration::ZERO)` returns immediately.
 ///
 /// [`StreamTrait::stop`]: crate::traits::StreamTrait::stop
-#[cfg(any(all(windows, feature = "asio"), target_vendor = "apple"))]
+#[cfg(any(
+    all(windows, feature = "asio"),
+    target_vendor = "apple",
+    all(
+        any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+        ),
+        any(feature = "jack", feature = "pulseaudio"),
+    ),
+))]
 pub(crate) fn wait_for_drain(window: std::time::Duration, timeout: Option<std::time::Duration>) {
     let wait = timeout.map_or(window, |t| window.min(t));
     if !wait.is_zero() {
