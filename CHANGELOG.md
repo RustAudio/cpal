@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **iOS**: Fix timestamps and `buffer_size()` being off when the stream sample rate differs from the hardware rate.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
 - **JACK**: Streams no longer panic when the server delivers a larger period than the negotiated buffer size.
+- **JACK**: `stop()` now drains by the delay last reported to the `playback` timestamp, instead of a stale port latency query.
 - **PipeWire**: Fix an empty chunk being emitted when a cycle requests no frames.
 - **PipeWire**: Fix capture reading from the wrong offset in the buffer on some devices.
 - **PipeWire**: Building a stream without a timeout now waits indefinitely instead of failing after two seconds.

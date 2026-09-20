@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicU8, Ordering},
+    atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
 };
 
 use super::JACK_SAMPLE_FORMAT;
@@ -8,7 +8,7 @@ use crate::host::try_emit_error;
 use crate::{
     CallbackInfo, ChannelCount, Data, DuplexCallbackInfo, Error, ErrorKind, FrameCount, ResultExt,
     Sample, SampleRate, StreamInstant, StreamTimestamp,
-    host::{ErrorCallbackArc, emit_error, frames_to_duration},
+    host::{ErrorCallbackArc, emit_error, frames_to_duration, wait_for_drain},
     traits::StreamTrait,
 };
 
@@ -40,6 +40,8 @@ pub struct Stream {
     // Port names are stored in order to connect them to other ports in jack automatically
     input_port_names: Box<[String]>,
     output_port_names: Box<[String]>,
+    // Written by the process thread every cycle. Stays zero on capture: no drain.
+    playback_delay_nanos: Arc<AtomicU64>,
 }
 
 impl Stream {
@@ -191,6 +193,7 @@ where
     let playback_state = Arc::new(AtomicU8::new(StreamState::Starting as u8));
     let pending_xrun = Arc::new(AtomicBool::new(false));
     let error_callback_ptr: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+    let playback_delay_nanos = Arc::new(AtomicU64::new(0));
 
     let process_handler = LocalProcessHandler::new(
         out_ports,
@@ -201,6 +204,7 @@ where
         playback_state.clone(),
         pending_xrun.clone(),
         error_callback_ptr.clone(),
+        playback_delay_nanos.clone(),
     );
 
     let notification_handler = JackNotificationHandler::new(
@@ -220,6 +224,7 @@ where
         async_client,
         input_port_names: input_port_names.into_boxed_slice(),
         output_port_names: output_port_names.into_boxed_slice(),
+        playback_delay_nanos,
     })
 }
 
@@ -252,24 +257,11 @@ impl StreamTrait for Stream {
     }
 
     fn stop(&self, timeout: Option<std::time::Duration>) -> Result<(), Error> {
-        StreamState::Paused.store(&self.playback_state, Ordering::Relaxed);
-
-        let is_output = !self.output_port_names.is_empty();
-        if is_output && timeout != Some(std::time::Duration::ZERO) {
-            let client = self.async_client.as_client();
-            let ports: Vec<_> = self
-                .output_port_names
-                .iter()
-                .filter_map(|name| client.port_by_name(name))
-                .collect();
-            let latency_frames = hardware_latency_frames(&ports, jack::LatencyType::Playback)
-                .unwrap_or(client.buffer_size() as FrameCount);
-            let buffered = frames_to_duration(latency_frames, client.sample_rate() as SampleRate);
-            let wait = timeout.map_or(buffered, |t| buffered.min(t));
-            if !wait.is_zero() {
-                std::thread::sleep(wait);
-            }
-        }
+        self.pause()?;
+        wait_for_drain(
+            std::time::Duration::from_nanos(self.playback_delay_nanos.load(Ordering::Relaxed)),
+            timeout,
+        );
         Ok(())
     }
 
@@ -307,6 +299,7 @@ struct LocalProcessHandler {
     playback_state: Arc<AtomicU8>,
     pending_xrun: Arc<AtomicBool>,
     error_callback: ErrorCallbackArc,
+    playback_delay_nanos: Arc<AtomicU64>,
     oversized_reported: bool,
     #[cfg(feature = "realtime")]
     rt_checked: bool,
@@ -323,6 +316,7 @@ impl LocalProcessHandler {
         playback_state: Arc<AtomicU8>,
         pending_xrun: Arc<AtomicBool>,
         error_callback: ErrorCallbackArc,
+        playback_delay_nanos: Arc<AtomicU64>,
     ) -> Self {
         let temp_input_buffer = vec![f32::EQUILIBRIUM; in_ports.len() * buffer_size];
         let temp_output_buffer = vec![f32::EQUILIBRIUM; out_ports.len() * buffer_size];
@@ -338,6 +332,7 @@ impl LocalProcessHandler {
             playback_state,
             pending_xrun,
             error_callback,
+            playback_delay_nanos,
             oversized_reported: false,
             #[cfg(feature = "realtime")]
             rt_checked: false,
@@ -542,13 +537,15 @@ impl jack::ProcessHandler for LocalProcessHandler {
 
                 let capture =
                     capture_instant(&self.in_ports, start_cycle_instant, self.sample_rate);
-                let playback = playback_instant(
-                    &self.out_ports,
-                    start_cycle_instant,
-                    next_usecs_opt,
-                    current_frame_count as FrameCount,
-                    self.sample_rate,
-                );
+                let playback = start_cycle_instant
+                    + publish_playback_delay(
+                        &self.out_ports,
+                        start_cycle_instant,
+                        next_usecs_opt,
+                        current_frame_count as FrameCount,
+                        self.sample_rate,
+                        &self.playback_delay_nanos,
+                    );
                 let info = DuplexCallbackInfo::new(
                     CallbackInfo {
                         timestamp: StreamTimestamp {
@@ -596,13 +593,15 @@ impl jack::ProcessHandler for LocalProcessHandler {
                 );
                 let timestamp = StreamTimestamp {
                     callback: start_callback_instant,
-                    device: playback_instant(
-                        &self.out_ports,
-                        start_cycle_instant,
-                        next_usecs_opt,
-                        current_frame_count as FrameCount,
-                        self.sample_rate,
-                    ),
+                    device: start_cycle_instant
+                        + publish_playback_delay(
+                            &self.out_ports,
+                            start_cycle_instant,
+                            next_usecs_opt,
+                            current_frame_count as FrameCount,
+                            self.sample_rate,
+                            &self.playback_delay_nanos,
+                        ),
                 };
                 let info = CallbackInfo { timestamp, xrun };
                 output_callback(&mut data, &info);
@@ -674,27 +673,39 @@ fn capture_instant(
         .unwrap_or(StreamInstant::ZERO)
 }
 
-/// When the first frame written this cycle reaches the DAC, derived from JACK's port-to-hardware
-/// playback latency, or the cycle's hardware deadline if JACK reports no latency.
+/// How long from the cycle start until the first frame written this cycle reaches the DAC, derived
+/// from JACK's port-to-hardware playback latency, or the cycle's hardware deadline if JACK reports
+/// no latency.
+///
+/// Also publishes it to `published` for `stop()`, which cannot resolve the `next_usecs` fallback
+/// off the process thread and must drain by exactly what the timestamps promised.
 #[inline]
-fn playback_instant(
+fn publish_playback_delay(
     out_ports: &[jack::Port<jack::AudioOut>],
     start_cycle_instant: StreamInstant,
     next_usecs_opt: Option<u64>,
     current_frame_count: FrameCount,
     sample_rate: SampleRate,
-) -> StreamInstant {
-    match hardware_latency_frames(out_ports, jack::LatencyType::Playback) {
+    published: &AtomicU64,
+) -> std::time::Duration {
+    let delay = match hardware_latency_frames(out_ports, jack::LatencyType::Playback) {
         // Prefer JACK's port-to-hardware latency, measured from the cycle start.
-        Some(frames) => start_cycle_instant + frames_to_duration(frames, sample_rate),
+        Some(frames) => frames_to_duration(frames, sample_rate),
         // When no latency is reported, fall back to next_usecs, the hardware deadline for this
         // cycle.
         None => match next_usecs_opt {
-            Some(next_usecs) => micros_to_stream_instant(next_usecs),
+            Some(next_usecs) => micros_to_stream_instant(next_usecs)
+                .checked_duration_since(start_cycle_instant)
+                .unwrap_or_default(),
             // Fallback to one buffer ahead if that is unavailable too.
-            None => start_cycle_instant + frames_to_duration(current_frame_count, sample_rate),
+            None => frames_to_duration(current_frame_count, sample_rate),
         },
-    }
+    };
+    published.store(
+        u64::try_from(delay.as_nanos()).unwrap_or(u64::MAX),
+        Ordering::Relaxed,
+    );
+    delay
 }
 
 /// Receives notifications from the JACK server on JACK's notification thread (single-threaded).
