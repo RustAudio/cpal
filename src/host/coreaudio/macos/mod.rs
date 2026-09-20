@@ -19,8 +19,11 @@ use property_listener::AudioObjectPropertyListener;
 pub use self::enumerate::{Devices, default_input_device, default_output_device};
 use super::{OSStatus, asbd_from_config, check_os_status, host_time_to_stream_instant};
 use crate::{
-    Error, ErrorKind, FrameCount, ResultExt, StreamInstant,
-    host::{coreaudio::macos::loopback::LoopbackDevice, emit_error, latch::Latch},
+    Error, ErrorKind, FrameCount, ResultExt, SampleRate, StreamInstant,
+    host::{
+        coreaudio::macos::loopback::LoopbackDevice, emit_error, frames_to_duration, latch::Latch,
+        wait_for_drain,
+    },
     traits::{HostTrait, StreamTrait},
 };
 
@@ -414,7 +417,9 @@ pub struct Stream {
     inner: Arc<Mutex<StreamInner>>,
     monitor: Box<dyn Monitor>,
     draining: Arc<AtomicBool>,
-    drain_window: Duration,
+    // Shared with the reroute monitor so stop() sees the current depth. Zero on capture: no drain.
+    drain_frames: Arc<AtomicUsize>,
+    sample_rate: SampleRate,
 }
 
 impl Stream {
@@ -422,13 +427,15 @@ impl Stream {
         inner: Arc<Mutex<StreamInner>>,
         monitor: Box<dyn Monitor>,
         draining: Arc<AtomicBool>,
-        drain_window: Duration,
+        drain_frames: Arc<AtomicUsize>,
+        sample_rate: SampleRate,
     ) -> Self {
         Self {
             inner,
             monitor,
             draining,
-            drain_window,
+            drain_frames,
+            sample_rate,
         }
     }
 
@@ -463,12 +470,13 @@ impl StreamTrait for Stream {
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
         self.draining.store(true, Ordering::Relaxed);
 
-        if timeout != Some(Duration::ZERO) {
-            let wait = timeout.map_or(self.drain_window, |t| self.drain_window.min(t));
-            if !wait.is_zero() {
-                std::thread::sleep(wait);
-            }
-        }
+        wait_for_drain(
+            frames_to_duration(
+                self.drain_frames.load(Ordering::Relaxed) as FrameCount,
+                self.sample_rate,
+            ),
+            timeout,
+        );
 
         self.inner
             .lock()

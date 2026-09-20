@@ -924,7 +924,14 @@ impl Device {
             error_callback_disconnect,
             pending_xrun_overload,
         )?);
-        let stream = Stream::new(inner_arc, monitor, draining, Duration::ZERO);
+        // Capture never drains, so there are no frames to wait out.
+        let stream = Stream::new(
+            inner_arc,
+            monitor,
+            draining,
+            Arc::new(AtomicUsize::new(0)),
+            sample_rate,
+        );
         stream.signal_ready();
         Ok(stream)
     }
@@ -1001,10 +1008,7 @@ impl Device {
         let callback_latency_frames = latency_frames.clone();
         let draining = Arc::new(AtomicBool::new(false));
         let draining_render = draining.clone();
-        let drain_window = frames_to_duration(
-            (device_buffer_frames.unwrap_or(0) + extra_latency_frames) as FrameCount,
-            sample_rate,
-        );
+        let drain_frames = latency_frames.clone();
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
@@ -1082,7 +1086,7 @@ impl Device {
                 pending_xrun_overload,
             )?)
         };
-        let stream = Stream::new(inner_arc, monitor, draining, drain_window);
+        let stream = Stream::new(inner_arc, monitor, draining, drain_frames, sample_rate);
         stream.signal_ready();
         Ok(stream)
     }
