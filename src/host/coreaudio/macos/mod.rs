@@ -410,9 +410,9 @@ impl DefaultOutputMonitor {
 
         // These listeners target a specific device, so they must be re-registered against
         // whatever device is current whenever the default output reroutes.
-        // Held only to shut down the previous listener thread on drop when reassigned below.
+        // Held only to shut down the previous listener thread when the sender is dropped below.
         let buffer_size_listener: BufferSizeListener = Arc::new(Mutex::new(None));
-        let mut _overload_shutdown_tx = match default_output_device() {
+        let mut overload_shutdown_tx = match default_output_device() {
             Some(device) => {
                 set_buffer_size_listener(
                     &buffer_size_listener,
@@ -448,7 +448,7 @@ impl DefaultOutputMonitor {
                 }
                 match default_output_device() {
                     None => {
-                        _overload_shutdown_tx = None;
+                        drop(overload_shutdown_tx.take());
                         set_buffer_size_listener(&buffer_size_listener_thread, None);
                         report_lost(
                             stream,
@@ -463,9 +463,10 @@ impl DefaultOutputMonitor {
                         // DefaultOutput AudioUnit rerouted automatically: recompute and notify
                         // the buffer depth for the new device.
                         refresh_latency(stream, &latency_refresh);
-                        _overload_shutdown_tx =
+                        let replacement =
                             spawn_overload_listener(device.audio_device_id, pending_xrun.clone())
                                 .ok();
+                        drop(std::mem::replace(&mut overload_shutdown_tx, replacement));
                         // Skipped once the monitor is dropped: there is nothing left to notify.
                         set_buffer_size_listener(
                             &buffer_size_listener_thread,

@@ -767,7 +767,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{BufferSize, SampleRate, StreamConfig};
+    use crate::{
+        BufferSize, CallbackInfo, StreamConfig,
+        traits::{DeviceTrait, HostTrait},
+    };
 
     #[test]
     fn test_ios_fixed_buffer_size() {
@@ -776,12 +779,12 @@ mod tests {
 
         let config = StreamConfig {
             channels: 2,
-            sample_rate: SampleRate(48000),
+            sample_rate: 48_000,
             buffer_size: BufferSize::Fixed(512),
         };
 
         let result = device.build_output_stream(
-            &config,
+            config,
             |_data: &mut [f32], _info: &CallbackInfo| {},
             |_err| {},
             None,
