@@ -693,6 +693,7 @@ fn run_input(
     }
 
     let stream = &run_ctxt.stream;
+
     let scratch_len = if stream.sample_format == SampleFormat::I24 {
         stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
     } else {
@@ -701,19 +702,20 @@ fn run_input(
     };
     let mut scratch_buffer = vec![0; scratch_len].into_boxed_slice();
 
+    let capture_client = match stream.client_flow {
+        AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
+        _ => unreachable!(),
+    };
+
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
             ControlFlow::Break(()) => break,
             ControlFlow::Continue(false) => continue,
             ControlFlow::Continue(true) => {}
         }
-        let capture_client = match run_ctxt.stream.client_flow {
-            AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
-            _ => unreachable!(),
-        };
         if let Err(err) = process_input(
             &run_ctxt.stream,
-            capture_client,
+            &capture_client,
             data_callback,
             &mut scratch_buffer,
         ) {
@@ -874,10 +876,12 @@ fn process_commands_and_await_signal(
 // The loop for processing pending input data.
 fn process_input(
     stream: &StreamInner,
-    capture_client: Audio::IAudioCaptureClient,
+    capture_client: &Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
     scratch_buffer: &mut [i32],
 ) -> Result<(), Error> {
+    let sample_size = stream.sample_format.sample_size();
+
     unsafe {
         // Get the available data in the shared buffer.
         let mut buffer: *mut u8 = ptr::null_mut();
@@ -913,26 +917,8 @@ fn process_input(
 
             debug_assert!(!buffer.is_null());
             let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
-            let data = if stream.sample_format == SampleFormat::I24 {
-                // WASAPI stores i24 in the upper bits
-                let source_data =
-                    slice::from_raw_parts(buffer.cast(), byte_count / size_of::<i32>());
-                // use a scratch buffer since the capture buffer isn't meant to be written
-                let dst = &mut scratch_buffer[..source_data.len()];
-                dst.copy_from_slice(source_data);
-                for sample in dst.iter_mut() {
-                    // On signed integers, >> is an arithmetic shift,
-                    // which ensures the correct upper bits get shifted in
-                    *sample >>= 8;
-                }
-
-                dst.as_mut_ptr().cast()
-            } else {
-                buffer.cast()
-            };
-
-            let len = byte_count / stream.sample_format.sample_size();
-            let data = Data::from_parts(data, len, stream.sample_format);
+            let data = packet_data(buffer, byte_count, stream.sample_format, scratch_buffer);
+            let data = Data::from_parts(data, byte_count / sample_size, stream.sample_format);
 
             if !stream.skip_callback.load(Ordering::Relaxed) {
                 // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
@@ -944,6 +930,35 @@ fn process_input(
             capture_client
                 .ReleaseBuffer(frames_available)
                 .context("Failed to release capture buffer")?;
+        }
+    }
+}
+
+// Returns the packet data to hand to the callback: converted samples for I24, or the packet itself.
+//
+// Safety: `packet` must point to `byte_count` bytes that stay valid until the packet is released.
+#[inline]
+unsafe fn packet_data(
+    packet: *mut u8,
+    byte_count: usize,
+    sample_format: SampleFormat,
+    scratch_buffer: &mut [i32],
+) -> *mut () {
+    unsafe {
+        if sample_format == SampleFormat::I24 {
+            // WASAPI stores i24 in the upper bits
+            let source_data = slice::from_raw_parts(packet.cast(), byte_count / size_of::<i32>());
+            // use a scratch buffer since the capture buffer isn't meant to be written
+            let dst = &mut scratch_buffer[..source_data.len()];
+            dst.copy_from_slice(source_data);
+            for sample in dst.iter_mut() {
+                // On signed integers, >> is an arithmetic shift,
+                // which ensures the correct upper bits get shifted in
+                *sample >>= 8;
+            }
+            dst.as_mut_ptr().cast()
+        } else {
+            packet.cast()
         }
     }
 }
