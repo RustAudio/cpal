@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Fix the device running at a different sample rate from the stream on hardware that reports a continuous rate range.
 - **CoreAudio**: Fix `supported_configs()` only reporting `F32`, even on hardware that also supports other sample formats.
 - **CoreAudio**: Fix sample rate changes timing out early when the device reports other rates first.
+- **CoreAudio**: Fix sample rate changes waiting on a device that has been disconnected.
 - **CoreAudio**: Fix timestamps going stale when the device's buffer size changes during a stream.
 - **iOS**: Fix timestamps and `buffer_size()` being off when the stream sample rate differs from the hardware rate.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
