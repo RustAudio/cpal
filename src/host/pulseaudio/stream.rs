@@ -17,7 +17,7 @@ use pulseaudio::{AsPlaybackSource, protocol};
 
 use crate::{
     CallbackInfo, Data, Error, ErrorKind, FrameCount, SampleFormat, StreamInstant, StreamTimestamp,
-    host::{ErrorCallbackArc, emit_error, latch::Latch},
+    host::{ErrorCallbackArc, emit_error, latch::Latch, wait_for_drain},
     traits::StreamTrait,
 };
 
@@ -152,13 +152,10 @@ impl StreamTrait for Stream {
             } => {
                 // TODO: use PulseAudio's drain() when https://github.com/colinmarc/pulseaudio-rs/pull/9 is merged.
                 draining.store(true, Ordering::Relaxed);
-                if timeout != Some(Duration::ZERO) {
-                    let buffered = Duration::from_micros(fill_usec.load(Ordering::Relaxed));
-                    let wait = timeout.map_or(buffered, |t| buffered.min(t));
-                    if !wait.is_zero() {
-                        std::thread::sleep(wait);
-                    }
-                }
+                wait_for_drain(
+                    Duration::from_micros(fill_usec.load(Ordering::Relaxed)),
+                    timeout,
+                );
                 block_on(stream.cork()).map_err(Error::from)?;
                 block_on(stream.flush()).map_err(Error::from)?;
                 handle.notify();
