@@ -49,7 +49,9 @@ use objc2_core_foundation::{CFRetained, CFString};
 pub use super::enumerate::{SupportedInputConfigs, SupportedOutputConfigs};
 use super::{
     DefaultOutputMonitor, DisconnectManager, Monitor, Stream, asbd_from_config, check_os_status,
-    host_time_to_stream_instant, property_listener::AudioObjectPropertyListener,
+    host_time_to_stream_instant,
+    property::{get_property, get_property_array},
+    property_listener::AudioObjectPropertyListener,
 };
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
@@ -97,30 +99,8 @@ fn first_stream_id(
         mScope: scope,
         mElement: kAudioObjectPropertyElementMain,
     };
-    let mut data_size = 0u32;
-    let status = unsafe {
-        AudioObjectGetPropertyDataSize(
-            device_id,
-            NonNull::from(&address),
-            0,
-            null(),
-            NonNull::from(&mut data_size),
-        )
-    };
-    coreaudio::Error::from_os_status(status)?;
-    let n_streams = data_size as usize / size_of::<AudioStreamID>();
-    let mut stream_ids: Vec<AudioStreamID> = vec![0; n_streams];
-    let status = unsafe {
-        AudioObjectGetPropertyData(
-            device_id,
-            NonNull::from(&address),
-            0,
-            null(),
-            NonNull::from(&mut data_size),
-            NonNull::new(stream_ids.as_mut_ptr()).unwrap().cast(),
-        )
-    };
-    coreaudio::Error::from_os_status(status)?;
+    // SAFETY: kAudioDevicePropertyStreams is documented to return an array of AudioStreamID.
+    let stream_ids: Vec<AudioStreamID> = unsafe { get_property_array(device_id, address) }?;
     stream_ids
         .into_iter()
         .next()
@@ -130,21 +110,8 @@ fn first_stream_id(
 fn physical_format(
     stream_id: AudioStreamID,
 ) -> Result<AudioStreamBasicDescription, coreaudio::Error> {
-    let address = PHYSICAL_FORMAT_ADDRESS;
-    let mut asbd = mem::MaybeUninit::<AudioStreamBasicDescription>::zeroed();
-    let mut data_size = size_of::<AudioStreamBasicDescription>() as u32;
-    let status = unsafe {
-        AudioObjectGetPropertyData(
-            stream_id,
-            NonNull::from(&address),
-            0,
-            null(),
-            NonNull::from(&mut data_size),
-            NonNull::from(&mut asbd).cast(),
-        )
-    };
-    coreaudio::Error::from_os_status(status)?;
-    Ok(unsafe { asbd.assume_init() })
+    // SAFETY: kAudioStreamPropertyPhysicalFormat is documented to return an AudioStreamBasicDescription.
+    unsafe { get_property(stream_id, PHYSICAL_FORMAT_ADDRESS) }
 }
 
 fn asbds_are_equal(
@@ -234,21 +201,8 @@ fn set_physical_format(
 /// "Nominal" is CoreAudio's term for the rate the device is configured to run at, as opposed to
 /// the actual rate measured from its hardware clock (`kAudioDevicePropertyActualSampleRate`).
 fn nominal_sample_rate(audio_device_id: AudioObjectID) -> Result<f64, coreaudio::Error> {
-    let property_address = NOMINAL_SAMPLE_RATE_ADDRESS;
-    let mut sample_rate: f64 = 0.0;
-    let mut data_size = mem::size_of::<f64>() as u32;
-    let status = unsafe {
-        AudioObjectGetPropertyData(
-            audio_device_id,
-            NonNull::from(&property_address),
-            0,
-            null(),
-            NonNull::from(&mut data_size),
-            NonNull::from(&mut sample_rate).cast(),
-        )
-    };
-    coreaudio::Error::from_os_status(status)?;
-    Ok(sample_rate)
+    // SAFETY: kAudioDevicePropertyNominalSampleRate is documented to return an f64.
+    unsafe { get_property(audio_device_id, NOMINAL_SAMPLE_RATE_ADDRESS) }
 }
 
 /// Set the device's nominal sample rate via `kAudioDevicePropertyNominalSampleRate`.
@@ -267,33 +221,10 @@ fn set_sample_rate(
     if (sample_rate - target_sample_rate as f64).abs() >= 1.0 {
         // Get available sample rate ranges.
         property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
-        let mut data_size = 0u32;
-        let status = unsafe {
-            AudioObjectGetPropertyDataSize(
-                audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-            )
-        };
-        coreaudio::Error::from_os_status(status)?;
-        let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
-        let mut ranges: Vec<AudioValueRange> = Vec::with_capacity(n_ranges);
-        let status = unsafe {
-            AudioObjectGetPropertyData(
-                audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-                NonNull::new(ranges.as_mut_ptr()).unwrap().cast(),
-            )
-        };
-        coreaudio::Error::from_os_status(status)?;
-        unsafe {
-            ranges.set_len(n_ranges);
-        }
+        // SAFETY: kAudioDevicePropertyAvailableNominalSampleRates is documented to return an
+        // array of AudioValueRange.
+        let ranges: Vec<AudioValueRange> =
+            unsafe { get_property_array(audio_device_id, property_address) }?;
 
         // Now that we have the available ranges, pick the one matching the desired rate.
         let sample_rate = target_sample_rate;
@@ -479,22 +410,8 @@ fn get_io_buffer_frame_size_range(device_id: AudioDeviceID) -> Result<SupportedB
         mScope: kAudioObjectPropertyScopeGlobal,
         mElement: kAudioObjectPropertyElementMain,
     };
-    // SAFETY: AudioObjectGetPropertyData writes exactly one AudioValueRange into the output
-    // pointer when querying kAudioDevicePropertyBufferFrameSizeRange. We verify the status
-    // before reading the value.
-    let mut range: AudioValueRange = unsafe { mem::zeroed() };
-    let mut data_size = mem::size_of::<AudioValueRange>() as u32;
-    let status = unsafe {
-        AudioObjectGetPropertyData(
-            device_id,
-            NonNull::from(&property_address),
-            0,
-            null(),
-            NonNull::from(&mut data_size),
-            NonNull::from(&mut range).cast(),
-        )
-    };
-    check_os_status(status)?;
+    // SAFETY: kAudioDevicePropertyBufferFrameSizeRange is documented to return an AudioValueRange.
+    let range: AudioValueRange = unsafe { get_property(device_id, property_address) }?;
     Ok(SupportedBufferSize::Range {
         min: range.mMinimum as u32,
         max: range.mMaximum as u32,
@@ -601,24 +518,9 @@ impl Device {
             mElement: kAudioObjectPropertyElementMain,
         };
 
-        let mut class_id: AudioClassID = 0;
-        let data_size = size_of::<AudioClassID>() as u32;
-
-        // SAFETY: AudioObjectGetPropertyData is documented to write an AudioClassID
-        // for kAudioObjectPropertyClass. We check the status before using the value.
-        let status = unsafe {
-            AudioObjectGetPropertyData(
-                self.audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&data_size),
-                NonNull::from(&mut class_id).cast(),
-            )
-        };
-
-        // If successful, check if it's an aggregate device
-        status == 0 && class_id == kAudioAggregateDeviceClassID
+        // SAFETY: kAudioObjectPropertyClass is documented to return an AudioClassID.
+        unsafe { get_property::<AudioClassID>(self.audio_device_id, property_address) }
+            .is_ok_and(|class_id| class_id == kAudioAggregateDeviceClassID)
     }
 
     /// `None` when the property is unavailable or names a transport with no
@@ -630,24 +532,11 @@ impl Device {
             mElement: kAudioObjectPropertyElementMain,
         };
 
-        let mut transport: u32 = 0;
-        let mut data_size = size_of::<u32>() as u32;
-
-        // SAFETY: AudioObjectGetPropertyData writes a UInt32 for
-        // kAudioDevicePropertyTransportType. The status is checked before use.
-        let status = unsafe {
-            AudioObjectGetPropertyData(
-                self.audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-                NonNull::from(&mut transport).cast(),
-            )
-        };
-        if status != 0 {
+        // SAFETY: kAudioDevicePropertyTransportType is documented to return a UInt32.
+        let Ok(transport) = (unsafe { get_property::<u32>(self.audio_device_id, property_address) })
+        else {
             return None;
-        }
+        };
 
         #[allow(non_upper_case_globals)]
         match transport {
@@ -706,22 +595,9 @@ impl Device {
         };
 
         // CFString is returned under the create rule, so take ownership of the +1 reference.
-        let mut uid: *mut CFString = std::ptr::null_mut();
-        let mut data_size = size_of::<*mut CFString>() as u32;
-
-        // SAFETY: AudioObjectGetPropertyData is documented to write a CFString pointer
-        // for kAudioDevicePropertyDeviceUID. We check the status code before use.
-        let status = unsafe {
-            AudioObjectGetPropertyData(
-                self.audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-                NonNull::from(&mut uid).cast(),
-            )
-        };
-        check_os_status(status)?;
+        // SAFETY: kAudioDevicePropertyDeviceUID is documented to return a CFString pointer.
+        let uid: *mut CFString =
+            unsafe { get_property(self.audio_device_id, property_address) }?;
 
         // SAFETY: Status was successful, meaning the API call succeeded.
         // We now check if the returned uid is non-null before use.
@@ -796,29 +672,10 @@ impl Device {
 
             // Get available sample rate ranges.
             property_address.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
-            let mut data_size = 0u32;
-            let status = AudioObjectGetPropertyDataSize(
-                self.audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-            );
-            check_os_status(status)?;
-
-            let n_ranges = data_size as usize / mem::size_of::<AudioValueRange>();
-            let mut ranges: Vec<AudioValueRange> = Vec::with_capacity(n_ranges);
-            let status = AudioObjectGetPropertyData(
-                self.audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-                NonNull::new(ranges.as_mut_ptr()).unwrap().cast(),
-            );
-            check_os_status(status)?;
-
-            ranges.set_len(n_ranges);
+            // SAFETY: kAudioDevicePropertyAvailableNominalSampleRates is documented to return an
+            // array of AudioValueRange.
+            let ranges: Vec<AudioValueRange> =
+                get_property_array(self.audio_device_id, property_address)?;
 
             #[allow(non_upper_case_globals)]
             match scope {
@@ -903,17 +760,10 @@ impl Device {
         };
 
         unsafe {
-            let mut asbd: AudioStreamBasicDescription = mem::zeroed();
-            let mut data_size = mem::size_of::<AudioStreamBasicDescription>() as u32;
-            let status = AudioObjectGetPropertyData(
-                self.audio_device_id,
-                NonNull::from(&property_address),
-                0,
-                null(),
-                NonNull::from(&mut data_size),
-                NonNull::from(&mut asbd).cast(),
-            );
-            check_os_status(status)?;
+            // SAFETY: kAudioDevicePropertyStreamFormat is documented to return an
+            // AudioStreamBasicDescription.
+            let asbd: AudioStreamBasicDescription =
+                get_property(self.audio_device_id, property_address)?;
 
             let sample_format = {
                 let audio_format = coreaudio::audio_unit::AudioFormat::from_format_and_flag(

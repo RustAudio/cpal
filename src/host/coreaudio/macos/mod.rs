@@ -31,6 +31,7 @@ use crate::{
 mod device;
 pub mod enumerate;
 mod loopback;
+mod property;
 mod property_listener;
 pub use device::Device;
 
