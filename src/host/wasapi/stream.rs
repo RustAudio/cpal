@@ -694,13 +694,11 @@ fn run_input(
 
     let stream = &run_ctxt.stream;
 
-    let scratch_len = if stream.sample_format == SampleFormat::I24 {
-        stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
-    } else {
-        // The scratch buffer won't be used in this case.
-        0 // Vec::with_capacity(0) does not allocate.
-    };
-    let mut scratch_buffer = vec![0; scratch_len].into_boxed_slice();
+    // Create a scratch buffer for holding converted I24 data and silence for
+    // packets flagged `AUDCLNT_BUFFERFLAGS_SILENT`.
+    let scratch_len = (stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize)
+        .div_ceil(size_of::<i32>());
+    let mut scratch_buffer = vec![0i32; scratch_len].into_boxed_slice();
 
     let capture_client = match stream.client_flow {
         AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
@@ -917,7 +915,14 @@ fn process_input(
 
             debug_assert!(!buffer.is_null());
             let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
-            let data = packet_data(buffer, byte_count, stream.sample_format, scratch_buffer);
+            let silent = flags & Audio::AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
+            let data = packet_data(
+                buffer,
+                byte_count,
+                silent,
+                stream.sample_format,
+                scratch_buffer,
+            );
             let data = Data::from_parts(data, byte_count / sample_size, stream.sample_format);
 
             if !stream.skip_callback.load(Ordering::Relaxed) {
@@ -934,18 +939,26 @@ fn process_input(
     }
 }
 
-// Returns the packet data to hand to the callback: converted samples for I24, or the packet itself.
+// Returns the packet data to hand to the callback: silence for a packet flagged silent, converted
+// samples for I24, or the packet itself.
 //
 // Safety: `packet` must point to `byte_count` bytes that stay valid until the packet is released.
 #[inline]
 unsafe fn packet_data(
     packet: *mut u8,
     byte_count: usize,
+    silent: bool,
     sample_format: SampleFormat,
     scratch_buffer: &mut [i32],
 ) -> *mut () {
     unsafe {
-        if sample_format == SampleFormat::I24 {
+        if silent {
+            // The packet's data values must be ignored, so hand out silence instead.
+            let words = &mut scratch_buffer[..byte_count.div_ceil(size_of::<i32>())];
+            let dst = slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), byte_count);
+            fill_equilibrium(dst, sample_format);
+            dst.as_mut_ptr().cast()
+        } else if sample_format == SampleFormat::I24 {
             // WASAPI stores i24 in the upper bits
             let source_data = slice::from_raw_parts(packet.cast(), byte_count / size_of::<i32>());
             // use a scratch buffer since the capture buffer isn't meant to be written

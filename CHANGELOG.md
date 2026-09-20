@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: A stream paused immediately after starting no longer plays silence before real audio on resume.
 - **WASAPI**: Fix `I64` and `F64` incorrectly reported as supported output formats.
 - **WASAPI**: Reduced risk of `stop()` draining short when it races a callback that just wrote more audio.
+- **WASAPI**: Input streams now deliver silence for packets the driver flags as silent instead of undefined data.
 
 ## [0.18.2] - 2026-08-16
 
