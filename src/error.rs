@@ -206,10 +206,10 @@ impl From<audio_thread_priority::AudioThreadPriorityError> for Error {
 }
 
 /// Extension trait for attaching a context message to a [`Result`] whose error converts into
-/// [`cpal::Error`].
+/// [`Error`].
 #[allow(dead_code)]
 pub(crate) trait ResultExt<T> {
-    /// Converts the error via [`Into<cpal::Error>`] and prepends `msg`, yielding
+    /// Converts the error via [`Into<Error>`](Into) and prepends `msg`, yielding
     /// `"<msg>: <original error>"` as the message.
     fn context(self, msg: impl Display) -> Result<T, Error>;
 }
