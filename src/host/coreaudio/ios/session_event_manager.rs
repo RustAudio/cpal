@@ -5,7 +5,7 @@ use std::{
     ptr::NonNull,
     sync::{
         Arc, Mutex, Weak,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
 };
 
@@ -19,7 +19,7 @@ use objc2_avf_audio::{
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNumber, NSString};
 
-use super::{StreamInner, input_latency_frames, output_latency_frames};
+use super::{StreamInner, input_latency_nanos, output_latency_nanos};
 use crate::{
     Error, ErrorKind,
     host::{ErrorCallbackArc, emit_error, latch::Latch},
@@ -43,7 +43,7 @@ fn user_info_number(notification: &NSNotification, key: Option<&NSString>) -> Op
 
 /// Shared buffer-depth value to refresh on route changes, paired with `is_input` to select the
 /// input or output latency. `true` means an input stream.
-type LatencyRefresh = (Arc<AtomicUsize>, bool);
+type LatencyRefresh = (Arc<AtomicU64>, bool);
 
 fn route_change_error(notification: &NSNotification) -> Option<Error> {
     let key = unsafe { AVAudioSessionRouteChangeReasonKey };
@@ -86,7 +86,7 @@ impl SessionEventManager {
     pub(super) fn new(
         error_callback: ErrorCallbackArc,
         latch: Latch,
-        latency_refresh: Option<LatencyRefresh>,
+        latency_refresh: LatencyRefresh,
         stream: Weak<Mutex<StreamInner>>,
     ) -> Self {
         let nc = NSNotificationCenter::defaultCenter();
@@ -137,14 +137,13 @@ impl SessionEventManager {
                 if w.is_released() {
                     // The route may have changed the active device; recompute the buffer depth so
                     // capture/playback timestamps track the new latency.
-                    if let Some((frames, is_input)) = &latency_refresh {
-                        let depth = if *is_input {
-                            input_latency_frames()
-                        } else {
-                            output_latency_frames()
-                        };
-                        frames.store(depth, Ordering::Relaxed);
-                    }
+                    let (nanos, is_input) = &latency_refresh;
+                    let depth = if *is_input {
+                        input_latency_nanos()
+                    } else {
+                        output_latency_nanos()
+                    };
+                    nanos.store(depth, Ordering::Relaxed);
                     let notif = unsafe { notif.as_ref() };
                     if let Some(err) = route_change_error(notif) {
                         emit_error(&cb, err);
