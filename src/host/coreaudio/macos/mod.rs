@@ -30,6 +30,7 @@ use crate::{
 
 mod device;
 pub mod enumerate;
+mod format;
 mod loopback;
 mod property;
 mod property_listener;
