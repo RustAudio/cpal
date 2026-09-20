@@ -294,7 +294,7 @@ pub(crate) fn secs_to_nanos(secs: f64) -> u64 {
 /// `Some(Duration::ZERO)` returns immediately.
 ///
 /// [`StreamTrait::stop`]: crate::traits::StreamTrait::stop
-#[cfg(any(all(windows, feature = "asio"), all(target_vendor = "apple")))]
+#[cfg(any(all(windows, feature = "asio"), target_vendor = "apple"))]
 pub(crate) fn wait_for_drain(window: std::time::Duration, timeout: Option<std::time::Duration>) {
     let wait = timeout.map_or(window, |t| window.min(t));
     if !wait.is_zero() {
