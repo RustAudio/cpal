@@ -9,7 +9,8 @@ use std::{
 
 use coreaudio::audio_unit::{AudioUnit, Scope};
 use objc2_core_audio::{
-    AudioDeviceID, AudioObjectID, AudioObjectPropertyAddress, kAudioDeviceProcessorOverload,
+    AudioDeviceID, AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertySelector,
+    kAudioDeviceProcessorOverload, kAudioDevicePropertyBufferFrameSize,
     kAudioDevicePropertyDeviceIsAlive, kAudioDevicePropertyNominalSampleRate,
     kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyElementMain,
     kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
@@ -68,6 +69,38 @@ impl HostTrait for Host {
 /// Type alias for the error callback to reduce complexity
 type ErrorCallback = dyn FnMut(Error) + Send;
 
+/// The cached buffer depth to refresh when the device's buffer frame size changes, and the scope
+/// it was measured in.
+type LatencyRefresh = (Arc<AtomicUsize>, Scope);
+
+/// What a device's property listeners report to its delivery thread.
+enum MonitorEvent {
+    /// The device went away, or changed such that the stream is no longer valid.
+    Lost(Error),
+    /// The device's buffer frame size changed, so the cached buffer depth is stale.
+    LatencyChanged,
+}
+
+/// Device-scoped property address, the shape every listener here uses.
+fn device_address(selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+    AudioObjectPropertyAddress {
+        mSelector: selector,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain,
+    }
+}
+
+/// Recomputes the buffer depth for `refresh` from the stream's current device.
+fn refresh_latency(stream: &Mutex<StreamInner>, refresh: &LatencyRefresh) {
+    let (frames, scope) = refresh;
+    if let Ok(inner) = stream.lock() {
+        frames.store(
+            device::device_latency_frames(&inner.audio_unit, *scope),
+            Ordering::Relaxed,
+        );
+    }
+}
+
 /// Spawns a dedicated thread that registers a single property listener, calling `on_change` on
 /// each firing. The listener is deregistered when the returned `Sender<()>` is dropped.
 fn spawn_property_listener_thread<F>(
@@ -104,6 +137,74 @@ where
     Ok(shutdown_tx)
 }
 
+/// Spawns the delivery thread shared by both monitors.
+///
+/// It waits for the owning `Stream` to reach the caller, then applies each event until the stream
+/// is dropped or every sender is gone. Property listeners must not call back into CoreAudio, so
+/// they only post events and this thread does the work.
+fn spawn_delivery_thread<E, F>(
+    name: &str,
+    latch: &mut Latch,
+    events: mpsc::Receiver<E>,
+    stream_weak: Weak<Mutex<StreamInner>>,
+    mut on_event: F,
+) -> Result<(), Error>
+where
+    E: Send + 'static,
+    F: FnMut(E, &Arc<Mutex<StreamInner>>) + Send + 'static,
+{
+    let waiter = latch.waiter();
+    let handle = std::thread::Builder::new()
+        .name(name.to_owned())
+        .spawn(move || {
+            // If the Latch is dropped without being released (error path), exit cleanly.
+            if !waiter.wait() {
+                return;
+            }
+            while let Ok(event) = events.recv() {
+                let Some(stream) = stream_weak.upgrade() else {
+                    break;
+                };
+                on_event(event, &stream);
+            }
+        })
+        .map_err(|e| {
+            Error::with_message(
+                ErrorKind::ResourceExhausted,
+                format!("failed to spawn {name} thread: {e}"),
+            )
+        })?;
+    latch.add_thread(handle.thread().clone());
+    Ok(())
+}
+
+/// Halts the stream and reports why, for the cases where it cannot keep running.
+fn report_lost(
+    stream: &Mutex<StreamInner>,
+    error_callback: &Arc<Mutex<ErrorCallback>>,
+    err: Error,
+) {
+    if let Ok(mut inner) = stream.try_lock() {
+        let _ = inner.pause();
+    }
+    emit_error(error_callback, err);
+}
+
+/// Registers an overload listener for `device_id`. These fire on the RT thread, so the callback
+/// only sets a flag.
+fn spawn_overload_listener(
+    device_id: AudioDeviceID,
+    pending_xrun: Arc<AtomicBool>,
+) -> Result<mpsc::Sender<()>, Error> {
+    spawn_property_listener_thread(
+        device_id,
+        device_address(kAudioDeviceProcessorOverload),
+        move || {
+            pending_xrun.store(true, Ordering::Relaxed);
+        },
+    )
+}
+
 /// A device monitor that can signal when the owning `Stream` handle has been returned to the
 /// caller, allowing the delivery thread to start processing events.
 pub(super) trait Monitor: Send + Sync {
@@ -130,61 +231,71 @@ impl DisconnectManager {
         device_id: AudioDeviceID,
         stream_weak: Weak<Mutex<StreamInner>>,
         error_callback: Arc<Mutex<ErrorCallback>>,
+        latency_refresh: LatencyRefresh,
         pending_xrun: Arc<AtomicBool>,
     ) -> Result<Self, Error> {
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
-        let (disconnect_tx, disconnect_rx) = mpsc::channel::<Error>();
+        let (disconnect_tx, disconnect_rx) = mpsc::channel::<MonitorEvent>();
         let (ready_tx, ready_rx) = mpsc::channel();
 
         // Spawn a dedicated thread to own all listeners. CoreAudio requires that
         // AudioObjectPropertyListeners are added and removed on the same thread.
         let disconnect_tx_alive = disconnect_tx.clone();
-        let disconnect_tx_rate = disconnect_tx;
+        let disconnect_tx_rate = disconnect_tx.clone();
+        let disconnect_tx_buffer = disconnect_tx;
         std::thread::spawn(move || {
-            let alive_address = AudioObjectPropertyAddress {
-                mSelector: kAudioDevicePropertyDeviceIsAlive,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain,
-            };
-            let alive_listener =
-                AudioObjectPropertyListener::new(device_id, alive_address, move || {
-                    let _ = disconnect_tx_alive.send(Error::with_message(
+            let alive_listener = AudioObjectPropertyListener::new(
+                device_id,
+                device_address(kAudioDevicePropertyDeviceIsAlive),
+                move || {
+                    let _ = disconnect_tx_alive.send(MonitorEvent::Lost(Error::with_message(
                         ErrorKind::DeviceNotAvailable,
                         "Device disconnected",
-                    ));
-                });
+                    )));
+                },
+            );
 
-            let rate_address = AudioObjectPropertyAddress {
-                mSelector: kAudioDevicePropertyNominalSampleRate,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain,
-            };
-            let rate_listener =
-                AudioObjectPropertyListener::new(device_id, rate_address, move || {
-                    let _ = disconnect_tx_rate.send(Error::with_message(
+            let rate_listener = AudioObjectPropertyListener::new(
+                device_id,
+                device_address(kAudioDevicePropertyNominalSampleRate),
+                move || {
+                    let _ = disconnect_tx_rate.send(MonitorEvent::Lost(Error::with_message(
                         ErrorKind::StreamInvalidated,
                         "Device sample rate changed",
-                    ));
-                });
+                    )));
+                },
+            );
+
+            // Device-global on macOS: another process changing it resizes our IO buffer too.
+            let buffer_size_listener = AudioObjectPropertyListener::new(
+                device_id,
+                device_address(kAudioDevicePropertyBufferFrameSize),
+                move || {
+                    let _ = disconnect_tx_buffer.send(MonitorEvent::LatencyChanged);
+                },
+            );
 
             // Overload notifications fire on the RT thread.
-            let overload_address = AudioObjectPropertyAddress {
-                mSelector: kAudioDeviceProcessorOverload,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain,
-            };
-            let overload_listener =
-                AudioObjectPropertyListener::new(device_id, overload_address, move || {
+            let overload_listener = AudioObjectPropertyListener::new(
+                device_id,
+                device_address(kAudioDeviceProcessorOverload),
+                move || {
                     pending_xrun.store(true, Ordering::Relaxed);
-                });
+                },
+            );
 
-            match (alive_listener, rate_listener, overload_listener) {
-                (Ok(_alive), Ok(_rate), Ok(_overload)) => {
+            match (
+                alive_listener,
+                rate_listener,
+                buffer_size_listener,
+                overload_listener,
+            ) {
+                (Ok(_alive), Ok(_rate), Ok(_buffer), Ok(_overload)) => {
                     let _ = ready_tx.send(Ok(()));
                     // Block until the stream is dropped; listeners are removed on drop.
                     let _ = shutdown_rx.recv();
                 }
-                (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => {
+                (Err(e), ..) | (_, Err(e), ..) | (_, _, Err(e), _) | (_, _, _, Err(e)) => {
                     let _ = ready_tx.send(Err(e));
                 }
             }
@@ -198,34 +309,17 @@ impl DisconnectManager {
         })??;
 
         let mut latch = Latch::new();
-        let waiter = latch.waiter();
+        spawn_delivery_thread(
+            "cpal-coreaudio-disconnect",
+            &mut latch,
+            disconnect_rx,
+            stream_weak,
+            move |event, stream| match event {
+                MonitorEvent::Lost(err) => report_lost(stream, &error_callback, err),
+                MonitorEvent::LatencyChanged => refresh_latency(stream, &latency_refresh),
+            },
+        )?;
 
-        let handle = std::thread::Builder::new()
-            .name("cpal-coreaudio-disconnect".into())
-            .spawn(move || {
-                // If the Latch is dropped without being released (error path), exit cleanly.
-                if !waiter.wait() {
-                    return;
-                }
-                while let Ok(err) = disconnect_rx.recv() {
-                    if let Some(stream_arc) = stream_weak.upgrade() {
-                        if let Ok(mut stream_inner) = stream_arc.try_lock() {
-                            let _ = stream_inner.pause();
-                        }
-                        emit_error(&error_callback, err);
-                    } else {
-                        break;
-                    }
-                }
-            })
-            .map_err(|e| {
-                Error::with_message(
-                    ErrorKind::ResourceExhausted,
-                    format!("Failed to spawn disconnect thread: {e}"),
-                )
-            })?;
-
-        latch.add_thread(handle.thread().clone());
         Ok(DisconnectManager {
             latch,
             _shutdown_tx: shutdown_tx,
@@ -247,131 +341,157 @@ impl Monitor for DisconnectManager {
 struct DefaultOutputMonitor {
     latch: Latch,
     _shutdown_tx: mpsc::Sender<()>,
+    // Both are held here rather than in the delivery thread: a sender that thread owned, directly
+    // or through a listener it kept alive, would hold the event channel open so its loop could
+    // never end. Dropping these is what lets it exit.
+    _event_tx: Arc<mpsc::Sender<DefaultOutputEvent>>,
+    buffer_size_listener: BufferSizeListener,
+}
+
+/// Shutdown handle for the buffer-size listener, re-registered by the delivery thread on reroute.
+type BufferSizeListener = Arc<Mutex<Option<mpsc::Sender<()>>>>;
+
+/// What the default-output listeners report to that monitor's delivery thread.
+enum DefaultOutputEvent {
+    /// The system default output device changed.
+    DeviceChanged,
+    /// The current device's buffer frame size changed, so the cached buffer depth is stale.
+    LatencyChanged,
+}
+
+/// Registers a buffer-size listener for `device_id`, reporting through `event_tx`.
+fn spawn_buffer_size_listener(
+    device_id: AudioDeviceID,
+    event_tx: mpsc::Sender<DefaultOutputEvent>,
+) -> Result<mpsc::Sender<()>, Error> {
+    spawn_property_listener_thread(
+        device_id,
+        device_address(kAudioDevicePropertyBufferFrameSize),
+        move || {
+            let _ = event_tx.send(DefaultOutputEvent::LatencyChanged);
+        },
+    )
+}
+
+/// Replaces the buffer-size listener, dropping the previous one so its thread exits.
+fn set_buffer_size_listener(listener: &BufferSizeListener, next: Option<mpsc::Sender<()>>) {
+    *listener.lock().unwrap_or_else(|e| e.into_inner()) = next;
+}
+
+impl Drop for DefaultOutputMonitor {
+    fn drop(&mut self) {
+        // Release the listener before `_event_tx`, so every sender is gone and the delivery
+        // thread's loop ends.
+        set_buffer_size_listener(&self.buffer_size_listener, None);
+    }
 }
 
 impl DefaultOutputMonitor {
     fn new(
         stream_weak: Weak<Mutex<StreamInner>>,
         error_callback: Arc<Mutex<ErrorCallback>>,
-        latency_refresh: Option<(Arc<AtomicUsize>, Scope)>,
+        latency_refresh: LatencyRefresh,
         pending_xrun: Arc<AtomicBool>,
     ) -> Result<Self, Error> {
-        let (change_tx, change_rx) = mpsc::channel::<()>();
-        let shutdown_tx = spawn_property_listener_thread(
-            kAudioObjectSystemObject as AudioObjectID,
-            AudioObjectPropertyAddress {
-                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain,
-            },
-            move || {
-                let _ = change_tx.send(());
-            },
-        )?;
+        let (change_tx, change_rx) = mpsc::channel::<DefaultOutputEvent>();
+        let event_tx = Arc::new(change_tx);
+        let shutdown_tx = {
+            let change_tx = mpsc::Sender::clone(&event_tx);
+            spawn_property_listener_thread(
+                kAudioObjectSystemObject as AudioObjectID,
+                device_address(kAudioHardwarePropertyDefaultOutputDevice),
+                move || {
+                    let _ = change_tx.send(DefaultOutputEvent::DeviceChanged);
+                },
+            )?
+        };
 
-        // The overload listener targets a specific device, so it must be re-registered against
+        // These listeners target a specific device, so they must be re-registered against
         // whatever device is current whenever the default output reroutes.
         // Held only to shut down the previous listener thread on drop when reassigned below.
+        let buffer_size_listener: BufferSizeListener = Arc::new(Mutex::new(None));
         let mut _overload_shutdown_tx = match default_output_device() {
-            Some(device) => Some(spawn_property_listener_thread(
-                device.audio_device_id,
-                AudioObjectPropertyAddress {
-                    mSelector: kAudioDeviceProcessorOverload,
-                    mScope: kAudioObjectPropertyScopeGlobal,
-                    mElement: kAudioObjectPropertyElementMain,
-                },
-                {
-                    let pending_xrun = pending_xrun.clone();
-                    move || {
-                        pending_xrun.store(true, Ordering::Relaxed);
-                    }
-                },
-            )?),
+            Some(device) => {
+                set_buffer_size_listener(
+                    &buffer_size_listener,
+                    Some(spawn_buffer_size_listener(
+                        device.audio_device_id,
+                        mpsc::Sender::clone(&event_tx),
+                    )?),
+                );
+                Some(spawn_overload_listener(
+                    device.audio_device_id,
+                    pending_xrun.clone(),
+                )?)
+            }
             None => None,
         };
 
-        let mut latch = Latch::new();
-        let waiter = latch.waiter();
+        // Weak, so the thread can hand a sender to a new listener without owning one itself.
+        let event_tx_weak = Arc::downgrade(&event_tx);
+        let buffer_size_listener_thread = buffer_size_listener.clone();
 
-        let handle = std::thread::Builder::new()
-            .name("cpal-coreaudio-default-output".into())
-            .spawn(move || {
-                if !waiter.wait() {
+        let mut latch = Latch::new();
+        spawn_delivery_thread(
+            "cpal-coreaudio-default-output",
+            &mut latch,
+            change_rx,
+            stream_weak,
+            move |event, stream| {
+                if matches!(event, DefaultOutputEvent::LatencyChanged) {
+                    // Same device, resized buffer: refresh the depth only. The listeners still
+                    // target the right device, and no route changed to report.
+                    refresh_latency(stream, &latency_refresh);
                     return;
                 }
-                while let Ok(()) = change_rx.recv() {
-                    let Some(stream) = stream_weak.upgrade() else {
-                        break;
-                    };
-                    match default_output_device() {
-                        None => {
-                            _overload_shutdown_tx = None;
-                            if let Ok(mut inner) = stream.try_lock() {
-                                let _ = inner.pause();
-                            }
-                            emit_error(
-                                &error_callback,
-                                Error::with_message(
-                                    ErrorKind::DeviceNotAvailable,
-                                    "no default output device",
-                                ),
-                            );
-                        }
-                        Some(device) => {
-                            // DefaultOutput AudioUnit rerouted automatically: recompute and notify
-                            // the buffer depth for the new device.
-                            if let Some((frames, scope)) = &latency_refresh {
-                                if let Ok(inner) = stream.lock() {
-                                    let depth =
-                                        device::get_device_buffer_frame_size(&inner.audio_unit)
-                                            .ok()
-                                            .map_or(0, |buffer| {
-                                                buffer
-                                                    + device::get_device_extra_latency_frames(
-                                                        &inner.audio_unit,
-                                                        *scope,
-                                                    )
-                                            });
-                                    frames.store(depth, Ordering::Relaxed);
-                                }
-                            }
-                            _overload_shutdown_tx = spawn_property_listener_thread(
-                                device.audio_device_id,
-                                AudioObjectPropertyAddress {
-                                    mSelector: kAudioDeviceProcessorOverload,
-                                    mScope: kAudioObjectPropertyScopeGlobal,
-                                    mElement: kAudioObjectPropertyElementMain,
-                                },
-                                {
-                                    let pending_xrun = pending_xrun.clone();
-                                    move || {
-                                        pending_xrun.store(true, Ordering::Relaxed);
-                                    }
-                                },
-                            )
-                            .ok();
-                            emit_error(
-                                &error_callback,
-                                Error::with_message(
-                                    ErrorKind::DeviceChanged,
-                                    "default output device changed",
-                                ),
-                            );
-                        }
+                match default_output_device() {
+                    None => {
+                        _overload_shutdown_tx = None;
+                        set_buffer_size_listener(&buffer_size_listener_thread, None);
+                        report_lost(
+                            stream,
+                            &error_callback,
+                            Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                "no default output device",
+                            ),
+                        );
+                    }
+                    Some(device) => {
+                        // DefaultOutput AudioUnit rerouted automatically: recompute and notify
+                        // the buffer depth for the new device.
+                        refresh_latency(stream, &latency_refresh);
+                        _overload_shutdown_tx =
+                            spawn_overload_listener(device.audio_device_id, pending_xrun.clone())
+                                .ok();
+                        // Skipped once the monitor is dropped: there is nothing left to notify.
+                        set_buffer_size_listener(
+                            &buffer_size_listener_thread,
+                            event_tx_weak.upgrade().and_then(|event_tx| {
+                                spawn_buffer_size_listener(
+                                    device.audio_device_id,
+                                    mpsc::Sender::clone(&event_tx),
+                                )
+                                .ok()
+                            }),
+                        );
+                        emit_error(
+                            &error_callback,
+                            Error::with_message(
+                                ErrorKind::DeviceChanged,
+                                "default output device changed",
+                            ),
+                        );
                     }
                 }
-            })
-            .map_err(|e| {
-                Error::with_message(
-                    ErrorKind::ResourceExhausted,
-                    format!("failed to spawn default-output monitor thread: {e}"),
-                )
-            })?;
+            },
+        )?;
 
-        latch.add_thread(handle.thread().clone());
         Ok(DefaultOutputMonitor {
             latch,
             _shutdown_tx: shutdown_tx,
+            _event_tx: event_tx,
+            buffer_size_listener,
         })
     }
 }

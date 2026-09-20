@@ -866,6 +866,11 @@ impl Device {
         let (bytes_per_channel, sample_rate, device_buffer_frames, extra_latency_frames) =
             setup_callback_vars(&audio_unit, config, sample_format, Scope::Input);
 
+        // A resized device buffer changes this depth, and is then refreshed by DisconnectManager.
+        let latency_frames = Arc::new(AtomicUsize::new(
+            device_buffer_frames.map_or(0, |frames| frames + extra_latency_frames),
+        ));
+        let callback_latency_frames = latency_frames.clone();
         let draining = Arc::new(AtomicBool::new(false));
         let draining_input = draining.clone();
 
@@ -892,9 +897,12 @@ impl Device {
                     }
                     Ok(cb) => cb,
                 };
-                let buffer_frames = len / channels as usize;
-                let latency_frames =
-                    device_buffer_frames.unwrap_or(buffer_frames) + extra_latency_frames;
+                let latency_frames = resolve_latency_frames(
+                    &callback_latency_frames,
+                    len,
+                    channels as usize,
+                    extra_latency_frames,
+                );
                 let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
                 let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
                 let timestamp = StreamTimestamp {
@@ -922,6 +930,7 @@ impl Device {
             self.audio_device_id,
             weak_inner,
             error_callback_disconnect,
+            (latency_frames, Scope::Input),
             pending_xrun_overload,
         )?);
         // Capture never drains, so there are no frames to wait out.
@@ -1040,12 +1049,12 @@ impl Device {
                 }
                 Ok(cb) => cb,
             };
-            let latency_frames = match callback_latency_frames.load(Ordering::Relaxed) {
-                // Depth unknown (query failed): estimate the device buffer from this callback, but
-                // still add the safety offset and device latency, matching the input path.
-                0 => len / channels as usize + extra_latency_frames,
-                n => n,
-            };
+            let latency_frames = resolve_latency_frames(
+                &callback_latency_frames,
+                len,
+                channels as usize,
+                extra_latency_frames,
+            );
             let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
             let playback = callback + delay;
             let timestamp = StreamTimestamp {
@@ -1075,14 +1084,16 @@ impl Device {
             Box::new(DefaultOutputMonitor::new(
                 weak_inner,
                 error_callback,
-                Some((latency_frames, Scope::Output)),
+                (latency_frames.clone(), Scope::Output),
                 pending_xrun_overload,
             )?)
         } else {
+            // An explicit device never reroutes, so a resized buffer is the only depth change.
             Box::new(DisconnectManager::new(
                 self.audio_device_id,
                 weak_inner,
                 error_callback,
+                (latency_frames.clone(), Scope::Output),
                 pending_xrun_overload,
             )?)
         };
@@ -1184,6 +1195,34 @@ pub(crate) fn get_device_extra_latency_frames(audio_unit: &AudioUnit, scope: Sco
         .get_property(kAudioDevicePropertySafetyOffset, scope, Element::Output)
         .unwrap_or(0);
     (device_latency + safety_offset) as usize
+}
+
+/// Total buffer depth in frames: the IO buffer plus the device's own latency, or 0 if the
+/// device buffer size cannot be queried.
+pub(crate) fn device_latency_frames(audio_unit: &AudioUnit, scope: Scope) -> usize {
+    get_device_buffer_frame_size(audio_unit)
+        .ok()
+        .map_or(0, |buffer| {
+            buffer + get_device_extra_latency_frames(audio_unit, scope)
+        })
+}
+
+/// Buffer depth for one callback.
+///
+/// Refreshed by the stream's monitor when the device buffer is resized; falls back to estimating
+/// the device buffer from this callback, plus the fixed device latency and safety offset, when
+/// the depth is unknown (zero).
+#[inline]
+fn resolve_latency_frames(
+    cached: &AtomicUsize,
+    len: usize,
+    channels: usize,
+    extra_latency_frames: usize,
+) -> usize {
+    match cached.load(Ordering::Relaxed) {
+        0 => len.checked_div(channels).unwrap_or(0) + extra_latency_frames,
+        n => n,
+    }
 }
 
 /// Setup common callback variables, querying both the I/O buffer size and extra hardware latency.
