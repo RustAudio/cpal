@@ -69,13 +69,13 @@ jobs:
           - target: aarch64-apple-darwin
             name: macOS
             features: --all-features
-            os: ubuntu-latest
+            os: macOS-latest
 
           # macOS - CoreAudio backend, default features
           - target: aarch64-apple-darwin
             name: macOS-default
             features: ""
-            os: ubuntu-latest
+            os: macOS-latest
 
           # Android - Oboe backend
           - target: armv7-linux-androideabi
