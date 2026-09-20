@@ -593,7 +593,8 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
                     // and may already hold real, unplayed data.
                     let cold_start = match run_context.stream.client_flow {
                         AudioClientFlow::Render { .. } => {
-                            get_available_frames(&run_context.stream)? > 0
+                            let (available, _) = get_available_frames(&run_context.stream)?;
+                            available > 0
                         }
                         AudioClientFlow::Capture { .. } => false,
                     };
@@ -668,15 +669,26 @@ fn wait_for_handle_signal(handles: &[Foundation::HANDLE]) -> Result<usize, Error
     Ok(handle_idx)
 }
 
-// Get the number of available frames that are available for writing/reading.
+// Get the number of frames available for writing, along with the number of
+// frames still queued in the buffer.
 #[inline]
-fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
+fn get_available_frames(stream: &StreamInner) -> Result<(FrameCount, FrameCount), Error> {
     unsafe {
         let padding = stream
             .audio_client
             .GetCurrentPadding()
             .context("Failed to get current padding")?;
-        Ok(stream.max_frames_in_buffer - padding)
+        // Underflowing here would size the render buffer slice from a huge frame count.
+        let available = stream
+            .max_frames_in_buffer
+            .checked_sub(padding)
+            .ok_or_else(|| {
+                Error::with_message(
+                    ErrorKind::BackendError,
+                    "IAudioClient::GetCurrentPadding returned more frames than the buffer holds",
+                )
+            })?;
+        Ok((available, padding))
     }
 }
 
@@ -694,13 +706,13 @@ fn run_input(
     }
 
     let stream = &run_ctxt.stream;
-    let scratch_len = if stream.sample_format == SampleFormat::I24 {
-        stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
-    } else {
-        // The scratch buffer won't be used in this case.
-        0 // Vec::with_capacity(0) does not allocate.
-    };
-    let mut scratch_buffer = vec![0; scratch_len].into_boxed_slice();
+    // Sized in i64 words, the widest sample, so a buffer served from the scratch through any
+    // format the callback accepts stays aligned. The I24 conversion shifts its samples through
+    // it as i32s, and packets the engine marks SILENT are served from it as bytes filled with
+    // equilibrium -- filling the engine's capture buffer in place would break the contract that
+    // it is read-only to the client. A zero length allocates no backing storage.
+    let scratch_len = stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize;
+    let mut scratch_buffer = vec![0i64; scratch_len.div_ceil(size_of::<i64>())].into_boxed_slice();
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -872,54 +884,127 @@ fn process_commands_and_await_signal(
     ControlFlow::Continue(handle_idx != 0)
 }
 
+/// Releases the packet acquired via `IAudioCaptureClient::GetBuffer` on drop.
+///
+/// WASAPI requires every successful `GetBuffer` to be paired with a `ReleaseBuffer`, so the
+/// packet must be released on every path out of processing, including errors and panics.
+struct CapturePacket<'a> {
+    capture_client: &'a Audio::IAudioCaptureClient,
+    frames: u32,
+}
+
+impl CapturePacket<'_> {
+    /// Releases the packet, surfacing the failure that `Drop` would have to swallow.
+    fn release(self) -> Result<(), Error> {
+        let this = mem::ManuallyDrop::new(self);
+        unsafe { this.capture_client.ReleaseBuffer(this.frames) }
+            .context("Failed to release capture buffer")
+    }
+}
+
+impl Drop for CapturePacket<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.capture_client.ReleaseBuffer(self.frames);
+        }
+    }
+}
+
 // The loop for processing pending input data.
 fn process_input(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
-    scratch_buffer: &mut [i32],
+    scratch_buffer: &mut [i64],
 ) -> Result<(), Error> {
     unsafe {
-        // Get the available data in the shared buffer.
-        let mut buffer: *mut u8 = ptr::null_mut();
-        let mut flags = mem::MaybeUninit::uninit();
+        // `GetNextPacketSize` is implemented by the audio engine and reports an empty packet
+        // once the ring is drained, but a data callback slower than realtime refills the ring
+        // while this loop runs, so the drain never reaches zero -- and the bound guarantees
+        // `run_input` still polls its commands. What is left stays queued.
+        let max_frames_per_event = stream.max_frames_in_buffer.max(1);
+        let mut frames_drained: FrameCount = 0;
         loop {
+            if frames_drained >= max_frames_per_event {
+                return Ok(());
+            }
             let mut frames_available = match capture_client.GetNextPacketSize() {
                 Ok(0) => return Ok(()),
                 Ok(f) => f,
                 Err(err) => return Err(Error::from(err)),
             };
+            frames_drained = frames_drained.saturating_add(frames_available);
+            // Re-initialized every packet: the driver need not write the out-params, and a
+            // stale buffer from the previous packet would pass for freshly captured data.
+            let mut buffer: *mut u8 = ptr::null_mut();
+            let mut flags: u32 = 0;
             let mut qpc_position: u64 = 0;
             let mut device_position: u64 = 0;
-            let result = capture_client.GetBuffer(
+            capture_client.GetBuffer(
                 &mut buffer,
                 &mut frames_available,
-                flags.as_mut_ptr(),
+                &mut flags,
                 Some(&mut device_position),
                 Some(&mut qpc_position),
-            );
+            )?;
+            let packet = CapturePacket {
+                capture_client: &capture_client,
+                frames: frames_available,
+            };
 
-            match result {
-                // TODO: Can this happen?
-                Err(e) if e.code() == Audio::AUDCLNT_S_BUFFER_EMPTY => continue,
-                Err(e) => return Err(Error::from(e)),
-                Ok(_) => (),
+            // An empty packet is reported as `AUDCLNT_S_BUFFER_EMPTY`, a *success* code, so it
+            // surfaces here rather than as an error.
+            if frames_available == 0 {
+                return Ok(());
             }
 
-            let flags = flags.assume_init();
+            // A non-empty packet without a buffer is a driver bug; fail rather than hand the
+            // callback a null buffer.
+            if buffer.is_null() {
+                return Err(Error::with_message(
+                    ErrorKind::BackendError,
+                    "IAudioCaptureClient::GetBuffer returned a null buffer for a non-empty packet",
+                ));
+            }
+
             // The discontinuity flag is undefined on the first GetBuffer after Start,
             // where device_position is still 0.
             let xrun = device_position != 0
                 && flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0;
 
-            debug_assert!(!buffer.is_null());
+            // Every length below is derived from this frame count, and the scratch buffer is
+            // sized for a whole buffer's worth of it.
+            if frames_available > stream.max_frames_in_buffer {
+                return Err(Error::with_message(
+                    ErrorKind::BackendError,
+                    "IAudioCaptureClient::GetBuffer returned more frames than the buffer holds",
+                ));
+            }
             let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
-            let data = if stream.sample_format == SampleFormat::I24 {
+            // A packet marked SILENT may hold uninitialized data: the engine is not required to
+            // have written it. Fill equilibrium into the scratch buffer and serve that instead,
+            // so the callback and the i24 copy see zeros, not stale driver memory -- and the
+            // engine-owned capture buffer stays untouched, as required below.
+            let silent = flags & Audio::AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
+            let data = if silent {
+                // Filling the engine-owned capture buffer would violate its read-only
+                // contract, so fill the scratch instead and serve that. Bounding the slice
+                // first keeps a length error a panic rather than UB; viewing the i64 words
+                // as bytes never increases alignment, so the cast is sound.
+                let words = &mut scratch_buffer[..byte_count.div_ceil(size_of::<i64>())];
+                let zeros = slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), byte_count);
+                fill_equilibrium(zeros, stream.sample_format);
+                zeros.as_mut_ptr().cast()
+            } else if stream.sample_format == SampleFormat::I24 {
                 // WASAPI stores i24 in the upper bits
-                let source_data =
-                    slice::from_raw_parts(buffer.cast(), byte_count / size_of::<i32>());
-                // use a scratch buffer since the capture buffer isn't meant to be written
-                let dst = &mut scratch_buffer[..source_data.len()];
+                let sample_count = byte_count / size_of::<i32>();
+                let source_data = slice::from_raw_parts(buffer.cast(), sample_count);
+                // use a scratch buffer since the capture buffer isn't meant to be written.
+                // Bounding the slice first keeps a length error a panic rather than UB;
+                // viewing the i64 words as i32 samples only decreases alignment, so the cast
+                // is sound and the I24 samples stay 4-aligned.
+                let words = &mut scratch_buffer[..sample_count.div_ceil(2)];
+                let dst = slice::from_raw_parts_mut(words.as_mut_ptr().cast::<i32>(), sample_count);
                 dst.copy_from_slice(source_data);
                 for sample in dst.iter_mut() {
                     // On signed integers, >> is an arithmetic shift,
@@ -941,10 +1026,33 @@ fn process_input(
                 data_callback(&data, &CallbackInfo { timestamp, xrun });
             }
 
-            // Release the buffer.
-            capture_client
-                .ReleaseBuffer(frames_available)
-                .context("Failed to release capture buffer")?;
+            packet.release()?;
+        }
+    }
+}
+
+/// Releases the packet acquired via `IAudioRenderClient::GetBuffer` on drop.
+///
+/// WASAPI requires every successful `GetBuffer` to be paired with a `ReleaseBuffer`, so the
+/// packet must be released on every path out of processing, including errors and panics.
+struct RenderPacket<'a> {
+    render_client: &'a Audio::IAudioRenderClient,
+    frames: u32,
+}
+
+impl RenderPacket<'_> {
+    /// Releases the packet, surfacing the failure that `Drop` would have to swallow.
+    fn release(self) -> Result<(), Error> {
+        let this = mem::ManuallyDrop::new(self);
+        unsafe { this.render_client.ReleaseBuffer(this.frames, 0) }
+            .context("Failed to release render buffer")
+    }
+}
+
+impl Drop for RenderPacket<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.render_client.ReleaseBuffer(self.frames, 0);
         }
     }
 }
@@ -958,12 +1066,12 @@ fn process_output(
     frames_written: &mut u64,
 ) -> Result<(), Error> {
     // The number of frames available for writing.
-    let frames_available = match get_available_frames(stream)? {
-        0 => return Ok(()), // TODO: Can this happen?
-        n => n,
-    };
+    let (frames_available, padding) = get_available_frames(stream)?;
+    // The ring can be full; the next audio event fires again once space frees up.
+    if frames_available == 0 {
+        return Ok(());
+    }
 
-    let padding = stream.max_frames_in_buffer - frames_available;
     let fill_usec = (padding as u64)
         .saturating_mul(1_000_000)
         .saturating_div(stream.config.sample_rate as u64)
@@ -984,6 +1092,14 @@ fn process_output(
     unsafe {
         let buffer = render_client.GetBuffer(frames_available)?;
 
+        // Bind the packet before the assert: a failed debug assert panics, and the packet's
+        // drop is what releases the buffer back to the engine, so it must exist first. The
+        // capture side constructs its guard immediately after GetBuffer for the same reason.
+        let mut packet = RenderPacket {
+            render_client: &render_client,
+            frames: frames_available,
+        };
+
         debug_assert!(!buffer.is_null());
 
         let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
@@ -994,7 +1110,15 @@ fn process_output(
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
         let sample_rate = stream.config.sample_rate;
-        let timestamp = output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
+        let timestamp =
+            match output_timestamp(stream, sample_rate, clock_frequency, *frames_written) {
+                Ok(timestamp) => timestamp,
+                Err(err) => {
+                    // Release the packet without presenting the unwritten buffer.
+                    packet.frames = 0;
+                    return Err(err);
+                }
+            };
         // WASAPI exposes no render-side xrun signal.
         data_callback(
             &mut data,
@@ -1016,7 +1140,7 @@ fn process_output(
             }
         }
 
-        render_client.ReleaseBuffer(frames_available, 0)?;
+        packet.release()?;
 
         *frames_written += frames_available as u64;
     }

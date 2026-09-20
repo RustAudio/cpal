@@ -205,7 +205,18 @@ pub unsafe fn is_format_supported(
     Ok(hr.0 == 0)
 }
 
+// Bytes that follow the `WAVEFORMATEX` header inside a `WAVEFORMATEXTENSIBLE`. The Windows ABI
+// fixes this at 22; the assert pins the size derivation below to the ABI value.
+const WAVEFORMATEXTENSIBLE_EXTRA_BYTES: u16 = 22;
+const _: () = assert!(
+    mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>() - mem::size_of::<Audio::WAVEFORMATEX>()
+        == WAVEFORMATEXTENSIBLE_EXTRA_BYTES as usize
+);
+
 // Get a cpal Format from a WAVEFORMATEX.
+//
+// Safety: `waveformatex_ptr` must point to a readable `WAVEFORMATEX` followed by the
+// `cbSize` extra bytes its header declares.
 unsafe fn format_from_waveformatex_ptr(
     waveformatex_ptr: *const Audio::WAVEFORMATEX,
     audio_client: &Audio::IAudioClient,
@@ -224,6 +235,11 @@ unsafe fn format_from_waveformatex_ptr(
         (32, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F32,
         (64, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F64,
         (n_bits, KernelStreaming::WAVE_FORMAT_EXTENSIBLE) => {
+            // The extension is only there to be read if `cbSize` accounts for it.
+            if unsafe { (*waveformatex_ptr).cbSize } < WAVEFORMATEXTENSIBLE_EXTRA_BYTES {
+                return None;
+            }
+
             let waveformatextensible_ptr = waveformatex_ptr as *const Audio::WAVEFORMATEXTENSIBLE;
             let sub = unsafe { (*waveformatextensible_ptr).SubFormat };
             let valid_bits = unsafe { (*waveformatextensible_ptr).Samples.wValidBitsPerSample };
@@ -591,6 +607,9 @@ impl Device {
                 DeviceHandle::Specific(device) => {
                     // can fail if the device has been disconnected since we enumerated it, or if
                     // the device doesn't support playback for some reason
+                    //
+                    // not bounded by `activation_timeout`: `ActivateAudioInterfaceAsync` takes a
+                    // device interface path, and `IMMDevice` only exposes an opaque endpoint ID
                     device
                         .Activate(Com::CLSCTX_ALL, None)
                         .map_err(Error::from)?
@@ -722,7 +741,7 @@ impl Device {
                         let usable = is_output
                             || is_format_supported(
                                 client,
-                                &waveformat.Format as *const Audio::WAVEFORMATEX,
+                                as_waveformatex_ptr(&waveformat),
                                 Audio::AUDCLNT_SHAREMODE_SHARED,
                             )?;
                         if usable {
@@ -885,7 +904,7 @@ impl Device {
                         stream_flags,
                         buffer_duration,
                         0,
-                        &format_attempt.Format,
+                        as_waveformatex_ptr(&format_attempt),
                         None,
                     )
                     .context("Failed to initialize audio client")?;
@@ -893,10 +912,12 @@ impl Device {
                 format_attempt.Format
             };
 
-            // obtaining the size of the samples buffer in number of frames
-            let max_frames_in_buffer = audio_client
-                .GetBufferSize()
-                .context("Failed to get buffer size")?;
+            let max_frames_in_buffer = buffer_size_in_frames(
+                &audio_client,
+                config.buffer_size,
+                config.sample_rate,
+                waveformatex.nBlockAlign,
+            )?;
 
             let period_frames =
                 shared_mode_period_frames(&audio_client, config.sample_rate, max_frames_in_buffer);
@@ -990,13 +1011,23 @@ impl Device {
                             | Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
                         buffer_duration,
                         0,
-                        &format_attempt.Format,
+                        as_waveformatex_ptr(&format_attempt),
                         None,
                     )
                     .context("Failed to initialize audio client")?;
 
                 format_attempt.Format
             };
+
+            let max_frames_in_buffer = buffer_size_in_frames(
+                &audio_client,
+                config.buffer_size,
+                config.sample_rate,
+                waveformatex.nBlockAlign,
+            )?;
+
+            let period_frames =
+                shared_mode_period_frames(&audio_client, config.sample_rate, max_frames_in_buffer);
 
             // Creating the event that will be signalled whenever we need to submit some samples.
             let event =
@@ -1006,14 +1037,6 @@ impl Device {
             audio_client
                 .SetEventHandle(event)
                 .context("Failed to set event handle")?;
-
-            // obtaining the size of the samples buffer in number of frames
-            let max_frames_in_buffer = audio_client
-                .GetBufferSize()
-                .context("Failed to get buffer size")?;
-
-            let period_frames =
-                shared_mode_period_frames(&audio_client, config.sample_rate, max_frames_in_buffer);
 
             // Building a `IAudioRenderClient` that will be used to fill the samples buffer.
             let render_client = audio_client
@@ -1361,7 +1384,8 @@ const WAVEFORMATEXTENSIBLE_SAMPLE_FORMATS: [SampleFormat; 5] = [
 
 // Turns a `Format` into a `WAVEFORMATEXTENSIBLE`.
 //
-// Returns `None` if the WAVEFORMATEXTENSIBLE does not support the given format.
+// Returns `None` if the format is unsupported, or if the config does not fit the WAVEFORMATEX
+// field widths.
 fn config_to_waveformatextensible(
     config: StreamConfig,
     sample_format: SampleFormat,
@@ -1381,8 +1405,9 @@ fn config_to_waveformatextensible(
     let channels = config.channels;
     let sample_rate = config.sample_rate;
     let sample_bytes = sample_format.sample_size() as u16;
-    let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
-    let block_align = channels * sample_bytes;
+    // A wide channel count overflows nBlockAlign, and a high sample rate overflows nAvgBytesPerSec.
+    let block_align = channels.checked_mul(sample_bytes)?;
+    let avg_bytes_per_sec = sample_rate.checked_mul(u32::from(block_align))?;
     // wBitsPerSample is the container word size; wValidBitsPerSample is the actual bit depth.
     // For I24 the container is 32 bits (sample_size() == 4) but only 24 bits are significant.
     let container_bits = 8 * sample_bytes;
@@ -1391,9 +1416,7 @@ fn config_to_waveformatextensible(
     let cb_size = if format_tag == Audio::WAVE_FORMAT_PCM {
         0
     } else {
-        let extensible_size = mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>();
-        let ex_size = mem::size_of::<Audio::WAVEFORMATEX>();
-        (extensible_size - ex_size) as u16
+        WAVEFORMATEXTENSIBLE_EXTRA_BYTES
     };
 
     let waveformatex = Audio::WAVEFORMATEX {
@@ -1433,6 +1456,64 @@ fn config_to_waveformatextensible(
     Some(waveformatextensible)
 }
 
+// `cbSize` tells the engine how far to read, so the pointer must carry provenance over the
+// whole `WAVEFORMATEXTENSIBLE`, not just its `WAVEFORMATEX` prefix.
+fn as_waveformatex_ptr(format: &Audio::WAVEFORMATEXTENSIBLE) -> *const Audio::WAVEFORMATEX {
+    ptr::from_ref(format).cast()
+}
+
+// WASAPI rounds a shared-mode ring up to a whole number of device periods, so a report somewhat
+// above the request is normal; more than `BUFFER_HEADROOM_SECONDS` above it is a driver reporting
+// nonsense. The headroom cannot stand alone: `requested` is caller-supplied, so without an
+// absolute ceiling a wild request plus a wild report admits a multi-gigabyte buffer.
+const BUFFER_HEADROOM_SECONDS: u32 = 10;
+const MAX_BUFFER_BYTES: usize = 1 << 30; // 1 GiB
+
+/// Get the size of the ring buffer WASAPI allocated, rejecting implausible values.
+fn buffer_size_in_frames(
+    audio_client: &Audio::IAudioClient,
+    buffer_size: BufferSize,
+    sample_rate: SampleRate,
+    bytes_per_frame: u16,
+) -> Result<FrameCount, Error> {
+    let requested = match buffer_size {
+        BufferSize::Fixed(frames) => frames,
+        BufferSize::Default => 0,
+    };
+    let max_frames_in_buffer =
+        unsafe { audio_client.GetBufferSize() }.context("Failed to get buffer size")?;
+    let cap = requested.saturating_add(sample_rate.saturating_mul(BUFFER_HEADROOM_SECONDS));
+    if max_frames_in_buffer > cap {
+        let allowance = match buffer_size {
+            BufferSize::Fixed(_) => {
+                format!(
+                    "{requested} requested plus {BUFFER_HEADROOM_SECONDS} s at {sample_rate} Hz"
+                )
+            }
+            BufferSize::Default => {
+                format!("{BUFFER_HEADROOM_SECONDS} s at {sample_rate} Hz above the engine default")
+            }
+        };
+        return Err(Error::with_message(
+            ErrorKind::BackendError,
+            format!(
+                "Audio client reported a buffer of {max_frames_in_buffer} frames, more than the \
+                 {cap} frames allowed ({allowance})"
+            ),
+        ));
+    }
+    // The stream derives byte counts from these two; keep the product within the address space
+    // and under the allocation ceiling.
+    let buffer_bytes = (max_frames_in_buffer as usize).checked_mul(bytes_per_frame as usize);
+    if buffer_bytes.is_none_or(|bytes| bytes > MAX_BUFFER_BYTES) {
+        return Err(Error::with_message(
+            ErrorKind::BackendError,
+            "Audio buffer size overflows the address space or exceeds the 1 GiB ceiling",
+        ));
+    }
+    Ok(max_frames_in_buffer)
+}
+
 /// Get the default device period in frames for a shared-mode stream.
 fn shared_mode_period_frames(
     audio_client: &Audio::IAudioClient,
@@ -1463,4 +1544,44 @@ fn buffer_size_to_duration(buffer_size: &BufferSize, sample_rate: SampleRate) ->
 
 fn buffer_duration_to_frames(buffer_duration: i64, sample_rate: SampleRate) -> FrameCount {
     ((buffer_duration * sample_rate as i64 * 100 + 500_000_000) / 1_000_000_000) as FrameCount
+}
+
+// Tests below pin the overflow guard and field layout of the WAVEFORMATEXTENSIBLE
+// conversion; both are visible to real drivers only through a misconfigured stream.
+#[test]
+fn test_config_to_waveformatextensible_overflow_and_layout() {
+    let cfg = |channels: u16, sample_rate: SampleRate| StreamConfig {
+        channels,
+        sample_rate,
+        buffer_size: BufferSize::Default,
+    };
+
+    // The rate is expressible, but 2ch F64 at 300 MHz overflows the u32 nAvgBytesPerSec field.
+    assert!(config_to_waveformatextensible(cfg(2, 300_000_000), SampleFormat::F64, None).is_none());
+    // 9_000 channels of F64 overflow the u16 nBlockAlign field.
+    assert!(config_to_waveformatextensible(cfg(9_000, 48_000), SampleFormat::F64, None).is_none());
+
+    // Plain PCM path: a stereo I16 stream at 48 kHz.
+    let pcm = config_to_waveformatextensible(cfg(2, 48_000), SampleFormat::I16, None)
+        .expect("2ch I16 at 48 kHz must convert");
+    assert_eq!(pcm.Format.wFormatTag as u32, Audio::WAVE_FORMAT_PCM);
+    assert_eq!(pcm.Format.nBlockAlign as u32, 4);
+    // `WAVEFORMATEX` is packed, so read this u32 into a local instead of forming a reference to it.
+    let avg_bytes_per_sec = pcm.Format.nAvgBytesPerSec;
+    assert_eq!(avg_bytes_per_sec, 192_000);
+    assert_eq!(pcm.Format.cbSize as u32, 0);
+
+    // Extensible path: I24 rides in a 32-bit container.
+    let ext = config_to_waveformatextensible(cfg(2, 48_000), SampleFormat::I24, None)
+        .expect("2ch I24 at 48 kHz must convert");
+    assert_eq!(
+        ext.Format.wFormatTag as u32,
+        KernelStreaming::WAVE_FORMAT_EXTENSIBLE
+    );
+    assert_eq!(ext.Format.wBitsPerSample as u32, 32);
+    assert_eq!(
+        ext.Format.cbSize as u32,
+        WAVEFORMATEXTENSIBLE_EXTRA_BYTES as u32
+    );
+    assert_eq!(unsafe { ext.Samples.wValidBitsPerSample } as u32, 24);
 }

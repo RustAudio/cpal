@@ -1,6 +1,8 @@
 //! Web Audio backend implementation.
 //!
 //! Default backend on WebAssembly.
+//!
+//! The stream-build `timeout` is ignored.
 
 extern crate js_sys;
 extern crate wasm_bindgen;

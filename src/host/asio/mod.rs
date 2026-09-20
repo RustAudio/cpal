@@ -2,6 +2,8 @@
 //!
 //! ASIO is available on Windows with the `asio` feature.
 //! See the project README for setup instructions.
+//!
+//! The stream-build `timeout` is ignored.
 
 extern crate asio_sys as sys;
 
