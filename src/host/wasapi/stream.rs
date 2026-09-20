@@ -20,7 +20,9 @@ use windows::Win32::{
 use crate::{
     CallbackInfo, Data, Error, ErrorKind, FrameCount, ResultExt, SampleFormat, SampleRate,
     StreamConfig, StreamInstant, StreamTimestamp,
-    host::{ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, latch::Latch},
+    host::{
+        ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, latch::Latch, wait_for_drain,
+    },
     traits::StreamTrait,
 };
 
@@ -534,13 +536,10 @@ impl StreamTrait for Stream {
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
         self.skip_callback.store(true, Ordering::Relaxed);
 
-        if timeout != Some(Duration::ZERO) {
-            let fill = Duration::from_micros(self.fill_usec.load(Ordering::Relaxed));
-            let wait = timeout.map_or(fill, |t| fill.min(t));
-            if !wait.is_zero() {
-                std::thread::sleep(wait);
-            }
-        }
+        wait_for_drain(
+            Duration::from_micros(self.fill_usec.load(Ordering::Relaxed)),
+            timeout,
+        );
 
         self.push_command(Command::StopStream).map_err(|_| {
             Error::with_message(
@@ -694,13 +693,17 @@ fn run_input(
     }
 
     let stream = &run_ctxt.stream;
-    let scratch_len = if stream.sample_format == SampleFormat::I24 {
-        stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
-    } else {
-        // The scratch buffer won't be used in this case.
-        0 // Vec::with_capacity(0) does not allocate.
+
+    // Create a scratch buffer for holding converted I24 data and silence for
+    // packets flagged `AUDCLNT_BUFFERFLAGS_SILENT`.
+    let scratch_len = (stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize)
+        .div_ceil(size_of::<i32>());
+    let mut scratch_buffer = vec![0i32; scratch_len].into_boxed_slice();
+
+    let capture_client = match stream.client_flow {
+        AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
+        _ => unreachable!(),
     };
-    let mut scratch_buffer = vec![0; scratch_len].into_boxed_slice();
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -708,13 +711,9 @@ fn run_input(
             ControlFlow::Continue(false) => continue,
             ControlFlow::Continue(true) => {}
         }
-        let capture_client = match run_ctxt.stream.client_flow {
-            AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
-            _ => unreachable!(),
-        };
         if let Err(err) = process_input(
             &run_ctxt.stream,
-            capture_client,
+            &capture_client,
             data_callback,
             &mut scratch_buffer,
         ) {
@@ -875,10 +874,12 @@ fn process_commands_and_await_signal(
 // The loop for processing pending input data.
 fn process_input(
     stream: &StreamInner,
-    capture_client: Audio::IAudioCaptureClient,
+    capture_client: &Audio::IAudioCaptureClient,
     data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
     scratch_buffer: &mut [i32],
 ) -> Result<(), Error> {
+    let sample_size = stream.sample_format.sample_size();
+
     unsafe {
         // Get the available data in the shared buffer.
         let mut buffer: *mut u8 = ptr::null_mut();
@@ -914,26 +915,15 @@ fn process_input(
 
             debug_assert!(!buffer.is_null());
             let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
-            let data = if stream.sample_format == SampleFormat::I24 {
-                // WASAPI stores i24 in the upper bits
-                let source_data =
-                    slice::from_raw_parts(buffer.cast(), byte_count / size_of::<i32>());
-                // use a scratch buffer since the capture buffer isn't meant to be written
-                let dst = &mut scratch_buffer[..source_data.len()];
-                dst.copy_from_slice(source_data);
-                for sample in dst.iter_mut() {
-                    // On signed integers, >> is an arithmetic shift,
-                    // which ensures the correct upper bits get shifted in
-                    *sample >>= 8;
-                }
-
-                dst.as_mut_ptr().cast()
-            } else {
-                buffer.cast()
-            };
-
-            let len = byte_count / stream.sample_format.sample_size();
-            let data = Data::from_parts(data, len, stream.sample_format);
+            let silent = flags & Audio::AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
+            let data = packet_data(
+                buffer,
+                byte_count,
+                silent,
+                stream.sample_format,
+                scratch_buffer,
+            );
+            let data = Data::from_parts(data, byte_count / sample_size, stream.sample_format);
 
             if !stream.skip_callback.load(Ordering::Relaxed) {
                 // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
@@ -945,6 +935,43 @@ fn process_input(
             capture_client
                 .ReleaseBuffer(frames_available)
                 .context("Failed to release capture buffer")?;
+        }
+    }
+}
+
+// Returns the packet data to hand to the callback: silence for a packet flagged silent, converted
+// samples for I24, or the packet itself.
+//
+// Safety: `packet` must point to `byte_count` bytes that stay valid until the packet is released.
+#[inline]
+unsafe fn packet_data(
+    packet: *mut u8,
+    byte_count: usize,
+    silent: bool,
+    sample_format: SampleFormat,
+    scratch_buffer: &mut [i32],
+) -> *mut () {
+    unsafe {
+        if silent {
+            // The packet's data values must be ignored, so hand out silence instead.
+            let words = &mut scratch_buffer[..byte_count.div_ceil(size_of::<i32>())];
+            let dst = slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), byte_count);
+            fill_equilibrium(dst, sample_format);
+            dst.as_mut_ptr().cast()
+        } else if sample_format == SampleFormat::I24 {
+            // WASAPI stores i24 in the upper bits
+            let source_data = slice::from_raw_parts(packet.cast(), byte_count / size_of::<i32>());
+            // use a scratch buffer since the capture buffer isn't meant to be written
+            let dst = &mut scratch_buffer[..source_data.len()];
+            dst.copy_from_slice(source_data);
+            for sample in dst.iter_mut() {
+                // On signed integers, >> is an arithmetic shift,
+                // which ensures the correct upper bits get shifted in
+                *sample >>= 8;
+            }
+            dst.as_mut_ptr().cast()
+        } else {
+            packet.cast()
         }
     }
 }
@@ -964,17 +991,9 @@ fn process_output(
     };
 
     let padding = stream.max_frames_in_buffer - frames_available;
-    let fill_usec = (padding as u64)
-        .saturating_mul(1_000_000)
-        .saturating_div(stream.config.sample_rate as u64)
-        .saturating_add(
-            stream
-                .stream_latency
-                .as_micros()
-                .try_into()
-                .unwrap_or(u64::MAX),
-        );
-    stream.fill_usec.store(fill_usec, Ordering::Relaxed);
+    stream
+        .fill_usec
+        .store(fill_usec(stream, padding), Ordering::Relaxed);
 
     if stream.skip_callback.load(Ordering::Relaxed) {
         // Skip the period instead of queuing silence a future resume would replay.
@@ -1021,7 +1040,27 @@ fn process_output(
         *frames_written += frames_available as u64;
     }
 
+    // Republish now the write has landed, so a concurrent stop() drains the whole tail.
+    stream.fill_usec.store(
+        fill_usec(stream, padding + frames_available),
+        Ordering::Relaxed,
+    );
+
     Ok(())
+}
+
+// Time until the device has played out `frames` of queued audio, including its own latency.
+fn fill_usec(stream: &StreamInner, frames: FrameCount) -> u64 {
+    (frames as u64)
+        .saturating_mul(1_000_000)
+        .saturating_div(stream.config.sample_rate as u64)
+        .saturating_add(
+            stream
+                .stream_latency
+                .as_micros()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        )
 }
 
 /// Reads the stream's `IAudioClock` in a single `GetPosition` call, returning the callback

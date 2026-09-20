@@ -222,7 +222,6 @@ unsafe fn format_from_waveformatex_ptr(
         (8, Audio::WAVE_FORMAT_PCM) => SampleFormat::U8,
         (16, Audio::WAVE_FORMAT_PCM) => SampleFormat::I16,
         (32, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F32,
-        (64, Multimedia::WAVE_FORMAT_IEEE_FLOAT) => SampleFormat::F64,
         (n_bits, KernelStreaming::WAVE_FORMAT_EXTENSIBLE) => {
             let waveformatextensible_ptr = waveformatex_ptr as *const Audio::WAVEFORMATEXTENSIBLE;
             let sub = unsafe { (*waveformatextensible_ptr).SubFormat };
@@ -235,13 +234,11 @@ unsafe fn format_from_waveformatex_ptr(
                     24 => SampleFormat::I24,
                     32 if valid_bits == 24 => SampleFormat::I24,
                     32 => SampleFormat::I32,
-                    64 => SampleFormat::I64,
                     _ => return None,
                 }
             } else if cmp_guid(&sub, &Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) {
                 match n_bits {
                     32 => SampleFormat::F32,
-                    64 => SampleFormat::F64,
                     _ => return None,
                 }
             } else {
@@ -1370,11 +1367,9 @@ fn config_to_waveformatextensible(
     let format_tag = match sample_format {
         SampleFormat::U8 | SampleFormat::I16 => Audio::WAVE_FORMAT_PCM,
 
-        SampleFormat::I24
-        | SampleFormat::I32
-        | SampleFormat::I64
-        | SampleFormat::F32
-        | SampleFormat::F64 => KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
+        SampleFormat::I24 | SampleFormat::I32 | SampleFormat::F32 => {
+            KernelStreaming::WAVE_FORMAT_EXTENSIBLE
+        }
 
         _ => return None,
     };
@@ -1411,13 +1406,11 @@ fn config_to_waveformatextensible(
     let channel_mask = channel_mask.unwrap_or(KernelStreaming::KSAUDIO_SPEAKER_DIRECTOUT);
 
     let sub_format = match sample_format {
-        SampleFormat::U8
-        | SampleFormat::I16
-        | SampleFormat::I24
-        | SampleFormat::I32
-        | SampleFormat::I64 => KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM,
+        SampleFormat::U8 | SampleFormat::I16 | SampleFormat::I24 | SampleFormat::I32 => {
+            KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM
+        }
 
-        SampleFormat::F32 | SampleFormat::F64 => Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
+        SampleFormat::F32 => Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT,
         _ => return None,
     };
 
