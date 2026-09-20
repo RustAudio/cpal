@@ -11,6 +11,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Replace `InputCallbackInfo`/`OutputCallbackInfo` with `CallbackInfo`.
 - [ ] Replace `InputStreamTimestamp`/`OutputStreamTimestamp` with `StreamTimestamp`; `capture`/`playback` is now `device`.
 - [ ] Remove `ErrorKind::Xrun` match arms; read `CallbackInfo::xrun()` instead.
+- [ ] Update `SampleFormat` method calls to use `self` instead of `&self`; methods are now `const`.
 
 ## 1. `DeviceTrait` and `StreamTrait` require `Send + Sync`
 
@@ -92,6 +93,29 @@ Ordering of `xrun()` relative to the glitch it reports varies by host; see [`Cal
 
 [`CallbackInfo::xrun()`]: https://docs.rs/cpal/latest/cpal/struct.CallbackInfo.html#method.xrun
 
+## 5. `SampleFormat` methods made `const`, and take `self`
+
+**What changed:** `SampleFormat` methods are now constant, and don't take a reference anymore.
+
+```rust
+// Before (v0.18):
+let i16_is_int: bool = SampleFormat::I16.is_int();
+
+let mut formats = vec![SampleFormat::I16, SampleFormat::F32];
+formats.retain(SampleFormat::is_int);
+
+// After (v0.19): constant, and not referenced
+const I16_IS_INT: bool = SampleFormat::I16.is_int();
+
+let mut formats = vec![SampleFormat::I16, SampleFormat::F32];
+formats.retain(|f| f.is_int());
+```
+
+**Impact:** `SampleFormat` can now be used in a `const` environment.
+
+**Why:** `SampleFormat` is a simple enum, there was no reason why it shouldn't be const-friendly, and since every method was both `inline` and it implements `Copy`, there is no performance downside to it taking `self`, but simply more legible than dereferencing.
+
+[`SampleFormat`]: https://docs.rs/cpal/latest/cpal/enum.SampleFormat.html
 ---
 
 # Upgrading from v0.17 to v0.18
@@ -406,13 +430,13 @@ let device = host.device_by_id(&id);
 
 ```rust
 // Before (v0.17)
-for line in desc.extended() {   // &[String]
-    println!("{}", line);       // line: &String
+for line in desc.extended() { // &[String]
+    println!("{line}");       // line: &String
 }
 
 // After (v0.18)
-for line in desc.extended() {   // impl Iterator<Item = &str>
-    println!("{}", line);       // line: &str — Display, write!, format! all unchanged
+for line in desc.extended() { // impl Iterator<Item = &str>
+    println!("{line}");       // line: &str — Display, write!, format! all unchanged
 }
 ```
 
@@ -540,7 +564,7 @@ let name = device.name()?;
 
 // New: For user-facing display
 let desc = device.description()?;
-println!("Device: {}", desc);  // or desc.name() for just the name
+println!("Device: {desc}");  // or desc.name() for just the name
 
 // New: For stable identification and persistence
 let id = device.id()?;

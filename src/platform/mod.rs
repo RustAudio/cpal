@@ -43,9 +43,7 @@ pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream
 /// For example the invocation `impl_platform_host(Wasapi wasapi "WASAPI", Asio asio "ASIO")`,
 /// this macro should expand to:
 ///
-// This sample code block is marked as text because it's not a valid test,
-// it's just illustrative. (see rust issue #96573)
-/// ```text
+/// ```rust,ignore
 /// pub enum HostId {
 ///     Wasapi,
 ///     Asio,
@@ -59,7 +57,6 @@ pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream
 ///
 /// And so on for Device, Devices, Host, Stream, SupportedInputConfigs,
 /// SupportedOutputConfigs and all their necessary trait implementations.
-///
 macro_rules! impl_platform_host {
     ($($(#[cfg($feat: meta)])? $HostVariant:ident $($HostName:literal)? => $Host:ty),* $(,)?) => {
         /// All hosts supported by CPAL on this platform.
@@ -146,7 +143,7 @@ macro_rules! impl_platform_host {
         ///
         ///     // Parse host string (may fail if host is not available on this platform)
         ///     if let Ok(host_id) = HostId::from_str(host_string) {
-        ///         println!("Successfully parsed: {}", host_id);
+        ///         println!("Successfully parsed: {host_id}");
         ///     }
         /// }
         /// ```
