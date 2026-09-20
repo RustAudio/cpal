@@ -25,13 +25,13 @@ use objc2_audio_toolbox::{
 use objc2_core_audio::{
     AudioClassID, AudioDeviceID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
     AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyScope,
-    AudioObjectSetPropertyData, kAudioAggregateDeviceClassID,
+    AudioObjectSetPropertyData, AudioStreamID, kAudioAggregateDeviceClassID,
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
     kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
     kAudioDevicePropertyDeviceUID, kAudioDevicePropertyLatency,
     kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertySafetyOffset,
     kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
-    kAudioDevicePropertyTransportType, kAudioDeviceTransportTypeAVB,
+    kAudioDevicePropertyStreams, kAudioDevicePropertyTransportType, kAudioDeviceTransportTypeAVB,
     kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeAirPlay,
     kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE,
     kAudioDeviceTransportTypeBuiltIn, kAudioDeviceTransportTypeDisplayPort,
@@ -71,15 +71,71 @@ const PHYSICAL_FORMAT_ADDRESS: AudioObjectPropertyAddress = AudioObjectPropertyA
     mElement: kAudioObjectPropertyElementMain,
 };
 
-fn physical_format(
+const NOMINAL_SAMPLE_RATE_ADDRESS: AudioObjectPropertyAddress = AudioObjectPropertyAddress {
+    mSelector: kAudioDevicePropertyNominalSampleRate,
+    mScope: kAudioObjectPropertyScopeGlobal,
+    mElement: kAudioObjectPropertyElementMain,
+};
+
+const DEVICE_IS_ALIVE_ADDRESS: AudioObjectPropertyAddress = AudioObjectPropertyAddress {
+    mSelector: kAudioDevicePropertyDeviceIsAlive,
+    mScope: kAudioObjectPropertyScopeGlobal,
+    mElement: kAudioObjectPropertyElementMain,
+};
+
+/// Resolve the first `AudioStreamID` a device exposes in `scope` (Input or Output).
+///
+/// `kAudioStreamPropertyPhysicalFormat` belongs to the stream object, not the device: reads
+/// against the device happen to be forwarded by the HAL, but property-changed notifications are
+/// not, so listeners must be registered on the stream object directly.
+fn first_stream_id(
     device_id: AudioDeviceID,
+    scope: AudioObjectPropertyScope,
+) -> Result<AudioStreamID, coreaudio::Error> {
+    let address = AudioObjectPropertyAddress {
+        mSelector: kAudioDevicePropertyStreams,
+        mScope: scope,
+        mElement: kAudioObjectPropertyElementMain,
+    };
+    let mut data_size = 0u32;
+    let status = unsafe {
+        AudioObjectGetPropertyDataSize(
+            device_id,
+            NonNull::from(&address),
+            0,
+            null(),
+            NonNull::from(&mut data_size),
+        )
+    };
+    coreaudio::Error::from_os_status(status)?;
+    let n_streams = data_size as usize / size_of::<AudioStreamID>();
+    let mut stream_ids: Vec<AudioStreamID> = vec![0; n_streams];
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            device_id,
+            NonNull::from(&address),
+            0,
+            null(),
+            NonNull::from(&mut data_size),
+            NonNull::new(stream_ids.as_mut_ptr()).unwrap().cast(),
+        )
+    };
+    coreaudio::Error::from_os_status(status)?;
+    stream_ids
+        .into_iter()
+        .next()
+        .ok_or(coreaudio::Error::UnsupportedStreamFormat)
+}
+
+fn physical_format(
+    stream_id: AudioStreamID,
 ) -> Result<AudioStreamBasicDescription, coreaudio::Error> {
     let address = PHYSICAL_FORMAT_ADDRESS;
     let mut asbd = mem::MaybeUninit::<AudioStreamBasicDescription>::zeroed();
     let mut data_size = size_of::<AudioStreamBasicDescription>() as u32;
     let status = unsafe {
         AudioObjectGetPropertyData(
-            device_id,
+            stream_id,
             NonNull::from(&address),
             0,
             null(),
@@ -107,21 +163,27 @@ fn asbds_are_equal(
 
 /// Set the device's physical stream format and wait until it reports the new one.
 ///
-/// Gives up at `deadline`, or waits indefinitely if it is `None`. A failed read, such as after
-/// the device disconnects, ends the wait.
+/// Gives up at `deadline`, or waits indefinitely if it is `None`. The device disconnecting ends
+/// the wait.
 fn set_physical_stream_format(
     device_id: AudioDeviceID,
+    scope: AudioObjectPropertyScope,
     new_asbd: AudioStreamBasicDescription,
     deadline: Option<Instant>,
-) -> Result<(), coreaudio::Error> {
-    if asbds_are_equal(&physical_format(device_id)?, &new_asbd) {
+) -> Result<(), Error> {
+    let stream_id = first_stream_id(device_id, scope)?;
+    if asbds_are_equal(&physical_format(stream_id)?, &new_asbd) {
         return Ok(());
     }
+
+    // Listen before setting the format, so the change can't be missed.
+    let (receiver, _listeners) =
+        watch_property(device_id, stream_id, PHYSICAL_FORMAT_ADDRESS, physical_format)?;
 
     let address = PHYSICAL_FORMAT_ADDRESS;
     let status = unsafe {
         AudioObjectSetPropertyData(
-            device_id,
+            stream_id,
             NonNull::from(&address),
             0,
             null(),
@@ -131,13 +193,9 @@ fn set_physical_stream_format(
     };
     coreaudio::Error::from_os_status(status)?;
 
-    while !asbds_are_equal(&physical_format(device_id)?, &new_asbd) {
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            return Err(coreaudio::Error::UnsupportedStreamFormat);
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    Ok(())
+    wait_for_property(&receiver, deadline, "physical format", |asbd| {
+        asbds_are_equal(asbd, &new_asbd)
+    })
 }
 
 /// Try to find a matching physical stream format on the device and apply it.
@@ -146,18 +204,19 @@ fn set_physical_stream_format(
 /// rate without unnecessary conversions.
 fn set_physical_format(
     device_id: AudioDeviceID,
+    scope: AudioObjectPropertyScope,
     sample_rate: SampleRate,
     channels: ChannelCount,
     sample_format: SampleFormat,
     deadline: Option<Instant>,
-) -> Result<AudioStreamBasicDescription, coreaudio::Error> {
+) -> Result<AudioStreamBasicDescription, Error> {
     let core_format = match sample_format {
         SampleFormat::I8 => CoreAudioSampleFormat::I8,
         SampleFormat::I16 => CoreAudioSampleFormat::I16,
         SampleFormat::I24 => CoreAudioSampleFormat::I24,
         SampleFormat::I32 => CoreAudioSampleFormat::I32,
         SampleFormat::F32 => CoreAudioSampleFormat::F32,
-        _ => return Err(coreaudio::Error::UnsupportedStreamFormat),
+        _ => return Err(coreaudio::Error::UnsupportedStreamFormat.into()),
     };
     let stream_format = StreamFormat {
         sample_rate: sample_rate as f64,
@@ -167,7 +226,7 @@ fn set_physical_format(
     };
     let asbd = find_matching_physical_format(device_id, stream_format)
         .ok_or(coreaudio::Error::UnsupportedStreamFormat)?;
-    set_physical_stream_format(device_id, asbd, deadline).map(|_| asbd)
+    set_physical_stream_format(device_id, scope, asbd, deadline).map(|_| asbd)
 }
 
 /// Read the device's current nominal sample rate.
@@ -175,11 +234,7 @@ fn set_physical_format(
 /// "Nominal" is CoreAudio's term for the rate the device is configured to run at, as opposed to
 /// the actual rate measured from its hardware clock (`kAudioDevicePropertyActualSampleRate`).
 fn nominal_sample_rate(audio_device_id: AudioObjectID) -> Result<f64, coreaudio::Error> {
-    let property_address = AudioObjectPropertyAddress {
-        mSelector: kAudioDevicePropertyNominalSampleRate,
-        mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMain,
-    };
+    let property_address = NOMINAL_SAMPLE_RATE_ADDRESS;
     let mut sample_rate: f64 = 0.0;
     let mut data_size = mem::size_of::<f64>() as u32;
     let status = unsafe {
@@ -206,11 +261,7 @@ fn set_sample_rate(
     deadline: Option<Instant>,
 ) -> Result<(), Error> {
     let sample_rate = nominal_sample_rate(audio_device_id)?;
-    let mut property_address = AudioObjectPropertyAddress {
-        mSelector: kAudioDevicePropertyNominalSampleRate,
-        mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMain,
-    };
+    let mut property_address = NOMINAL_SAMPLE_RATE_ADDRESS;
 
     // If the requested sample rate is different to the device sample rate, update the device.
     if (sample_rate - target_sample_rate as f64).abs() >= 1.0 {
@@ -256,32 +307,13 @@ fn set_sample_rate(
             ));
         }
 
-        // Hook up both listeners before setting the rate, so that neither the new rate nor a
-        // disconnect can be missed while we wait.
-        let (sender, receiver) = channel::<RateEvent>();
-        let alive_address = AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyDeviceIsAlive,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain,
-        };
-        let alive_sender = sender.clone();
-        let _alive_listener =
-            AudioObjectPropertyListener::new(audio_device_id, alive_address, move || {
-                let _ = alive_sender.send(RateEvent::Unavailable);
-            })?;
-        let rate_address = AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyNominalSampleRate,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain,
-        };
-        let _rate_listener =
-            AudioObjectPropertyListener::new(audio_device_id, rate_address, move || {
-                let event = match nominal_sample_rate(audio_device_id) {
-                    Ok(rate) => RateEvent::Changed(rate),
-                    Err(_) => RateEvent::Unavailable,
-                };
-                let _ = sender.send(event);
-            })?;
+        // Listen before setting the rate, so that neither the new rate nor a disconnect is missed.
+        let (receiver, _listeners) = watch_property(
+            audio_device_id,
+            audio_device_id,
+            NOMINAL_SAMPLE_RATE_ADDRESS,
+            nominal_sample_rate,
+        )?;
 
         // Set the nominal sample rate.
         property_address.mSelector = kAudioDevicePropertyNominalSampleRate;
@@ -306,33 +338,61 @@ fn set_sample_rate(
     Ok(())
 }
 
-/// What the device reports while a sample rate change is pending.
-enum RateEvent {
-    /// The nominal sample rate is now this value.
-    Changed(f64),
+/// What a device reports while one of its properties is changing.
+enum PropertyEvent<T> {
+    /// The property now has this value.
+    Changed(T),
     /// The device disconnected, or can no longer be queried.
     Unavailable,
 }
 
-/// Block until the rate listener reports `target_sample_rate`, giving up at `deadline`.
+/// Report changes to a device property, and the device disconnecting, as [`PropertyEvent`]s.
 ///
-/// Notifications carrying some other rate can arrive first, so `deadline` bounds the whole wait
-/// rather than each individual receive. A `deadline` of `None` waits indefinitely, ending early
-/// only if the device disappears.
-fn wait_for_rate(
-    receiver: &Receiver<RateEvent>,
-    target_sample_rate: SampleRate,
+/// The listeners stay registered for as long as the returned guards are alive.
+/// `alive_id` is the device watched for disconnection. `target_id` is the object that actually
+/// owns `address`: the device itself, or one of its streams.
+fn watch_property<T: Send + 'static>(
+    alive_id: AudioDeviceID,
+    target_id: AudioObjectID,
+    address: AudioObjectPropertyAddress,
+    read: fn(AudioObjectID) -> Result<T, coreaudio::Error>,
+) -> Result<(Receiver<PropertyEvent<T>>, [AudioObjectPropertyListener; 2]), Error> {
+    let (sender, receiver) = channel();
+    let alive_sender = sender.clone();
+    let alive = AudioObjectPropertyListener::new(alive_id, DEVICE_IS_ALIVE_ADDRESS, move || {
+        let _ = alive_sender.send(PropertyEvent::Unavailable);
+    })?;
+    let changed = AudioObjectPropertyListener::new(target_id, address, move || {
+        let event = read(target_id).map_or(PropertyEvent::Unavailable, PropertyEvent::Changed);
+        let _ = sender.send(event);
+    })?;
+    Ok((receiver, [alive, changed]))
+}
+
+/// Block until a reported value satisfies `is_target`, giving up at `deadline`.
+///
+/// Other values can be reported first, so `deadline` bounds the whole wait rather than each
+/// individual receive. A `deadline` of `None` waits indefinitely, ending early only if the device
+/// disappears.
+fn wait_for_property<T>(
+    receiver: &Receiver<PropertyEvent<T>>,
     deadline: Option<Instant>,
+    what: &str,
+    mut is_target: impl FnMut(&T) -> bool,
 ) -> Result<(), Error> {
+    let timed_out = || {
+        Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            format!("Timed out waiting for the {what} to change"),
+        )
+    };
+
     loop {
         let received = match deadline {
             Some(deadline) => {
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
-                    return Err(Error::with_message(
-                        ErrorKind::DeviceNotAvailable,
-                        "Sample rate update timed out",
-                    ));
+                    return Err(timed_out());
                 }
                 receiver.recv_timeout(remaining)
             }
@@ -340,31 +400,37 @@ fn wait_for_rate(
         };
 
         match received {
-            Ok(RateEvent::Changed(reported_rate)) => {
-                if (reported_rate - target_sample_rate as f64).abs() < 1.0 {
+            Ok(PropertyEvent::Changed(value)) => {
+                if is_target(&value) {
                     return Ok(());
                 }
             }
-            Ok(RateEvent::Unavailable) => {
+            Ok(PropertyEvent::Unavailable) => {
                 return Err(Error::with_message(
                     ErrorKind::DeviceNotAvailable,
-                    "Device disconnected while updating sample rate",
+                    format!("Device disconnected while updating the {what}"),
                 ));
             }
-            Err(RecvTimeoutError::Timeout) => {
-                return Err(Error::with_message(
-                    ErrorKind::DeviceNotAvailable,
-                    "Sample rate update timed out",
-                ));
-            }
+            Err(RecvTimeoutError::Timeout) => return Err(timed_out()),
             Err(RecvTimeoutError::Disconnected) => {
                 return Err(Error::with_message(
                     ErrorKind::StreamInvalidated,
-                    "Sample rate listener disconnected unexpectedly",
+                    format!("Listener for the {what} disconnected unexpectedly"),
                 ));
             }
         }
     }
+}
+
+/// Block until the device reports `target_sample_rate`, giving up at `deadline`.
+fn wait_for_rate(
+    receiver: &Receiver<PropertyEvent<f64>>,
+    target_sample_rate: SampleRate,
+    deadline: Option<Instant>,
+) -> Result<(), Error> {
+    wait_for_property(receiver, deadline, "sample rate", |rate| {
+        (rate - target_sample_rate as f64).abs() < 1.0
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -945,6 +1011,7 @@ impl Device {
         // if the closest match found doesn't actually run at the requested rate.
         if !set_physical_format(
             self.audio_device_id,
+            kAudioObjectPropertyScopeInput,
             config.sample_rate,
             config.channels,
             sample_format,
@@ -1100,6 +1167,7 @@ impl Device {
         // closest match found doesn't actually run at the requested rate.
         if !set_physical_format(
             self.audio_device_id,
+            kAudioObjectPropertyScopeOutput,
             config.sample_rate,
             config.channels,
             sample_format,
@@ -1402,7 +1470,7 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::time::{Duration, Instant};
 
-    use super::{RateEvent, wait_for_rate};
+    use super::{PropertyEvent, wait_for_rate};
 
     /// A listener can report rates other than the target before it reports the new one, e.g. a
     /// device stepping through rates. The whole timeout must remain available across those.
@@ -1410,9 +1478,9 @@ mod tests {
     fn wait_for_rate_honours_the_full_timeout_across_repeated_events() {
         const TIMEOUT: Duration = Duration::from_millis(50);
 
-        let (sender, receiver) = channel::<RateEvent>();
+        let (sender, receiver) = channel::<PropertyEvent<f64>>();
         let feeder = std::thread::spawn(move || {
-            while sender.send(RateEvent::Changed(44_100.0)).is_ok() {
+            while sender.send(PropertyEvent::Changed(44_100.0)).is_ok() {
                 std::thread::sleep(Duration::from_millis(1));
             }
         });
@@ -1432,9 +1500,9 @@ mod tests {
 
     #[test]
     fn wait_for_rate_returns_when_the_target_rate_is_reported() {
-        let (sender, receiver) = channel::<RateEvent>();
-        sender.send(RateEvent::Changed(44_100.0)).unwrap();
-        sender.send(RateEvent::Changed(48_000.0)).unwrap();
+        let (sender, receiver) = channel::<PropertyEvent<f64>>();
+        sender.send(PropertyEvent::Changed(44_100.0)).unwrap();
+        sender.send(PropertyEvent::Changed(48_000.0)).unwrap();
 
         assert!(
             wait_for_rate(
@@ -1450,10 +1518,10 @@ mod tests {
     #[test]
     fn wait_for_rate_ends_early_on_disconnect() {
         for timeout in [None, Some(Duration::from_secs(30))] {
-            let (sender, receiver) = channel::<RateEvent>();
+            let (sender, receiver) = channel::<PropertyEvent<f64>>();
             let disconnect = std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(20));
-                sender.send(RateEvent::Unavailable).unwrap();
+                sender.send(PropertyEvent::Unavailable).unwrap();
             });
 
             let start = Instant::now();
