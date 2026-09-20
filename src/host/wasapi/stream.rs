@@ -20,7 +20,9 @@ use windows::Win32::{
 use crate::{
     CallbackInfo, Data, Error, ErrorKind, FrameCount, ResultExt, SampleFormat, SampleRate,
     StreamConfig, StreamInstant, StreamTimestamp,
-    host::{ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, latch::Latch},
+    host::{
+        ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, latch::Latch, wait_for_drain,
+    },
     traits::StreamTrait,
 };
 
@@ -534,13 +536,10 @@ impl StreamTrait for Stream {
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
         self.skip_callback.store(true, Ordering::Relaxed);
 
-        if timeout != Some(Duration::ZERO) {
-            let fill = Duration::from_micros(self.fill_usec.load(Ordering::Relaxed));
-            let wait = timeout.map_or(fill, |t| fill.min(t));
-            if !wait.is_zero() {
-                std::thread::sleep(wait);
-            }
-        }
+        wait_for_drain(
+            Duration::from_micros(self.fill_usec.load(Ordering::Relaxed)),
+            timeout,
+        );
 
         self.push_command(Command::StopStream).map_err(|_| {
             Error::with_message(
