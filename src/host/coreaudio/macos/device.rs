@@ -14,8 +14,8 @@ use coreaudio::audio_unit::{
     AudioUnit, Element, SampleFormat as CoreAudioSampleFormat, Scope, StreamFormat,
     audio_format::LinearPcmFlags,
     macos_helpers::{
-        RateListener, audio_unit_from_device_id_uninitialized, find_matching_physical_format,
-        get_device_name, get_supported_physical_stream_formats, set_device_physical_stream_format,
+        audio_unit_from_device_id_uninitialized, find_matching_physical_format, get_device_name,
+        get_supported_physical_stream_formats, set_device_physical_stream_format,
     },
     render_callback::{self, data},
 };
@@ -27,15 +27,15 @@ use objc2_core_audio::{
     AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyScope,
     AudioObjectSetPropertyData, kAudioAggregateDeviceClassID,
     kAudioDevicePropertyAvailableNominalSampleRates, kAudioDevicePropertyBufferFrameSize,
-    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceUID,
-    kAudioDevicePropertyLatency, kAudioDevicePropertyNominalSampleRate,
-    kAudioDevicePropertySafetyOffset, kAudioDevicePropertyStreamConfiguration,
-    kAudioDevicePropertyStreamFormat, kAudioDevicePropertyTransportType,
-    kAudioDeviceTransportTypeAVB, kAudioDeviceTransportTypeAggregate,
-    kAudioDeviceTransportTypeAirPlay, kAudioDeviceTransportTypeBluetooth,
-    kAudioDeviceTransportTypeBluetoothLE, kAudioDeviceTransportTypeBuiltIn,
-    kAudioDeviceTransportTypeDisplayPort, kAudioDeviceTransportTypeFireWire,
-    kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypePCI,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioDevicePropertyDeviceIsAlive,
+    kAudioDevicePropertyDeviceUID, kAudioDevicePropertyLatency,
+    kAudioDevicePropertyNominalSampleRate, kAudioDevicePropertySafetyOffset,
+    kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyStreamFormat,
+    kAudioDevicePropertyTransportType, kAudioDeviceTransportTypeAVB,
+    kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeAirPlay,
+    kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE,
+    kAudioDeviceTransportTypeBuiltIn, kAudioDeviceTransportTypeDisplayPort,
+    kAudioDeviceTransportTypeFireWire, kAudioDeviceTransportTypeHDMI, kAudioDeviceTransportTypePCI,
     kAudioDeviceTransportTypeThunderbolt, kAudioDeviceTransportTypeUSB,
     kAudioDeviceTransportTypeVirtual, kAudioObjectPropertyClass, kAudioObjectPropertyElementMain,
     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyScopeInput,
@@ -49,7 +49,7 @@ use objc2_core_foundation::{CFRetained, CFString};
 pub use super::enumerate::{SupportedInputConfigs, SupportedOutputConfigs};
 use super::{
     DefaultOutputMonitor, DisconnectManager, Monitor, Stream, asbd_from_config, check_os_status,
-    host_time_to_stream_instant,
+    host_time_to_stream_instant, property_listener::AudioObjectPropertyListener,
 };
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
@@ -94,17 +94,12 @@ fn set_physical_format(
     set_device_physical_stream_format(device_id, asbd).map(|_| asbd)
 }
 
-/// Set the device's nominal sample rate via `kAudioDevicePropertyNominalSampleRate`.
+/// Read the device's current nominal sample rate.
 ///
-/// Unlike [`set_physical_format`], this only changes the device clock rate. The AudioUnit bridges
-/// any remaining format difference to the virtual stream format seen by the callback.
-fn set_sample_rate(
-    audio_device_id: AudioObjectID,
-    target_sample_rate: SampleRate,
-    timeout: Option<Duration>,
-) -> Result<(), Error> {
-    // Get the current sample rate.
-    let mut property_address = AudioObjectPropertyAddress {
+/// "Nominal" is CoreAudio's term for the rate the device is configured to run at, as opposed to
+/// the actual rate measured from its hardware clock (`kAudioDevicePropertyActualSampleRate`).
+fn nominal_sample_rate(audio_device_id: AudioObjectID) -> Result<f64, coreaudio::Error> {
+    let property_address = AudioObjectPropertyAddress {
         mSelector: kAudioDevicePropertyNominalSampleRate,
         mScope: kAudioObjectPropertyScopeGlobal,
         mElement: kAudioObjectPropertyElementMain,
@@ -122,6 +117,24 @@ fn set_sample_rate(
         )
     };
     coreaudio::Error::from_os_status(status)?;
+    Ok(sample_rate)
+}
+
+/// Set the device's nominal sample rate via `kAudioDevicePropertyNominalSampleRate`.
+///
+/// Unlike [`set_physical_format`], this only changes the device clock rate. The AudioUnit bridges
+/// any remaining format difference to the virtual stream format seen by the callback.
+fn set_sample_rate(
+    audio_device_id: AudioObjectID,
+    target_sample_rate: SampleRate,
+    timeout: Option<Duration>,
+) -> Result<(), Error> {
+    let sample_rate = nominal_sample_rate(audio_device_id)?;
+    let mut property_address = AudioObjectPropertyAddress {
+        mSelector: kAudioDevicePropertyNominalSampleRate,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain,
+    };
 
     // If the requested sample rate is different to the device sample rate, update the device.
     if (sample_rate - target_sample_rate as f64).abs() >= 1.0 {
@@ -167,10 +180,32 @@ fn set_sample_rate(
             ));
         }
 
-        // Register the listener before setting the property so we don't miss the notification.
-        let (sender, receiver) = channel::<f64>();
-        let mut listener = RateListener::new(audio_device_id, Some(sender));
-        listener.register()?;
+        // Hook up both listeners before setting the rate, so that neither the new rate nor a
+        // disconnect can be missed while we wait.
+        let (sender, receiver) = channel::<RateEvent>();
+        let alive_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let alive_sender = sender.clone();
+        let _alive_listener =
+            AudioObjectPropertyListener::new(audio_device_id, alive_address, move || {
+                let _ = alive_sender.send(RateEvent::Unavailable);
+            })?;
+        let rate_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let _rate_listener =
+            AudioObjectPropertyListener::new(audio_device_id, rate_address, move || {
+                let event = match nominal_sample_rate(audio_device_id) {
+                    Ok(rate) => RateEvent::Changed(rate),
+                    Err(_) => RateEvent::Unavailable,
+                };
+                let _ = sender.send(event);
+            })?;
 
         // Set the nominal sample rate.
         property_address.mSelector = kAudioDevicePropertyNominalSampleRate;
@@ -190,17 +225,26 @@ fn set_sample_rate(
 
         // Wait for the reported_rate to change. This should not take longer than a few ms.
         wait_for_rate(&receiver, target_sample_rate, timeout)?;
-        // listener dropped here; its Drop impl calls unregister() automatically.
+        // listeners are removed when they drop here
     }
     Ok(())
+}
+
+/// What the device reports while a sample rate change is pending.
+enum RateEvent {
+    /// The nominal sample rate is now this value.
+    Changed(f64),
+    /// The device disconnected, or can no longer be queried.
+    Unavailable,
 }
 
 /// Block until the rate listener reports `target_sample_rate`, giving up after `timeout`.
 ///
 /// Notifications carrying some other rate can arrive first, so `timeout` bounds the whole wait
-/// rather than each individual receive. A `timeout` of `None` waits indefinitely.
+/// rather than each individual receive. A `timeout` of `None` waits indefinitely, ending early
+/// only if the device disappears.
 fn wait_for_rate(
-    receiver: &Receiver<f64>,
+    receiver: &Receiver<RateEvent>,
     target_sample_rate: SampleRate,
     timeout: Option<Duration>,
 ) -> Result<(), Error> {
@@ -222,10 +266,16 @@ fn wait_for_rate(
         };
 
         match received {
-            Ok(reported_rate) => {
+            Ok(RateEvent::Changed(reported_rate)) => {
                 if (reported_rate - target_sample_rate as f64).abs() < 1.0 {
                     return Ok(());
                 }
+            }
+            Ok(RateEvent::Unavailable) => {
+                return Err(Error::with_message(
+                    ErrorKind::DeviceNotAvailable,
+                    "Device disconnected while updating sample rate",
+                ));
             }
             Err(RecvTimeoutError::Timeout) => {
                 return Err(Error::with_message(
@@ -1270,7 +1320,7 @@ mod tests {
     use std::sync::mpsc::channel;
     use std::time::{Duration, Instant};
 
-    use super::wait_for_rate;
+    use super::{RateEvent, wait_for_rate};
 
     /// A listener can report rates other than the target before it reports the new one, e.g. a
     /// device stepping through rates. The whole timeout must remain available across those.
@@ -1278,9 +1328,9 @@ mod tests {
     fn wait_for_rate_honours_the_full_timeout_across_repeated_events() {
         const TIMEOUT: Duration = Duration::from_millis(50);
 
-        let (sender, receiver) = channel::<f64>();
+        let (sender, receiver) = channel::<RateEvent>();
         let feeder = std::thread::spawn(move || {
-            while sender.send(44_100.0).is_ok() {
+            while sender.send(RateEvent::Changed(44_100.0)).is_ok() {
                 std::thread::sleep(Duration::from_millis(1));
             }
         });
@@ -1300,10 +1350,32 @@ mod tests {
 
     #[test]
     fn wait_for_rate_returns_when_the_target_rate_is_reported() {
-        let (sender, receiver) = channel::<f64>();
-        sender.send(44_100.0).unwrap();
-        sender.send(48_000.0).unwrap();
+        let (sender, receiver) = channel::<RateEvent>();
+        sender.send(RateEvent::Changed(44_100.0)).unwrap();
+        sender.send(RateEvent::Changed(48_000.0)).unwrap();
 
         assert!(wait_for_rate(&receiver, 48_000, Some(Duration::from_secs(5))).is_ok());
+    }
+
+    /// The wait must end when the device disappears, whether it is unbounded or has a long timeout.
+    #[test]
+    fn wait_for_rate_ends_early_on_disconnect() {
+        for timeout in [None, Some(Duration::from_secs(30))] {
+            let (sender, receiver) = channel::<RateEvent>();
+            let disconnect = std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                sender.send(RateEvent::Unavailable).unwrap();
+            });
+
+            let start = Instant::now();
+            assert!(wait_for_rate(&receiver, 48_000, timeout).is_err());
+            let elapsed = start.elapsed();
+            disconnect.join().unwrap();
+
+            assert!(
+                elapsed < Duration::from_secs(5),
+                "waited {elapsed:?} with timeout {timeout:?}"
+            );
+        }
     }
 }
