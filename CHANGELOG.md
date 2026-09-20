@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed the `wasm-beep` and `audioworklet-beep` examples to `webaudio` and `audioworklet`.
 - **ALSA**: Update `alsa` dependency to 0.12.
 - **CoreAudio**: `DeviceDescription::interface_type()` now reports the device transport instead of only marking aggregate devices.
+- **CoreAudio**: A `None` timeout now waits indefinitely for sample rate and format changes, instead of giving up after 1 or 2 seconds.
 - **Linux**: `realtime` can now promote threads without requiring `realtime-dbus`.
 - **PipeWire**: Set `node.rate` property so that `default.clock.allowed-rates` PipeWire config works.
 
@@ -59,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: Fix `supported_configs()` only reporting `F32`, even on hardware that also supports other sample formats.
 - **CoreAudio**: Fix sample rate changes timing out early when the device reports other rates first.
 - **CoreAudio**: Fix sample rate changes waiting on a device that has been disconnected.
+- **CoreAudio**: Fix stream creation taking longer than the timeout while the device changes format.
 - **CoreAudio**: Fix timestamps going stale when the device's buffer size changes during a stream.
 - **iOS**: Fix timestamps and `buffer_size()` being off when the stream sample rate differs from the hardware rate.
 - **JACK**: Channel enumeration is capped at the physical system port count again.
