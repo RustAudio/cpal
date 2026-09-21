@@ -119,7 +119,6 @@ macro_rules! impl_platform_host {
         /// - `"coreaudio"` - CoreAudio
         /// - `"custom"` - Custom host (requires `custom` feature)
         /// - `"jack"` - JACK Audio Connection Kit
-        /// - `"null"` - Null host
         /// - `"wasapi"` - Windows Audio Session API
         /// - `"webaudio"` - Web Audio API
         ///
@@ -1010,17 +1009,20 @@ mod platform_impl {
     ),
 )))]
 mod platform_impl {
-    use crate::host::null::Host as NullHost;
-
     impl_platform_host!(
-        Null => NullHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 
     /// The default host for the current compilation target platform.
+    #[cfg(feature = "custom")]
     pub fn default_host() -> Host {
-        NullHost::new()
+        super::CustomHost::new()
             .expect("the default host should always be available")
             .into()
+    }
+
+    #[cfg(not(feature = "custom"))]
+    pub fn default_host() -> Host {
+        compile_error!("The current compilation target has no audio backends, or a custom host")
     }
 }

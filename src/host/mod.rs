@@ -86,22 +86,6 @@ pub(crate) mod webaudio;
 #[cfg(feature = "custom")]
 pub(crate) mod custom;
 
-#[cfg(not(any(
-    windows,
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_vendor = "apple",
-    target_os = "android",
-    all(
-        target_arch = "wasm32",
-        any(target_os = "emscripten", target_os = "unknown"),
-        feature = "wasm-bindgen"
-    ),
-)))]
-pub(crate) mod null;
-
 #[cfg(any(
     target_vendor = "apple",
     target_os = "windows",
