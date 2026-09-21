@@ -12,6 +12,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Replace `InputStreamTimestamp`/`OutputStreamTimestamp` with `StreamTimestamp`; `capture`/`playback` is now `device`.
 - [ ] Remove `ErrorKind::Xrun` match arms; read `CallbackInfo::xrun()` instead.
 - [ ] Update `SampleFormat` method calls to use `self` instead of `&self`; methods are now `const`.
+- [ ] If you relied on the `Null` host exisiting on exotic targets, `cfg()` gate `default_host()`, or impl a `Custom` host.
 
 ## 1. `DeviceTrait` and `StreamTrait` require `Send + Sync`
 
@@ -116,6 +117,28 @@ formats.retain(|f| f.is_int());
 **Why:** `SampleFormat` is a simple enum, there was no reason why it shouldn't be const-friendly, and since every method was both `inline` and it implements `Copy`, there is no performance downside to it taking `self`, but simply more legible than dereferencing.
 
 [`SampleFormat`]: https://docs.rs/cpal/latest/cpal/enum.SampleFormat.html
+
+## 6. `Null` host removed.
+
+**What changed:** The `Null` host was removed.
+
+```rust
+// Target: x86_64-unknown-illumos
+
+// Before (v0.18):
+let host = cpal::default_host();
+
+let device = host.default_output_device().unwrap();
+// Panic: No output devices
+
+// After (v0.19): no longer compiles
+let host = cpal::default_host();
+// Compilation error: No audio hosts
+```
+
+**Impact:** Compilations on targets without cpal audio backends must either gate it, or implement a `Custom` host.
+
+**Why:** `Null` served no purpose except to allow compilations to succeed, when in reality, cpal already had specific platform restrictions, and as such it is no longer required.
 ---
 
 # Upgrading from v0.17 to v0.18

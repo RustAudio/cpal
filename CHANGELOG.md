@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StreamInstant` creation is now `const`.
 - `SampleFormat` methods are now `const`, and take `self`.
 - Renamed the `wasm-beep` and `audioworklet-beep` examples to `webaudio` and `audioworklet`.
+- **Null**: Removed the null host.
 - **ALSA**: Update `alsa` dependency to 0.12.
 - **CoreAudio**: `DeviceDescription::interface_type()` now reports the device transport instead of only marking aggregate devices.
 - **CoreAudio**: A `None` timeout now waits indefinitely for sample rate and format changes, instead of giving up after 1 or 2 seconds.
