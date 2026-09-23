@@ -86,7 +86,7 @@ pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream
 /// SupportedOutputConfigs and all their necessary trait implementations.
 ///
 macro_rules! impl_platform_host {
-    ($($(#[cfg($feat: meta)])? $HostVariant:ident $($HostName:literal)? => $Host:ty),* $(,)?) => {
+    ($($(#[cfg($feat: meta)])? $HostVariant:ident => $Host:ty),* $(,)?) => {
         /// All hosts supported by CPAL on this platform.
         pub(crate) const SUPPORTED_HOSTS: &[HostId] = &[
             $(
@@ -812,8 +812,8 @@ mod platform_impl {
     impl_platform_host!(
         #[cfg(feature = "pipewire")] PipeWire => PipeWireHost,
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
-        #[cfg(feature = "jack")] Jack "JACK" => JackHost,
-        Alsa "ALSA" => AlsaHost,
+        #[cfg(feature = "jack")] Jack => JackHost,
+        Alsa => AlsaHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 

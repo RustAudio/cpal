@@ -87,7 +87,7 @@ impl Default for HostId {
 
 impl std::fmt::Display for HostId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.name())
+        f.write_str(&self.name().to_ascii_lowercase())
     }
 }
 
@@ -170,6 +170,10 @@ impl TryFrom<HostId> for platform::Host {
     }
 }
 
+/// An iterator over the `HostId`s which correspond to a host that is currently available.
+///
+/// See [`available_hosts`] for more.
+#[derive(Debug, Clone)]
 pub struct AvailableHostsIter(std::slice::Iter<'static, HostId>);
 
 impl Iterator for AvailableHostsIter {
