@@ -10,6 +10,27 @@ pub use host_id::{AvailableHostsIter, HostId, default_host};
 
 pub use self::platform_impl::*;
 
+/// Produces a list of hosts that are currently available on the system.
+#[deprecated(since = "0.19.0", note = "Use `HostId::available_hosts` instead.")]
+pub fn available_hosts() -> Vec<HostId> {
+    HostId::available_hosts().collect::<_>()
+}
+
+/// Given a unique host identifier, initialise and produce the host if it is available.
+///
+/// # Errors
+///
+/// - [`ErrorKind::HostUnavailable`] if the host identified by `id` is not currently
+///   reachable (e.g. the audio daemon is not running).
+/// - [`ErrorKind::BackendError`] for unclassifiable initialization failures.
+///
+/// [`ErrorKind::HostUnavailable`]: crate::ErrorKind::HostUnavailable
+/// [`ErrorKind::BackendError`]: crate::ErrorKind::BackendError
+#[deprecated(since = "0.19.0", note = "Use `Host::try_from` instead.")]
+pub fn host_from_id(id: HostId) -> Result<Host, crate::Error> {
+    Host::try_from(id)
+}
+
 #[cfg(all(
     feature = "jack",
     any(
