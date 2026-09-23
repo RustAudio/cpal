@@ -838,7 +838,7 @@ mod platform_impl {
 
     impl_platform_host!(
         CoreAudio => CoreAudioHost,
-        #[cfg(all(feature = "jack", target_os = "macos"))] Jack "JACK" => JackHost,
+        #[cfg(all(feature = "jack", target_os = "macos"))] Jack => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 
@@ -881,9 +881,9 @@ mod platform_impl {
     use crate::platform::HostId;
 
     impl_platform_host!(
-        #[cfg(feature = "asio")] Asio "ASIO" => AsioHost,
-        Wasapi "WASAPI" => WasapiHost,
-        #[cfg(feature = "jack")] Jack "JACK" => JackHost,
+        #[cfg(feature = "asio")] Asio => AsioHost,
+        Wasapi => WasapiHost,
+        #[cfg(feature = "jack")] Jack => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 
