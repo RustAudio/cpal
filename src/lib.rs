@@ -213,8 +213,8 @@ pub use device_description::{
 };
 pub use error::*;
 pub use platform::{
-    ALL_HOSTS, Device, Devices, Host, HostId, Stream, SupportedInputConfigs,
-    SupportedOutputConfigs, available_hosts, default_host, host_from_id,
+    Device, Devices, Host, HostId, Stream, SupportedInputConfigs, SupportedOutputConfigs,
+    default_host,
 };
 pub use sample_format::{FromSample, I24, Sample, SampleFormat, SizedSample, U24};
 #[cfg(all(
