@@ -1,12 +1,17 @@
 use super::SupportedConfigs;
 use super::buffer;
-use super::utils::CpalResult;
+use super::utils::{CpalResult, err};
+use crate::ErrorKind::*;
 use crate::*;
+use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
+use tap::Pipe;
 
 #[derive(Debug)]
-pub struct Session;
+pub struct Session {
+    stage: RwLock<Stage>,
+}
 
 impl Session {
     pub fn id(&self) -> DeviceId {
@@ -43,19 +48,63 @@ impl Session {
         data_cb    : data_cb_type!(),
         error_cb   : error_cb_type!(),
     ) -> CpalResult<super::Stream> {
-        todo!()
+        let mut stage = self.stage.write();
+
+        match *stage {
+            Stage::Loaded          => return err(DeviceNotAvailable, "ASIO driver failed to initialize"),
+            Stage::Initialized     => (), // this is the appropiate stage for calling this function
+            Stage::Prepared { .. } => return err(UnsupportedOperation, "ASIO only supports 1 stream per device, and there already exists a stream for this device"),
+        }
+
+        todo!();
+
+        *stage = Stage::Prepared {
+            running: false
+        };
+
+        super::Stream {
+            session: Arc::clone(self),
+        }
+        .pipe(Ok)
     }
 
     pub fn start(&self) -> CpalResult<()> {
-        todo!()
+        let mut stage = self.stage.write();
+
+        if *stage.running()? {
+            return Ok(());
+        }
+
+        todo!();
+
+        *stage.running()? = true;
+        Ok(())
     }
 
     pub fn pause(&self) -> CpalResult<()> {
-        todo!()
+        let mut stage = self.stage.write();
+
+        if !*stage.running()? {
+            return Ok(());
+        }
+
+        todo!();
+
+        *stage.running()? = false;
+        Ok(())
     }
 
     pub fn stop(&self, max_wait: Option<Duration>) -> CpalResult<()> {
-        todo!()
+        let mut stage = self.stage.write();
+
+        if !*stage.running()? {
+            return Ok(());
+        }
+
+        todo!();
+
+        *stage.running()? = false;
+        Ok(())
     }
 
     pub fn now(&self) -> StreamInstant {
@@ -63,6 +112,34 @@ impl Session {
     }
 
     pub fn reset(&self) -> CpalResult<()> {
-        todo!()
+        let mut stage = self.stage.write();
+
+        if *stage.running()? {
+            todo!();
+        }
+
+        todo!();
+
+        *stage = Stage::Initialized;
+        Ok(())
+    }
+}
+
+/// ASIO lifecycle stage (see ASIO specification section II.2)
+#[derive(Debug)]
+pub enum Stage {
+    Loaded,
+    Initialized,
+    Prepared {
+        running: bool,
+    },
+}
+
+impl Stage {
+    fn running(&mut self) -> CpalResult<&mut bool> {
+        match self {
+            Self::Prepared { running } => Ok(running),
+            _ => err(Other, "BUG! This branch should be unreachable"),
+        }
     }
 }
