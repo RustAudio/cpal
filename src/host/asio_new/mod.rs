@@ -6,9 +6,14 @@ use self::utils::CpalResult;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::*;
 use std::fmt;
+use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::time::Duration;
-
+use tap::prelude::*;
+use self::driver::Session;
 mod utils;
+mod driver;
 
 #[derive(Debug, Clone)]
 pub struct Host();
@@ -58,12 +63,34 @@ impl Iterator for Devices {
 
 pub type SupportedConfigs = !; // todo
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Device();
+#[derive(Debug)]
+pub struct Device(Arc<Session>);
+
+impl Clone for Device {
+    fn clone(&self) -> Self {
+        self.0
+            .pipe_ref(Arc::clone)
+            .pipe(Self)
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for Device {}
+
+impl Hash for Device {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state);
+    }
+}
 
 impl fmt::Display for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        f.write_str(&self.0.display_name())
     }
 }
 
@@ -73,39 +100,39 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn description(&self) -> CpalResult<DeviceDescription> {
-        todo!()
+        self.0.description()
     }
 
     fn id(&self) -> CpalResult<DeviceId> {
-        todo!()
+        self.0.id().pipe(Ok)
     }
 
     fn supported_input_configs(&self) -> CpalResult<Self::SupportedInputConfigs> {
-        todo!()
+        self.0.supported_configs::<true>()
     }
 
     fn supported_output_configs(&self) -> CpalResult<Self::SupportedOutputConfigs> {
-        todo!()
+        self.0.supported_configs::<false>()
     }
 
     fn default_input_config(&self) -> CpalResult<SupportedStreamConfig> {
-        todo!()
+        self.0.default_config::<true>()
     }
 
     fn default_output_config(&self) -> CpalResult<SupportedStreamConfig> {
-        todo!()
+        self.0.default_config::<false>()
     }
 
     fn supports_input(&self) -> bool {
-        todo!()
+        self.0.supports_direction::<true, false>()
     }
 
     fn supports_output(&self) -> bool {
-        todo!()
+        self.0.supports_direction::<false, true>()
     }
 
     fn supports_duplex(&self) -> bool {
-        todo!()
+        self.0.supports_direction::<true, true>()
     }
 
     fn build_input_stream_raw<DataCb, ErrorCb>(
@@ -184,23 +211,25 @@ impl DeviceTrait for Device {
 }
 
 #[derive(Debug)]
-pub struct Stream;
+pub struct Stream {
+    session: Arc<Session>,
+}
 
 impl StreamTrait for Stream {
     fn start(&self) -> CpalResult<()> {
-        todo!()
+        self.session.start()
     }
 
     fn pause(&self) -> CpalResult<()> {
-        todo!()
+        self.session.pause()
     }
 
     fn stop(&self, timeout: Option<Duration>) -> CpalResult<()> {
-        todo!()
+        self.session.stop(timeout)
     }
 
     fn now(&self) -> StreamInstant {
-        todo!()
+        self.session.now()
     }
 
     fn buffer_size(&self) -> CpalResult<FrameCount> {
