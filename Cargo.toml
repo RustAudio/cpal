@@ -37,7 +37,7 @@ asio = ["dep:asio-sys", "dep:num-traits"]
 # Experimental ASIO implementation with multi-driver support and no external build requirements.
 # Requires: ASIO drivers
 # Platform: Windows
-asio-new = ["dep:parking_lot", "dep:tap"]
+asio-new = ["dep:azo", "dep:parking_lot", "dep:tap"]
 
 # Audio Worklet backend for WebAssembly
 # Provides lower-latency web audio processing compared to default Web Audio API
@@ -137,6 +137,7 @@ windows = { version = "0.62", features = [
 ] }
 audio_thread_priority = { version = "0.36", optional = true, default-features = false }
 asio-sys = { version = "0.5.0", path = "asio-sys", optional = true }
+azo = { version = "0.4.0", features = ["host"], optional = true }
 num-traits = { version = "0.2", optional = true }
 parking_lot = { version = "0.12.5", optional = true }
 tap = { version = "1.0.1", optional = true }

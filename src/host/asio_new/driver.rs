@@ -3,17 +3,76 @@ use super::buffer;
 use super::utils::{CpalResult, err};
 use crate::ErrorKind::*;
 use crate::*;
-use parking_lot::RwLock;
-use std::sync::Arc;
+use azo::WinResult;
+use azo::driver::{Driver, Proxy};
+use azo::utils::Host as AzoHost;
+use azo::windows_core::GUID;
+use parking_lot::{Mutex, RwLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tap::Pipe;
 
+/// Keeps track of all created [`Session`]s to prevent creating
+/// multiple instances of the same driver in the same `AzoHost`
+#[derive(Debug)]
+pub struct Factory {
+    azo_host: Arc<AzoHost>,
+    cache: Mutex<HashMap<GUID, Weak<Session>>>,
+}
+
+impl Factory {
+    pub fn new() -> Self {
+        Self {
+            azo_host: AzoHost::new(),
+            cache: Mutex::default(),
+        }
+    }
+
+    pub fn get_session(&self, clsid: &GUID) -> WinResult<Arc<Session>> {
+        let mut guard = self.cache.lock();
+
+        if let Some(existing) = guard.get(clsid).and_then(Weak::upgrade) {
+            return Ok(existing);
+        }
+
+        let driver = self
+            .azo_host
+            .create_driver(*clsid)?
+            .pipe(Handle);
+
+        let new = Session
+            ::new(driver)?
+            .pipe(Arc::new);
+
+        guard.insert(*clsid, Arc::downgrade(&new));
+
+        Ok(new)
+    }
+}
+
+#[derive(Debug)]
+struct Handle(Proxy);
+
 #[derive(Debug)]
 pub struct Session {
+    driver: Handle,
     stage: RwLock<Stage>,
 }
 
 impl Session {
+    fn new(driver: Handle) -> WinResult<Self> {
+        let stage =
+            if driver.0.init(None) { Stage::Initialized }
+            else                   { Stage::Loaded };
+
+        Self {
+            driver,
+            stage: stage.into(),
+        }
+        .pipe(Ok)
+    }
+    
     pub fn id(&self) -> DeviceId {
         todo!()
     }
