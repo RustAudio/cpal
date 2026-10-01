@@ -144,6 +144,21 @@ impl Handle {
         .pipe(Ok)
     }
 
+    fn latencies(&self) -> CpalResult<[Duration; 2]> {
+        let sample_rate = self
+            .0
+            .get_sample_rate()
+            .decorate(&self.0, stringify!(Driver::get_sample_rate))?;
+
+        self.0
+            .latencies()
+            .decorate(&self.0, stringify!(Driver::latencies))?
+            .pipe(|latencies| [latencies.in_, latencies.out])
+            .map(|latency| latency as f64 / sample_rate)
+            .map(Duration::from_secs_f64)
+            .pipe(Ok)
+    }
+
     fn prepare(
         &self,
         session    : Arc<Session>,
@@ -153,6 +168,19 @@ impl Handle {
         data_cb    : data_cb_type!(),
         error_cb   : error_cb_type!(),
     ) -> CpalResult<()> {
+        let channel_ids: Vec<_> = [cfg_in, cfg_out]
+            .into_iter()
+            .flat_map(|cfg| cfg.validate(&self.0))
+            .collect::<CpalResult<_>>()?;
+
+        let latencies = self.latencies()?;
+
+        let mut callbacks = todo!();
+
+        let mut buf_ptrs =
+            unsafe { self.0.create_buffers(channel_ids, frame_count as _, callbacks) }
+            .decorate(&self.0, stringify!(Driver::create_buffers))?;
+
         todo!()
     }
 }
@@ -245,7 +273,7 @@ impl Session {
                     range.channels(),
                     range.min_sample_rate(),
                     *range.buffer_size(),
-                    range.sample_format(), 
+                    range.sample_format(),
                 )
             )
             .pipe(Ok)
