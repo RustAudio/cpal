@@ -5,6 +5,7 @@ use crate::ErrorKind::*;
 use crate::*;
 use azo::WinResult;
 use azo::driver::{Driver, Proxy};
+use azo::dto::ChannelCounts;
 use azo::utils::Host as AzoHost;
 use azo::windows_core::GUID;
 use parking_lot::{Mutex, RwLock};
@@ -42,7 +43,7 @@ impl Factory {
             .pipe(Handle);
 
         let new = Session
-            ::new(driver)?
+            ::new(driver, clsid)?
             .pipe(Arc::new);
 
         guard.insert(*clsid, Arc::downgrade(&new));
@@ -51,17 +52,34 @@ impl Factory {
     }
 }
 
+/// A "cpal-ified" driver handle where relevant types (such as errors) are mapped to cpal's equivalents
 #[derive(Debug)]
 struct Handle(Proxy);
+
+impl Handle {
+    pub fn name(&self) -> String {
+        self.0
+            .name()
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    pub fn channel_counts(&self) -> CpalResult<ChannelCounts> {
+        self.0
+            .channel_counts()
+            .map_err(|error| Error::with_message(BackendError, format!("failed to retrieve channel coounts: {error}")))
+    }
+}
 
 #[derive(Debug)]
 pub struct Session {
     driver: Handle,
     stage: RwLock<Stage>,
+    clsid_string: String,
 }
 
 impl Session {
-    fn new(driver: Handle) -> WinResult<Self> {
+	fn new(driver: Handle, clsid: &GUID) -> WinResult<Self> {
         let stage =
             if driver.0.init(None) { Stage::Initialized }
             else                   { Stage::Loaded };
@@ -69,20 +87,38 @@ impl Session {
         Self {
             driver,
             stage: stage.into(),
+            clsid_string: format!("{clsid:?}"),
         }
         .pipe(Ok)
     }
-    
+
     pub fn id(&self) -> DeviceId {
-        todo!()
+        DeviceId::new(HostId::AsioNew, &self.clsid_string)
     }
 
     pub fn display_name(&self) -> String {
-        todo!()
+        self.driver.name()
     }
 
     pub fn description(&self) -> CpalResult<DeviceDescription> {
-        todo!()
+        let stage = self.stage.read();
+
+        let name = self.driver.name();
+        let direction = self.driver.channel_counts()?.into();
+        let mut extended = vec![format!("driver version: {}", self.driver.0.version())];
+
+        if matches!(*stage, Stage::Loaded) {
+            extended.push("ASIO driver failed to initialize".to_owned());
+            extended.push(format!("last error: {}", self.driver.0.last_error().to_string_lossy()));
+        }
+
+        DeviceDescriptionBuilder
+            ::new(&name)
+            .driver(name)
+            .direction(direction)
+            .extended(extended)
+            .build()
+            .pipe(Ok)
     }
 
     #[must_use]
