@@ -111,7 +111,7 @@ impl Iterator for Devices {
     }
 }
 
-pub type SupportedConfigs = !; // todo
+pub type SupportedConfigs = vec::IntoIter<SupportedStreamConfigRange>;
 
 #[derive(Debug)]
 pub struct Device(Arc<Session>);

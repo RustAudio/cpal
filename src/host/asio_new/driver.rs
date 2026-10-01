@@ -1,15 +1,15 @@
 use super::SupportedConfigs;
 use super::buffer;
-use super::utils::{CpalResult, err};
+use super::utils::{CpalResult, Decorate, err, sample_format_asio2cpal};
 use crate::ErrorKind::*;
 use crate::*;
 use azo::WinResult;
 use azo::driver::{Driver, Proxy};
-use azo::dto::ChannelCounts;
+use azo::dto::{ChannelCounts, ChannelId};
 use azo::utils::Host as AzoHost;
 use azo::windows_core::GUID;
 use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tap::Pipe;
@@ -64,10 +64,50 @@ impl Handle {
             .into_owned()
     }
 
+    pub fn channel_count<const INPUT: bool>(&self) -> CpalResult<i32> {
+        self.channel_counts()
+            .map(|counts|
+                if INPUT { counts.in_ }
+                else     { counts.out }
+            )
+    }
+
     pub fn channel_counts(&self) -> CpalResult<ChannelCounts> {
         self.0
             .channel_counts()
             .map_err(|error| Error::with_message(BackendError, format!("failed to retrieve channel coounts: {error}")))
+    }
+
+    pub fn sample_rates(&self) -> CpalResult<(SampleRate, SampleRate)> {
+        let mut rates_iter = COMMON_SAMPLE_RATES
+            .iter()
+            .copied()
+            .filter(|rate| self.0.can_sample_rate(*rate as _).is_ok());
+
+        let min = rates_iter.next().ok_or(Error::with_message(DeviceNotAvailable, "no supported sample rate found"))?;
+        let max = rates_iter.next_back().unwrap_or(min);
+
+        Ok((min, max))
+    }
+
+    pub fn supported_buffer_size(&self) -> SupportedBufferSize {
+        self.0
+            .buffer_size()
+            .map_or(SupportedBufferSize::Unknown, Into::into)
+    }
+
+    pub fn sample_formats<const INPUT: bool>(&self, ch_count: i32) -> CpalResult<impl Iterator<Item = SampleFormat>> {
+        (0..ch_count)
+            .map(move |index|
+                self.0
+                    .channel_info(ChannelId { index, input: INPUT })
+                    .map(|ch_info| ch_info.sample_type)
+                    .decorate(&self.0, stringify!(Driver::channel_info))
+            )
+            .collect::<CpalResult<HashSet<_>>>()? // aggregates errors and deduplicates the sample types
+            .into_iter()
+            .filter_map(sample_format_asio2cpal)
+            .pipe(Ok)
     }
 }
 
@@ -123,15 +163,46 @@ impl Session {
 
     #[must_use]
     pub fn supports_direction<const IN: bool, const OUT: bool>(&self) -> bool {
-        todo!()
+        let Ok(counts) = self.driver.channel_counts()
+        else { return false; }; // cannot "support" anything if it can't even count the channels
+
+        if IN && counts.in_ == 0 {
+            return false;
+        }
+
+        if OUT && counts.out == 0 {
+            return false;
+        }
+
+        true
     }
 
     pub fn supported_configs<const INPUT: bool>(&self) -> CpalResult<SupportedConfigs> {
-        todo!()
+        let ch_count             = self.driver.channel_count::<INPUT>()?;
+        let (min_rate, max_rate) = self.driver.sample_rates()?;
+        let buf_size             = self.driver.supported_buffer_size();
+        let sample_formats       = self.driver.sample_formats::<INPUT>(ch_count)?;
+
+        sample_formats
+            .map(move |format| SupportedStreamConfigRange::new(ch_count as _, min_rate, max_rate, buf_size, format))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .pipe(Ok)
     }
 
     pub fn default_config<const INPUT: bool>(&self) -> CpalResult<SupportedStreamConfig> {
-        todo!()
+        self.supported_configs::<INPUT>()?
+            .next()
+            .ok_or(Error::with_message(UnsupportedOperation, "the device has no channels in this direction"))?
+            .pipe(|range|
+                SupportedStreamConfig::new(
+                    range.channels(),
+                    range.min_sample_rate(),
+                    *range.buffer_size(),
+                    range.sample_format(), 
+                )
+            )
+            .pipe(Ok)
     }
 
     pub fn build_stream(
