@@ -96,6 +96,20 @@ impl Handle {
             .map_or(SupportedBufferSize::Unknown, Into::into)
     }
 
+    pub fn preferred_buffer_size(&self) -> CpalResult<i32> {
+        let value = self
+            .0
+            .buffer_size()
+            .decorate(&self.0, stringify!(Driver::buffer_size))?
+            .preferred;
+
+        if value.is_negative() {
+            return err(BackendError, format!("ASIO driver reported invalid buffer size {value}"));
+        }
+
+        Ok(value)
+    }
+
     pub fn sample_formats<const INPUT: bool>(&self, ch_count: i32) -> CpalResult<impl Iterator<Item = SampleFormat>> {
         (0..ch_count)
             .map(move |index|
@@ -108,6 +122,38 @@ impl Handle {
             .into_iter()
             .filter_map(sample_format_asio2cpal)
             .pipe(Ok)
+    }
+
+    fn set_sample_rate(&self, sample_rate: SampleRate) -> CpalResult<()> {
+        self.0
+            .can_sample_rate(sample_rate as _)
+            .map_err(|_| Error::with_message(InvalidInput, "sample rate not supported"))?;
+
+        self.0
+            .set_sample_rate(sample_rate as _)
+            .decorate(&self.0, stringify!(Driver::set_sample_rate))?;
+
+        Ok(())
+    }
+
+    fn choose_buffer_size(&self, requested: BufferSize) -> CpalResult<FrameCount> {
+        match requested {
+            BufferSize::Fixed(n) => n,
+            BufferSize::Default  => self.preferred_buffer_size()? as FrameCount,
+        }
+        .pipe(Ok)
+    }
+
+    fn prepare(
+        &self,
+        session    : Arc<Session>,
+        frame_count: FrameCount,
+        cfg_in     : buffer::Config,
+        cfg_out    : buffer::Config,
+        data_cb    : data_cb_type!(),
+        error_cb   : error_cb_type!(),
+    ) -> CpalResult<()> {
+        todo!()
     }
 }
 
@@ -222,7 +268,9 @@ impl Session {
             Stage::Prepared { .. } => return err(UnsupportedOperation, "ASIO only supports 1 stream per device, and there already exists a stream for this device"),
         }
 
-        todo!();
+        self.driver.set_sample_rate(sample_rate)?;
+        let frame_count = self.driver.choose_buffer_size(buffer_size)?;
+        self.driver.prepare(Arc::clone(self), frame_count, cfg_in, cfg_out, data_cb, error_cb)?;
 
         *stage = Stage::Prepared {
             running: false
