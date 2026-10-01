@@ -181,7 +181,11 @@ impl Handle {
             unsafe { self.0.create_buffers(channel_ids, frame_count as _, callbacks) }
             .decorate(&self.0, stringify!(Driver::create_buffers))?;
 
-        todo!()
+
+    fn dispose_buffers(&self) -> CpalResult<()> {
+        self.0
+            .dispose_buffers()
+            .decorate(&self.0, stringify!(Driver::dispose_all_buffers))
     }
 }
 
@@ -360,7 +364,7 @@ impl Session {
             todo!();
         }
 
-        todo!();
+        self.driver.dispose_buffers()?;
 
         *stage = Stage::Initialized;
         Ok(())

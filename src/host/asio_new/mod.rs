@@ -285,6 +285,13 @@ impl StreamTrait for Stream {
     }
 
     fn buffer_size(&self) -> CpalResult<FrameCount> {
-        todo!()
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // can't really do any error handling here, but that's fine because
+        // the driver will just keep complaining in subsequent interactions
+        _ = self.session.reset();
     }
 }
