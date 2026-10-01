@@ -4,13 +4,16 @@
 
 use self::driver::Session;
 use self::utils::CpalResult;
+use crate::ErrorKind::*;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::*;
+use azo::driver::Metadata;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
+use std::vec;
 use tap::prelude::*;
 
 #[macro_use]
@@ -19,12 +22,16 @@ mod buffer;
 mod driver;
 
 #[derive(Debug, Clone)]
-pub struct Host();
+pub struct Host(Arc<driver::Factory>);
 
 impl Host {
     /// Required by the `impl_platform_host!` macro
     pub fn new() -> CpalResult<Self> {
-        todo!()
+        driver::Factory
+            ::new()
+            .pipe(Arc::new)
+            .pipe(Self)
+            .pipe(Ok)
     }
 }
 
@@ -33,34 +40,74 @@ impl HostTrait for Host {
     type Devices = Devices;
 
     fn is_available() -> bool {
-        todo!()
+        // this will return false if the ASIO registry keys are either
+        // * missing - meaning no ASIO driver has ever been installed on the system
+        // * corrupted - in which case ASIO is unusable
+        Metadata::enumerate().is_ok()
     }
 
     fn devices(&self) -> CpalResult<Self::Devices> {
-        todo!()
+        self.0
+            .pipe_ref(Arc::clone)
+            .pipe(Devices::new)
+            .map_err(|win_error| Error::with_message(HostUnavailable, win_error.message()))
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        todo!()
+        self.devices()
+            .ok()?
+            .into_iter()
+            .find(Device::supports_input)
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        todo!()
+        self.devices()
+            .ok()?
+            .into_iter()
+            .find(Device::supports_output)
     }
 
     fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
-        todo!()
+        if id.host() != HostId::AsioNew {
+            return None;
+        }
+
+        let clsid = id.id().try_into().ok()?;
+
+        self.0
+            .get_session(&clsid)
+            .ok()
+            .map(Device)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Devices;
+pub struct Devices {
+    factory: Arc<driver::Factory>,
+    metadatas: vec::IntoIter<Metadata>,
+}
+
+impl Devices {
+    pub fn new(factory: Arc<driver::Factory>) -> azo::WinResult<Self> {
+        Self {
+            factory,
+            metadatas: Metadata::enumerate()?.into_iter(),
+        }
+        .pipe(Ok)
+    }
+}
 
 impl Iterator for Devices {
     type Item = Device;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        self.metadatas
+            .find_map(|metadata|
+                self.factory
+                    .get_session(&metadata.clsid)
+                    .ok()
+            )
+            .map(Device)
     }
 }
 
