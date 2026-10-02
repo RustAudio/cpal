@@ -351,6 +351,7 @@ impl Session {
 
         super::Stream {
             session: Arc::clone(self),
+            frame_count,
         }
         .pipe(Ok)
     }

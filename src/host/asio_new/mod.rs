@@ -264,7 +264,8 @@ impl DeviceTrait for Device {
 
 #[derive(Debug)]
 pub struct Stream {
-    session: Arc<Session>,
+    session    : Arc<Session>,
+    frame_count: FrameCount,
 }
 
 impl StreamTrait for Stream {
@@ -285,6 +286,7 @@ impl StreamTrait for Stream {
     }
 
     fn buffer_size(&self) -> CpalResult<FrameCount> {
+        Ok(self.frame_count)
     }
 }
 
