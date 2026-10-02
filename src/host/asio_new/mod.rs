@@ -2,6 +2,7 @@
 //!
 //! Available on Windows with the `asio-new` feature.
 
+use self::driver::Session;
 use self::utils::CpalResult;
 use crate::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crate::*;
@@ -11,8 +12,10 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 use tap::prelude::*;
-use self::driver::Session;
+
+#[macro_use]
 mod utils;
+mod buffer;
 mod driver;
 
 #[derive(Debug, Clone)]
@@ -195,7 +198,7 @@ impl DeviceTrait for Device {
 
     fn build_duplex_stream_raw<DataCb, ErrorCb>(
         &self,
-        config: DuplexStreamConfig,
+        DuplexStreamConfig { input_channels, output_channels, sample_rate, buffer_size }: DuplexStreamConfig,
         format_in : SampleFormat,
         format_out: SampleFormat,
         data_cb   : DataCb,
@@ -206,7 +209,9 @@ impl DeviceTrait for Device {
         DataCb: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         ErrorCb: FnMut(Error) + Send + 'static,
     {
-        todo!()
+        let cfg_in  = buffer::Config { format: format_in , channels: input_channels , input: true  };
+        let cfg_out = buffer::Config { format: format_out, channels: output_channels, input: false };
+        self.0.build_stream(cfg_in, cfg_out, sample_rate, buffer_size, data_cb, error_cb)
     }
 }
 

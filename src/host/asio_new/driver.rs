@@ -1,8 +1,9 @@
-use std::time::Duration;
-
-use crate::*;
 use super::SupportedConfigs;
+use super::buffer;
 use super::utils::CpalResult;
+use crate::*;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct Session;
@@ -33,8 +34,14 @@ impl Session {
         todo!()
     }
 
-	pub fn build_stream(
-		
+    pub fn build_stream(
+        self       : &Arc<Self>,
+        cfg_in     : buffer::Config,
+        cfg_out    : buffer::Config,
+        sample_rate: SampleRate,
+        buffer_size: BufferSize,
+        data_cb    : data_cb_type!(),
+        error_cb   : error_cb_type!(),
     ) -> CpalResult<super::Stream> {
         todo!()
     }
