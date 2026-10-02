@@ -1,9 +1,3 @@
-use self::callbacks::Callbacks;
-use super::SupportedConfigs;
-use super::buffer;
-use super::utils::{CpalResult, Decorate, err, sample_format_asio2cpal};
-use crate::ErrorKind::*;
-use crate::*;
 use azo::WinResult;
 use azo::driver::{Driver, Proxy};
 use azo::dto::{ChannelCounts, ChannelId};
@@ -12,9 +6,20 @@ use azo::windows_core::GUID;
 use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tap::Pipe;
+
+use self::callbacks::Callbacks;
+use crate::ErrorKind::*;
+use crate::*;
+
+use super::SupportedConfigs;
+use super::buffer::{self, In, Out, Buffer};
+use super::utils::{
+    Barrier, CpalResult, Decorate, DoubleBuffer, Monotonizer, err, sample_format_asio2cpal,
+};
 
 mod callbacks;
 
@@ -179,16 +184,23 @@ impl Handle {
 
         let latencies = self.latencies()?;
 
-        let mut callbacks = Callbacks::new(session, data_cb, error_cb, latencies);
+        let (callbacks, context) = Callbacks::new(session, data_cb, error_cb, latencies);
 
         // SAFETY:
         // `Callbacks` is pinned, and kept alive until the buffers got disposed.
         // (see the `Drop` implementation of `Stream`)
         let mut buf_ptrs =
             unsafe { self.0.create_buffers(channel_ids, frame_count as _, callbacks.fn_pointers()) }
-            .decorate(&self.0, stringify!(Driver::create_buffers))?;
+            .decorate(&self.0, stringify!(Driver::create_buffers))?
+            .map(DoubleBuffer);
 
-        todo!("set buffers");
+        let buf_ptrs_in  = buf_ptrs.by_ref().take(cfg_in.channels as _).collect();
+        let buf_ptrs_out = buf_ptrs.collect();
+
+        let buffer_in  = Buffer::<In >::new(cfg_in .format, frame_count, buf_ptrs_in );
+        let buffer_out = Buffer::<Out>::new(cfg_out.format, frame_count, buf_ptrs_out);
+
+        context.lock().set_buffers(buffer_in, buffer_out);
 
         Ok(callbacks)
     }

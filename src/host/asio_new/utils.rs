@@ -3,6 +3,7 @@ use crate::{DeviceDirection, ErrorKind, SupportedBufferSize};
 use azo::driver::Driver;
 use azo::dto::{BufferSize, ChannelCounts};
 use std::borrow::Cow;
+use std::ffi::c_void;
 
 pub type CpalResult<T> = Result<T, crate::Error>;
 
@@ -16,6 +17,12 @@ macro_rules! data_cb_type {
 macro_rules! error_cb_type {
     () => { impl FnMut($crate::Error) + Send + 'static };
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// just to make the pointers `Send`
+pub struct DoubleBuffer(pub [*mut c_void; 2]);
+
+unsafe impl Send for DoubleBuffer {}
 
 use crate::SampleFormat as CpalFormat;
 use azo::sys::SampleType as AsioFormat;
@@ -75,7 +82,7 @@ impl<T> Decorate for azo::Result<T> {
     fn decorate(self, driver: &impl Driver, function_name: &'static str) -> CpalResult<Self::OkValue> {
         let azo_error = match self {
             Ok(value) => return Ok(value),
-            Err(error) => error
+            Err(error) => error,
         };
 
         let last_error = driver.last_error();
