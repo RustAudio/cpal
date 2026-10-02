@@ -251,6 +251,7 @@ where
         let dp = direct_process.try_into().unwrap_or(true); // assume C-style truthiness for compatibility
 
         self.process_buffers(dp, side, cb_time);
+        self.session.buffer_signal.notify();
     }
 
     fn process_buffers(&mut self, direct_process: bool, side: usize, cb_time: StreamInstant) {
@@ -267,6 +268,11 @@ where
             self.throw(Other, "BUG! buffer switch callback should not be called before buffers are created");
             return;
         };
+
+        if self.session.draining.load(Ordering::Relaxed) {
+            buffers.out.fill_equillirium(side);
+            return;
+        }
 
         let     data_in   = buffers.in_.data(side);
         let mut data_out  = buffers.out.data(side);

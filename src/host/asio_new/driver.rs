@@ -226,9 +226,11 @@ impl Handle {
 
 #[derive(Debug)]
 pub struct Session {
-    driver: Handle,
-    stage: RwLock<Stage>,
-    clsid_string: String,
+    driver       : Handle,
+    stage        : RwLock<Stage>,
+    buffer_signal: Barrier,
+    draining     : AtomicBool,
+    clsid_string : String,
 }
 
 impl Session {
@@ -239,8 +241,10 @@ impl Session {
 
         Self {
             driver,
-            stage: stage.into(),
-            clsid_string: format!("{clsid:?}"),
+            stage        : stage.into(),
+            buffer_signal: Barrier::default(),
+            draining     : AtomicBool::new(false),
+            clsid_string : format!("{clsid:?}"),
         }
         .pipe(Ok)
     }
@@ -384,10 +388,19 @@ impl Session {
             return Ok(());
         }
 
-        todo!();
+        self.draining.store(true, Ordering::Relaxed);
+
+        // wait for both buffer halves to be flushed
+        let deadline = max_wait.map(|duration| Instant::now() + duration);
+        let wait_res1 = self.buffer_signal.wait(deadline);
+        let wait_res2 = self.buffer_signal.wait(deadline);
+
+        self.driver.stop()?;
+        self.draining.store(false, Ordering::Relaxed);
 
         *stage.running()? = false;
-        Ok(())
+
+        wait_res1.and(wait_res2)
     }
 
     /// This function must not block, as it is used by the legacy `BufferSwitch` callback,

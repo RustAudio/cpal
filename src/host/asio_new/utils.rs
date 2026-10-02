@@ -2,8 +2,11 @@ use crate::ErrorKind::*;
 use crate::{DeviceDirection, ErrorKind, SupportedBufferSize};
 use azo::driver::Driver;
 use azo::dto::{BufferSize, ChannelCounts};
+use parking_lot::{Condvar, Mutex};
 use std::borrow::Cow;
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::time::Instant;
 
 pub type CpalResult<T> = Result<T, crate::Error>;
 
@@ -89,4 +92,39 @@ impl<T> Decorate for azo::Result<T> {
 
         err(BackendError, format!("[ASIO] {function_name}() failed with `{azo_error}` - {last_error:?}"))
     }
+}
+
+#[derive(Debug, Default)]
+pub struct Barrier {
+    mutex: Mutex<()>,
+    condvar: Condvar,
+}
+
+impl Barrier {
+    pub fn wait(&self, deadline: Option<Instant>) -> CpalResult<()> {
+        let mut guard = self.mutex.lock();
+
+        let timed_out = if let Some(timeout) = deadline {
+            self.condvar.wait_until(&mut guard, timeout).timed_out()
+        } else {
+            self.condvar.wait(&mut guard);
+            false
+        };
+
+        if timed_out {
+            return err(ResourceExhausted, "timeout exceeded while draining");
+        }
+
+        Ok(())
+    }
+
+    pub fn notify(&self) {
+        self.condvar.notify_all();
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Monotonizer {
+    overflows: AtomicUsize,
+    latest: AtomicU64,
 }
