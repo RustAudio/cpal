@@ -1,3 +1,4 @@
+use self::callbacks::Callbacks;
 use super::SupportedConfigs;
 use super::buffer;
 use super::utils::{CpalResult, Decorate, err, sample_format_asio2cpal};
@@ -10,9 +11,12 @@ use azo::utils::Host as AzoHost;
 use azo::windows_core::GUID;
 use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet};
+use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tap::Pipe;
+
+mod callbacks;
 
 /// Keeps track of all created [`Session`]s to prevent creating
 /// multiple instances of the same driver in the same `AzoHost`
@@ -167,7 +171,7 @@ impl Handle {
         cfg_out    : buffer::Config,
         data_cb    : data_cb_type!(),
         error_cb   : error_cb_type!(),
-    ) -> CpalResult<()> {
+    ) -> CpalResult<Pin<Box<Callbacks>>> {
         let channel_ids: Vec<_> = [cfg_in, cfg_out]
             .into_iter()
             .flat_map(|cfg| cfg.validate(&self.0))
@@ -175,12 +179,19 @@ impl Handle {
 
         let latencies = self.latencies()?;
 
-        let mut callbacks = todo!();
+        let mut callbacks = Callbacks::new(session, data_cb, error_cb, latencies);
 
+        // SAFETY:
+        // `Callbacks` is pinned, and kept alive until the buffers got disposed.
+        // (see the `Drop` implementation of `Stream`)
         let mut buf_ptrs =
-            unsafe { self.0.create_buffers(channel_ids, frame_count as _, callbacks) }
+            unsafe { self.0.create_buffers(channel_ids, frame_count as _, callbacks.fn_pointers()) }
             .decorate(&self.0, stringify!(Driver::create_buffers))?;
 
+        todo!("set buffers");
+
+        Ok(callbacks)
+    }
 
     fn dispose_buffers(&self) -> CpalResult<()> {
         self.0
@@ -283,6 +294,7 @@ impl Session {
             .pipe(Ok)
     }
 
+    #[expect(clippy::used_underscore_binding, reason = "semantically unused")]
     pub fn build_stream(
         self       : &Arc<Self>,
         cfg_in     : buffer::Config,
@@ -302,10 +314,11 @@ impl Session {
 
         self.driver.set_sample_rate(sample_rate)?;
         let frame_count = self.driver.choose_buffer_size(buffer_size)?;
-        self.driver.prepare(Arc::clone(self), frame_count, cfg_in, cfg_out, data_cb, error_cb)?;
+        let _callbacks = self.driver.prepare(Arc::clone(self), frame_count, cfg_in, cfg_out, data_cb, error_cb)?;
 
         *stage = Stage::Prepared {
-            running: false
+            running: false,
+            _callbacks,
         };
 
         super::Stream {
@@ -377,6 +390,7 @@ pub enum Stage {
     Loaded,
     Initialized,
     Prepared {
+        _callbacks: Pin<Box<Callbacks>>,
         running: bool,
     },
 }
@@ -384,7 +398,7 @@ pub enum Stage {
 impl Stage {
     fn running(&mut self) -> CpalResult<&mut bool> {
         match self {
-            Self::Prepared { running } => Ok(running),
+            Self::Prepared { running, .. } => Ok(running),
             _ => err(Other, "BUG! This branch should be unreachable"),
         }
     }
