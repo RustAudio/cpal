@@ -120,7 +120,21 @@ impl DeviceTrait for Device {
         DataCb: FnMut(&Data, &CallbackInfo) + Send + 'static,
         ErrorCb: FnMut(Error) + Send + 'static,
     {
-        todo!()
+        let duplex_cfg = DuplexStreamConfig {
+            input_channels : config.channels,
+            output_channels: 0,
+            sample_rate    : config.sample_rate,
+            buffer_size    : config.buffer_size,
+        };
+
+        self.build_duplex_stream_raw(
+            duplex_cfg,
+            format,
+            format,
+            move |data, _, cbi| data_cb(data, &cbi.input()),
+            error_cb,
+            timeout,
+        )
     }
 
     fn build_output_stream_raw<DataCb, ErrorCb>(
@@ -135,12 +149,26 @@ impl DeviceTrait for Device {
         DataCb: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         ErrorCb: FnMut(Error) + Send + 'static,
     {
-        todo!()
+        let duplex_cfg = DuplexStreamConfig {
+            input_channels : 0,
+            output_channels: config.channels,
+            sample_rate    : config.sample_rate,
+            buffer_size    : config.buffer_size,
+        };
+
+        self.build_duplex_stream_raw(
+            duplex_cfg,
+            format,
+            format,
+            move |_, data, cbi| data_cb(data, &cbi.output()),
+            error_cb,
+            timeout,
+        )
     }
 
     fn build_duplex_stream_raw<DataCb, ErrorCb>(
         &self,
-        config    : DuplexStreamConfig,
+        config: DuplexStreamConfig,
         format_in : SampleFormat,
         format_out: SampleFormat,
         data_cb   : DataCb,
