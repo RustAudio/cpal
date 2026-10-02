@@ -205,6 +205,18 @@ impl Handle {
         Ok(callbacks)
     }
 
+    fn start(&self) -> CpalResult<()> {
+        self.0
+            .start()
+            .decorate(&self.0, stringify!(Driver::start))
+    }
+
+    fn stop(&self) -> CpalResult<()> {
+        self.0
+            .stop()
+            .decorate(&self.0, stringify!(Driver::stop))
+    }
+
     fn dispose_buffers(&self) -> CpalResult<()> {
         self.0
             .dispose_buffers()
@@ -346,7 +358,7 @@ impl Session {
             return Ok(());
         }
 
-        todo!();
+        self.driver.start()?;
 
         *stage.running()? = true;
         Ok(())
@@ -359,7 +371,7 @@ impl Session {
             return Ok(());
         }
 
-        todo!();
+        self.driver.stop()?;
 
         *stage.running()? = false;
         Ok(())
@@ -378,15 +390,23 @@ impl Session {
         Ok(())
     }
 
+    /// This function must not block, as it is used by the legacy `BufferSwitch` callback,
+    /// which may get called during priming/draining, which in turn could cause a deadlock.
     pub fn now(&self) -> StreamInstant {
-        todo!()
+        self.stage
+            .try_read() // this can only fail during stage transitions, none of which allow the clock to advance anyway
+            .and_then(|_| self.driver.0.sample_position().ok()) // no room for error handling here
+            .map_or(
+                todo!(),
+                |pos| StreamInstant::from_nanos(pos.time_stamp as _)
+            )
     }
 
     pub fn reset(&self) -> CpalResult<()> {
         let mut stage = self.stage.write();
 
         if *stage.running()? {
-            todo!();
+            self.driver.stop()?;
         }
 
         self.driver.dispose_buffers()?;
