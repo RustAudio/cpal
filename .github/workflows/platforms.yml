@@ -259,6 +259,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.msrv.outputs.all-features }}
+          components: rustfmt # required by windows-bindgen
           targets: ${{ env.TARGET }}
 
       - name: Rust Cache
