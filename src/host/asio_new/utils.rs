@@ -1,11 +1,11 @@
 use crate::ErrorKind::*;
-use crate::{DeviceDirection, ErrorKind, SupportedBufferSize};
+use crate::{DeviceDirection, ErrorKind, StreamInstant, SupportedBufferSize};
 use azo::driver::Driver;
 use azo::dto::{BufferSize, ChannelCounts};
 use parking_lot::{Condvar, Mutex};
 use std::borrow::Cow;
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
 pub type CpalResult<T> = Result<T, crate::Error>;
@@ -127,4 +127,30 @@ impl Barrier {
 pub struct Monotonizer {
     overflows: AtomicUsize,
     latest: AtomicU64,
+}
+
+impl Monotonizer {
+    /// The spec requires timestamps to be derived from `timeGetTime()` on Windows,
+    /// which overflows every every ~50 days.
+    pub fn monotonize(&self, raw: u64) -> StreamInstant {
+        let previous = self.latest.swap(raw, Ordering::Relaxed);
+
+        let overflows =
+            if raw < previous { self.overflows.fetch_add(1, Ordering::Relaxed) + 1 }
+            else { self.overflows.load(Ordering::Relaxed) };
+
+        Self::adjust_value(raw, overflows)
+    }
+
+    pub fn latest(&self) -> StreamInstant {
+        let raw = self.latest.load(Ordering::Relaxed);
+        let overflows = self.overflows.load(Ordering::Relaxed);
+
+        Self::adjust_value(raw, overflows)
+    }
+
+    const fn adjust_value(raw: u64, overflows: usize) -> StreamInstant {
+        let offset = overflows as u64 * (u32::MAX as u64 + 1);
+        StreamInstant::from_nanos(raw + offset)
+    }
 }

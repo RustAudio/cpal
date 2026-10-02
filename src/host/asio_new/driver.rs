@@ -228,6 +228,7 @@ impl Handle {
 pub struct Session {
     driver       : Handle,
     stage        : RwLock<Stage>,
+    monotonizer  : Monotonizer,
     buffer_signal: Barrier,
     draining     : AtomicBool,
     clsid_string : String,
@@ -242,6 +243,7 @@ impl Session {
         Self {
             driver,
             stage        : stage.into(),
+            monotonizer  : Monotonizer::default(),
             buffer_signal: Barrier::default(),
             draining     : AtomicBool::new(false),
             clsid_string : format!("{clsid:?}"),
@@ -411,8 +413,8 @@ impl Session {
             .try_read() // this can only fail during stage transitions, none of which allow the clock to advance anyway
             .and_then(|_| self.driver.0.sample_position().ok()) // no room for error handling here
             .map_or(
-                todo!(),
-                |pos| StreamInstant::from_nanos(pos.time_stamp as _)
+                self.monotonizer.latest(),
+                |pos| self.monotonizer.monotonize(pos.time_stamp as _)
             )
     }
 
