@@ -849,8 +849,28 @@ fn process_commands_and_await_signal(
         }
     }
 
-    // Wait for any of the handles to be signalled.
-    let handle_idx = match wait_for_handle_signal(&run_context.handles) {
+    // Wait for any of the handles to be signalled. A stopped client's audio
+    // event can still be signalled every engine period while other streams
+    // keep the endpoint running, which would wake this thread about 100
+    // times a second for nothing. While paused, wait only for commands and
+    // device changes.
+    let playing = run_context.stream.playback_state == PlaybackState::Playing;
+    let paused_handles: Vec<Foundation::HANDLE>;
+    let handles: &[Foundation::HANDLE] = if playing {
+        &run_context.handles
+    } else {
+        paused_handles = run_context
+            .handles
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != 1)
+            .map(|(_, handle)| *handle)
+            .collect();
+        &paused_handles
+    };
+    let handle_idx = match wait_for_handle_signal(handles) {
+        // Back to the layout below: the audio event (1) was left out.
+        Ok(idx) if !playing && idx >= 1 => idx + 1,
         Ok(idx) => idx,
         Err(err) => {
             emit_error(error_callback, err);
