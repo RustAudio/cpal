@@ -505,8 +505,8 @@ impl Device {
             Error::with_message(ErrorKind::DeviceNotAvailable, "Default device not found")
         })?;
         unsafe {
-            match device.GetId() {
-                Ok(pwstr) => match pwstr.to_string() {
+            match device.GetId().map(ComString) {
+                Ok(pwstr) => match pwstr.0.to_string() {
                     Ok(id_str) => Ok(DeviceId::new(crate::platform::HostId::Wasapi, id_str)),
                     Err(e) => Err(Error::with_message(
                         ErrorKind::BackendError,
