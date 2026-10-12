@@ -76,6 +76,9 @@ pub(crate) mod pulseaudio;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 
+#[cfg(any(windows, test))]
+pub(crate) mod wasapi_policy;
+
 #[cfg(all(
     target_arch = "wasm32",
     any(target_os = "emscripten", target_os = "unknown"),
