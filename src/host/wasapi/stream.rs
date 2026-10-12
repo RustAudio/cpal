@@ -241,8 +241,11 @@ struct RunContext {
     // Streams that have been created in this event loop.
     stream: StreamInner,
 
-    // Handles corresponding to the `event` field of each element of `voices`. Must always be in
-    // sync with `voices`, except that the first element is always `pending_scheduled_event`.
+    // The handles the run loop waits on, in this order: `pending_scheduled_event` (commands),
+    // the default-device change event (only for streams that track the default device), and
+    // the stream's audio event last, so that a paused stream can wait on all but the last.
+    // When several are signalled, the wait reports the lowest index; an auto-reset event it
+    // does not report stays signalled for the next wait.
     handles: Vec<Foundation::HANDLE>,
 
     commands: Receiver<Command>,
@@ -347,10 +350,11 @@ impl Stream {
             debug_assert_ne!(qpc_frequency, 0, "QueryPerformanceFrequency returned zero");
         }
 
-        let mut handles = vec![pending_scheduled_event, stream_inner.event];
+        let mut handles = vec![pending_scheduled_event];
         if let Some(ref monitor) = default_device_monitor {
             handles.push(monitor.event);
         }
+        handles.push(stream_inner.event);
 
         let pending_device_changed = default_device_monitor
             .as_ref()
@@ -423,10 +427,11 @@ impl Stream {
             debug_assert_ne!(qpc_frequency, 0, "QueryPerformanceFrequency returned zero");
         }
 
-        let mut handles = vec![pending_scheduled_event, stream_inner.event];
+        let mut handles = vec![pending_scheduled_event];
         if let Some(ref monitor) = default_device_monitor {
             handles.push(monitor.event);
         }
+        handles.push(stream_inner.event);
 
         let pending_device_changed = default_device_monitor
             .as_ref()
@@ -849,8 +854,18 @@ fn process_commands_and_await_signal(
         }
     }
 
-    // Wait for any of the handles to be signalled.
-    let handle_idx = match wait_for_handle_signal(&run_context.handles) {
+    // Wait for any of the handles to be signalled. A stopped client's audio
+    // event can still be signalled every engine period while other streams
+    // keep the endpoint running, which would wake this thread about 100
+    // times a second for nothing. While paused, leave out the audio event,
+    // which is the last handle.
+    let audio_idx = run_context.handles.len() - 1;
+    let handles = if run_context.stream.playback_state == PlaybackState::Playing {
+        &run_context.handles[..]
+    } else {
+        &run_context.handles[..audio_idx]
+    };
+    let handle_idx = match wait_for_handle_signal(handles) {
         Ok(idx) => idx,
         Err(err) => {
             emit_error(error_callback, err);
@@ -858,18 +873,20 @@ fn process_commands_and_await_signal(
         }
     };
 
-    // Handle layout: 0 = pending_scheduled_event (commands), 1 = WASAPI audio event,
-    // 2+ = default-device change event (only present for default-device streams).
+    // Handle layout: see `RunContext::handles`.
     // Continue(true)  = audio event fired, proceed to process audio this iteration.
     // Continue(false) = command or device-change event, loop around and wait again.
-    if handle_idx >= 2 {
-        emit_error(
-            error_callback,
-            default_device_change_error(run_context.default_device_flow),
-        );
-        return ControlFlow::Continue(false);
+    match handle_idx {
+        0 => ControlFlow::Continue(false),
+        idx if idx == audio_idx => ControlFlow::Continue(true),
+        _ => {
+            emit_error(
+                error_callback,
+                default_device_change_error(run_context.default_device_flow),
+            );
+            ControlFlow::Continue(false)
+        }
     }
-    ControlFlow::Continue(handle_idx != 0)
 }
 
 // The loop for processing pending input data.
