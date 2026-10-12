@@ -41,10 +41,22 @@ jobs:
             features: --all-features
             os: ubuntu-latest
 
+          # Linux - ALSA backend, default features
+          - target: x86_64-unknown-linux-gnu
+            name: Linux-default
+            features: ""
+            os: ubuntu-latest
+
           # Windows - WASAPI backend
           - target: x86_64-pc-windows-msvc
             name: Windows-x64
             features: --all-features
+            os: windows-latest
+
+          # Windows - WASAPI backend, default features
+          - target: x86_64-pc-windows-msvc
+            name: Windows-x64-default
+            features: ""
             os: windows-latest
 
           # Windows 32-bit - WASAPI backend
@@ -57,6 +69,12 @@ jobs:
           - target: aarch64-apple-darwin
             name: macOS
             features: --all-features
+            os: ubuntu-latest
+
+          # macOS - CoreAudio backend, default features
+          - target: aarch64-apple-darwin
+            name: macOS-default
+            features: ""
             os: ubuntu-latest
 
           # Android - Oboe backend
@@ -105,7 +123,8 @@ jobs:
           packages: libasound2-dev libjack-jackd2-dev libjack-jackd2-0 libdbus-1-dev libpipewire-0.3-dev
 
       - name: Setup ASIO SDK
-        if: runner.os == 'Windows'
+        # Only rows that build ASIO need the SDK; `--all-features` enables it.
+        if: runner.os == 'Windows' && contains(matrix.features, 'all-features')
         run: |
           curl -L -o asio.zip https://www.steinberg.net/asiosdk
           7z x -oasio asio.zip
@@ -127,7 +146,7 @@ jobs:
       - name: Run clippy
         env:
           CPAL_ASIO_DIR: ${{ runner.os == 'Windows' && format('{0}/asio', github.workspace) || '' }}
-        run: cargo clippy --all --target ${{ matrix.target }} ${{ matrix.features }} -- -D warnings
+        run: cargo clippy --workspace --all-targets --target ${{ matrix.target }} ${{ matrix.features }} -- -D warnings
 
   docs:
     strategy:
@@ -209,4 +228,4 @@ jobs:
       - name: Run clippy
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-        run: cargo +nightly clippy --all --target ${{ matrix.target }} ${{ matrix.features }} -Z build-std=${{ matrix.build_std }} -- -D warnings
+        run: cargo +nightly clippy --workspace --all-targets --target ${{ matrix.target }} ${{ matrix.features }} -Z build-std=${{ matrix.build_std }} -- -D warnings
