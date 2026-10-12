@@ -52,6 +52,7 @@ The minimum Rust version (MSRV) and minimum operating system / runtime version b
 | PipeWire | Linux, BSD | 1.85 | PipeWire 0.3.53 |
 | PulseAudio | Linux, BSD | 1.88 | — |
 | WASAPI / ASIO | Windows | 1.85 | Windows 10 |
+| New ASIO (`-F asio-new`) | Windows | 1.95 | Windows 10 |
 | WASM (`wasm32-unknown-unknown`) | WebAssembly | 1.85 | — |
 | WASM (`wasm32-unknown-emscripten`) | WebAssembly | 1.85 | Emscripten 6.0.3, wasm-bindgen 0.2.127 |
 | WASM (`wasm32-wasip1`) | WebAssembly | 1.85 | — |
@@ -64,6 +65,7 @@ The `audioworklet` backend additionally requires `-Zbuild-std` with atomics supp
 | Feature | Platform | Description |
 | ------- | -------- | ----------- |
 | `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#compiling-for-asio). |
+| `asio-new` | Windows | Experimental pure-Rust ASIO implementation with multi-driver support and no external build requirements. |
 | `audioworklet` | WebAssembly (`wasm32-unknown-unknown`) | Audio Worklet backend for lower-latency web audio than the default Web Audio API, running audio on a dedicated thread. Requires atomics support (`RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`) and `Cross-Origin` headers for `SharedArrayBuffer`. See the `audioworklet` example. |
 | `custom` | All | User-defined backend implementations for audio systems not natively supported by CPAL. See `examples/custom.rs`. |
 | `jack` | Linux, BSD, macOS, Windows | JACK Audio Connection Kit backend for pro-audio routing and inter-application connectivity. Requires `libjack-jackd2-dev` (Debian/Ubuntu) or `jack-devel` (Fedora). |

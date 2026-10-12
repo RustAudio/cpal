@@ -33,6 +33,7 @@ env:
   MSRV_WASIP1: "1.85"
   MSRV_WASM: "1.85"
   MSRV_WINDOWS: "1.85"
+  MSRV_ASIO_NEW: "1.95" # required by `windows-bindgen`
 
   PACKAGES_LINUX: libasound2-dev libdbus-1-dev libjack-jackd2-dev libpipewire-0.3-dev
 
@@ -246,6 +247,7 @@ jobs:
         with:
           platform-msrv: ${{ env.MSRV_WINDOWS }}
           jack-msrv: ${{ env.MSRV_JACK }}
+          asio-new-msrv: ${{ env.MSRV_ASIO_NEW }}
 
       - name: Install Rust MSRV (${{ env.MSRV_WINDOWS }})
         uses: dtolnay/rust-toolchain@master
@@ -258,6 +260,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.msrv.outputs.all-features }}
+          components: rustfmt # required by windows-bindgen
           targets: ${{ env.TARGET }}
 
       - name: Rust Cache
