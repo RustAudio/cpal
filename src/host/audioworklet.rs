@@ -412,7 +412,7 @@ impl DeviceTrait for Device {
                 ),
                 JsValue,
             > = async {
-                let mod_url = dependent_module!("worklet.js")?;
+                let mod_url = dependent_module!("audioworklet/worklet.js")?;
                 wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
                     .await?;
 
@@ -651,7 +651,7 @@ impl DeviceTrait for Device {
             let error_callback_setup = error_callback.clone();
 
             let result: Result<(), JsValue> = async move {
-                let mod_url = dependent_module!("worklet.js")?;
+                let mod_url = dependent_module!("audioworklet/worklet.js")?;
                 wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
                     .await?;
 
@@ -893,7 +893,7 @@ impl DeviceTrait for Device {
                 ),
                 JsValue,
             > = async {
-                let mod_url = dependent_module!("worklet.js")?;
+                let mod_url = dependent_module!("audioworklet/worklet.js")?;
                 wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
                     .await?;
 
