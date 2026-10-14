@@ -614,13 +614,12 @@ impl Device {
         let latency_frames = Arc::new(AtomicUsize::new(
             device_buffer_frames.map_or(0, |frames| frames + extra_latency_frames),
         ));
-        let callback_latency_frames = latency_frames.clone();
         let draining = Arc::new(AtomicBool::new(false));
         let draining_input = draining.clone();
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
-            let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+            let m_host_time = mach2::mach_time::mach_absolute_time();
             let callback = match host_time_to_stream_instant(m_host_time) {
                 Err(err) => {
                     let _ = try_emit_error(&error_callback_for_capture, err);
@@ -955,24 +954,6 @@ pub(crate) fn device_latency_frames(audio_unit: &AudioUnit, scope: Scope) -> usi
         .map_or(0, |buffer| {
             buffer + get_device_extra_latency_frames(audio_unit, scope)
         })
-}
-
-/// Buffer depth for one callback.
-///
-/// Refreshed by the stream's monitor when the device buffer is resized; falls back to estimating
-/// the device buffer from this callback, plus the fixed device latency and safety offset, when
-/// the depth is unknown (zero).
-#[inline]
-fn resolve_latency_frames(
-    cached: &AtomicUsize,
-    len: usize,
-    channels: usize,
-    extra_latency_frames: usize,
-) -> usize {
-    match cached.load(Ordering::Relaxed) {
-        0 => len.checked_div(channels).unwrap_or(0) + extra_latency_frames,
-        n => n,
-    }
 }
 
 /// Setup common callback variables, querying both the I/O buffer size and extra hardware latency.

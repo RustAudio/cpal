@@ -233,8 +233,6 @@ impl DeviceTrait for Device {
         setup_input_callback(
             &mut audio_unit,
             sample_format,
-            config.sample_rate,
-            latency_nanos,
             draining.clone(),
             data_callback,
             move |e| {
@@ -624,8 +622,6 @@ unsafe fn extract_audio_buffer(
 fn setup_input_callback<D, E>(
     audio_unit: &mut AudioUnit,
     sample_format: SampleFormat,
-    sample_rate: SampleRate,
-    latency_nanos: Arc<AtomicU64>,
     draining: Arc<AtomicBool>,
     mut data_callback: D,
     mut error_callback: E,
@@ -648,7 +644,7 @@ where
         };
 
         // SAFETY: CoreAudio provides valid AudioBufferList for the callback duration
-        let (buffer, data) =
+        let (_, data) =
             unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, true) };
 
         if !draining.load(Ordering::Relaxed) {
@@ -678,8 +674,6 @@ where
 fn setup_output_callback<D, E>(
     audio_unit: &mut AudioUnit,
     sample_format: SampleFormat,
-    sample_rate: SampleRate,
-    latency_nanos: Arc<AtomicU64>,
     draining: Arc<AtomicBool>,
     mut data_callback: D,
     mut error_callback: E,
