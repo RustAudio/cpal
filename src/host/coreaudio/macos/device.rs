@@ -50,9 +50,8 @@ use super::{
 };
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceId, Error, ErrorKind, InterfaceType, ResultExt, SampleFormat, SampleRate,
-    StreamConfig, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    DeviceId, Error, ErrorKind, InterfaceType, ResultExt, SampleFormat, SampleRate, StreamConfig,
+    StreamTimestamp, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
         ErrorCallbackArc,
         coreaudio::macos::{StreamInner, loopback::LoopbackDevice},
