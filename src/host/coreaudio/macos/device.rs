@@ -619,6 +619,15 @@ impl Device {
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
+            let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+            let callback = match host_time_to_stream_instant(m_host_time) {
+                Err(err) => {
+                    let _ = try_emit_error(&error_callback_for_render, err);
+                    return Err(());
+                }
+                Ok(ts) => ts,
+            };
+            
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
             // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
             // exactly one buffer containing all channels, so mBuffers[0] is always valid.
@@ -633,21 +642,13 @@ impl Device {
             let data = Data::from_parts(data, len, sample_format);
 
             if !draining_input.load(Ordering::Relaxed) {
-                let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+                let capture = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                     Err(err) => {
                         let _ = try_emit_error(&error_callback, err);
                         return Err(());
                     }
-                    Ok(cb) => cb,
+                    Ok(ts) => ts,
                 };
-                let latency_frames = resolve_latency_frames(
-                    &callback_latency_frames,
-                    len,
-                    channels as usize,
-                    extra_latency_frames,
-                );
-                let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
-                let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
                 let timestamp = StreamTimestamp {
                     callback,
                     device: capture,
@@ -770,6 +771,15 @@ impl Device {
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
+            let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+            let callback = match host_time_to_stream_instant(m_host_time) {
+                Err(err) => {
+                    let _ = try_emit_error(&error_callback_for_render, err);
+                    return Err(());
+                }
+                Ok(ts) => ts,
+            };
+            
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
             // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
             // exactly one buffer containing all channels, so mBuffers[0] is always valid.
@@ -791,21 +801,13 @@ impl Device {
 
             let mut data = Data::from_parts(data, len, sample_format);
 
-            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+            let playback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
                     let _ = try_emit_error(&error_callback_for_render, err);
                     return Err(());
                 }
-                Ok(cb) => cb,
+                Ok(ts) => ts,
             };
-            let latency_frames = resolve_latency_frames(
-                &callback_latency_frames,
-                len,
-                channels as usize,
-                extra_latency_frames,
-            );
-            let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
-            let playback = callback + delay;
             let timestamp = StreamTimestamp {
                 callback,
                 device: playback,

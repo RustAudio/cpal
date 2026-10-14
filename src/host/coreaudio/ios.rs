@@ -658,26 +658,28 @@ where
     type Args = render_callback::Args<data::Raw>;
 
     audio_unit.set_input_callback(move |args: Args| {
+        let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+        let callback = match host_time_to_stream_instant(m_host_time) {
+            Err(err) => {
+                let _ = try_emit_error(&error_callback_for_render, err);
+                return Err(());
+            }
+            Ok(ts) => ts,
+        };
+
         // SAFETY: CoreAudio provides valid AudioBufferList for the callback duration
         let (buffer, data) =
             unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, true) };
 
         if !draining.load(Ordering::Relaxed) {
-            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+            let capture = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
                     error_callback(err);
                     return Err(());
                 }
-                Ok(cb) => cb,
+                Ok(ts) => ts,
             };
 
-            let delay = resolve_delay(
-                &latency_nanos,
-                data.len(),
-                buffer.mNumberChannels as usize,
-                sample_rate,
-            );
-            let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
             let timestamp = StreamTimestamp {
                 callback,
                 device: capture,
@@ -710,6 +712,15 @@ where
     type Args = render_callback::Args<data::Raw>;
 
     audio_unit.set_render_callback(move |args: Args| {
+        let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+        let callback = match host_time_to_stream_instant(m_host_time) {
+            Err(err) => {
+                let _ = try_emit_error(&error_callback_for_render, err);
+                return Err(());
+            }
+            Ok(ts) => ts,
+        };
+
         // SAFETY: CoreAudio provides valid AudioBufferList for the callback duration
         let (buffer, mut data) =
             unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, false) };
@@ -728,21 +739,14 @@ where
             return Ok(());
         }
 
-        let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+        let playback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
             Err(err) => {
                 error_callback(err);
                 return Err(());
             }
-            Ok(cb) => cb,
+            Ok(ts) => ts,
         };
 
-        let delay = resolve_delay(
-            &latency_nanos,
-            data.len(),
-            buffer.mNumberChannels as usize,
-            sample_rate,
-        );
-        let playback = callback + delay;
         let timestamp = StreamTimestamp {
             callback,
             device: playback,
