@@ -50,14 +50,14 @@ use super::{
 };
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceId, Error, ErrorKind, FrameCount, InterfaceType, ResultExt, SampleFormat, SampleRate,
-    StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
+    DeviceId, Error, ErrorKind, InterfaceType, ResultExt, SampleFormat, SampleRate,
+    StreamConfig, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange,
     host::{
         ErrorCallbackArc,
         coreaudio::macos::{StreamInner, loopback::LoopbackDevice},
         equilibrium::fill_equilibrium,
-        frames_to_duration, try_emit_error,
+        try_emit_error,
     },
     traits::DeviceTrait,
 };
@@ -600,6 +600,7 @@ impl Device {
         )?;
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+        let error_callback_for_capture = error_callback.clone();
         let error_callback_disconnect = error_callback.clone();
         let pending_xrun = Arc::new(AtomicBool::new(false));
         let pending_xrun_overload = pending_xrun.clone();
@@ -622,7 +623,7 @@ impl Device {
             let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
             let callback = match host_time_to_stream_instant(m_host_time) {
                 Err(err) => {
-                    let _ = try_emit_error(&error_callback_for_render, err);
+                    let _ = try_emit_error(&error_callback_for_capture, err);
                     return Err(());
                 }
                 Ok(ts) => ts,
@@ -764,14 +765,13 @@ impl Device {
         let latency_frames = Arc::new(AtomicUsize::new(
             device_buffer_frames.map_or(0, |frames| frames + extra_latency_frames),
         ));
-        let callback_latency_frames = latency_frames.clone();
         let draining = Arc::new(AtomicBool::new(false));
         let draining_render = draining.clone();
         let drain_frames = latency_frames.clone();
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
-            let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+            let m_host_time = mach2::mach_time::mach_absolute_time();
             let callback = match host_time_to_stream_instant(m_host_time) {
                 Err(err) => {
                     let _ = try_emit_error(&error_callback_for_render, err);

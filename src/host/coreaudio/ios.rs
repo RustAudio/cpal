@@ -641,7 +641,7 @@ where
         let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
         let callback = match host_time_to_stream_instant(m_host_time) {
             Err(err) => {
-                let _ = try_emit_error(&error_callback_for_render, err);
+                error_callback(err);
                 return Err(());
             }
             Ok(ts) => ts,
@@ -695,7 +695,7 @@ where
         let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
         let callback = match host_time_to_stream_instant(m_host_time) {
             Err(err) => {
-                let _ = try_emit_error(&error_callback_for_render, err);
+                error_callback(err);
                 return Err(());
             }
             Ok(ts) => ts,
