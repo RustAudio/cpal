@@ -50,9 +50,8 @@ use super::{
 };
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceId, Error, ErrorKind, InterfaceType, ResultExt, SampleFormat, SampleRate,
-    StreamConfig, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    DeviceId, Error, ErrorKind, InterfaceType, ResultExt, SampleFormat, SampleRate, StreamConfig,
+    StreamTimestamp, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
         ErrorCallbackArc,
         coreaudio::macos::{StreamInner, loopback::LoopbackDevice},
@@ -631,11 +630,7 @@ impl Device {
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
             // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
             // exactly one buffer containing all channels, so mBuffers[0] is always valid.
-            let AudioBuffer {
-                mNumberChannels: channels,
-                mDataByteSize: data_byte_size,
-                mData: data,
-            } = (*args.data.data).mBuffers[0];
+            let data = (*args.data.data).mBuffers[0].mData;
 
             let data = data as *mut ();
             let len = data_byte_size as usize / bytes_per_channel;

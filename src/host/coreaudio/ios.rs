@@ -29,8 +29,8 @@ use crate::{
     StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange,
     host::{
-        ErrorCallbackArc, equilibrium::fill_equilibrium, latch::Latch,
-        secs_to_nanos, try_emit_error, wait_for_drain,
+        ErrorCallbackArc, equilibrium::fill_equilibrium, latch::Latch, secs_to_nanos,
+        try_emit_error, wait_for_drain,
     },
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
