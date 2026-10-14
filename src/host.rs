@@ -244,7 +244,7 @@ pub(crate) use error_emit::try_emit_error;
     target_os = "freebsd",
     target_os = "netbsd",
     target_os = "windows",
-    target_vendor = "apple",
+    target_os = "macos",
     all(
         target_arch = "wasm32",
         target_os = "unknown",
