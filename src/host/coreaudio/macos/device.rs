@@ -627,7 +627,7 @@ impl Device {
                 }
                 Ok(ts) => ts,
             };
-            
+
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
             // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
             // exactly one buffer containing all channels, so mBuffers[0] is always valid.
@@ -779,7 +779,7 @@ impl Device {
                 }
                 Ok(ts) => ts,
             };
-            
+
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
             // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
             // exactly one buffer containing all channels, so mBuffers[0] is always valid.
