@@ -620,26 +620,6 @@ unsafe fn extract_audio_buffer(
     (buffer, data)
 }
 
-/// Buffer depth for one callback.
-///
-/// Refreshed on route changes by the session event manager; falls back to this buffer's own frame
-/// count, converted at the stream's rate, when the depth is unknown (zero).
-#[inline]
-fn resolve_delay(
-    latency_nanos: &AtomicU64,
-    len: usize,
-    channels: usize,
-    sample_rate: SampleRate,
-) -> Duration {
-    match latency_nanos.load(Ordering::Relaxed) {
-        0 => frames_to_duration(
-            len.checked_div(channels).unwrap_or(0) as FrameCount,
-            sample_rate,
-        ),
-        n => Duration::from_nanos(n),
-    }
-}
-
 /// Setup input callback with proper latency calculation.
 fn setup_input_callback<D, E>(
     audio_unit: &mut AudioUnit,
