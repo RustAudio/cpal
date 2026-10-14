@@ -653,7 +653,8 @@ impl Device {
                     device: capture,
                 };
                 let xrun = pending_xrun.swap(false, Ordering::Relaxed);
-                data_callback(&data, &CallbackInfo { timestamp, xrun });
+
+                data_callback(&data, &CallbackInfo::new(timestamp, xrun));
             }
             Ok(())
         })?;
@@ -811,8 +812,7 @@ impl Device {
             };
             let xrun = pending_xrun.swap(false, Ordering::Relaxed);
 
-            let info = CallbackInfo { timestamp, xrun };
-            data_callback(&mut data, &info);
+            data_callback(&mut data, &CallbackInfo::new(timestamp, xrun));
             Ok(())
         })?;
 

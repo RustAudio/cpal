@@ -682,14 +682,9 @@ where
                 callback,
                 device: capture,
             };
+
             // iOS exposes no xrun signal.
-            data_callback(
-                &data,
-                &CallbackInfo {
-                    timestamp,
-                    xrun: false,
-                },
-            );
+            data_callback(&data, &CallbackInfo::new(timestamp, false));
         }
         Ok(())
     })?;
@@ -754,11 +749,7 @@ where
         };
 
         // iOS exposes no xrun signal.
-        let info = CallbackInfo {
-            timestamp,
-            xrun: false,
-        };
-        data_callback(&mut data, &info);
+        data_callback(&mut data, &CallbackInfo::new(timestamp, false));
         Ok(())
     })?;
 
