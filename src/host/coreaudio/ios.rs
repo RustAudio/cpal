@@ -298,8 +298,6 @@ impl DeviceTrait for Device {
         setup_output_callback(
             &mut audio_unit,
             sample_format,
-            config.sample_rate,
-            latency_nanos,
             draining.clone(),
             data_callback,
             move |e| {
