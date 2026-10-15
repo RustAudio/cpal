@@ -1009,9 +1009,8 @@ mod platform_impl {
     ),
 )))]
 mod platform_impl {
-    #[cfg(feature = "custom")]
     impl_platform_host!(
-        Custom => super::CustomHost
+        #[cfg(feature = "custom")] Custom => super::CustomHost
     );
 
     /// The default host for the current compilation target platform.

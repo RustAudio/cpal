@@ -135,7 +135,7 @@ let host = cpal::default_host();
 
 **Impact:** Calling `default_host()` on unsupported targets must now by config gated, to avoid a panic.
 
-**Why:** The `NullHost` was a relic, and served only to prevent compile errors on unsupported targets, if a no-op host is really needed, a `CustomHost` can be implemented and used. A runtime panic is induced as opposed to a compilation error so as to allow compilation for unsupported targets.
+**Why:** `NullHost` was a relic that only existed to keep unsupported targets compiling. If a no-op host is genuinely needed, a `CustomHost` can be implemented and used instead. `default_host()` now panics at runtime on unsupported targets rather than failing at compile time, so code that depends on cpal still builds there as long as it never calls `default_host()` (e.g., because it explicitly uses a `CustomHost`).
 
 [`CustomHost`]: https://docs.rs/cpal/latest/cpal/platform/struct.CustomHost.html
 ---
