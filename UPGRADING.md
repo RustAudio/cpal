@@ -12,6 +12,7 @@ This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CH
 - [ ] Replace `InputStreamTimestamp`/`OutputStreamTimestamp` with `StreamTimestamp`; `capture`/`playback` is now `device`.
 - [ ] Remove `ErrorKind::Xrun` match arms; read `CallbackInfo::xrun()` instead.
 - [ ] Update `SampleFormat` method calls to use `self` instead of `&self`; methods are now `const`.
+- [ ] If you relied on the `Null` host existing, implement a `CustomHost` or cfg gate your code.
 
 ## 1. `DeviceTrait` and `StreamTrait` require `Send + Sync`
 
@@ -116,6 +117,27 @@ formats.retain(|f| f.is_int());
 **Why:** `SampleFormat` is a simple enum, there was no reason why it shouldn't be const-friendly, and since every method was both `inline` and it implements `Copy`, there is no performance downside to it taking `self`, but simply more legible than dereferencing.
 
 [`SampleFormat`]: https://docs.rs/cpal/latest/cpal/enum.SampleFormat.html
+
+## 6. `NullHost` removed.
+
+**What changed:** `NullHost` has been entirely removed
+
+```rust
+// Target = thumbv7em-none-eabihf
+
+// Before (v0.18): `NullHost` returned
+let host = cpal::default_host();
+
+// After (v0.19): panic
+let host = cpal::default_host();
+// error: No supported host for this compilation target. If you implement a CustomHost, use it explicitely.
+```
+
+**Impact:** Calling `default_host()` on unsupported targets must now by config gated, to avoid a panic.
+
+**Why:** `NullHost` was a relic that only existed to keep unsupported targets compiling. If a no-op host is genuinely needed, a `CustomHost` can be implemented and used instead. `default_host()` now panics at runtime on unsupported targets rather than failing at compile time, so code that depends on cpal still builds there as long as it never calls `default_host()` (e.g., because it explicitly uses a `CustomHost`).
+
+[`CustomHost`]: https://docs.rs/cpal/latest/cpal/platform/struct.CustomHost.html
 ---
 
 # Upgrading from v0.17 to v0.18
