@@ -1016,6 +1016,8 @@ mod platform_impl {
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        compile_error!("No supported host for this compilation target. If you implement a CustomHost, use it explicitely.")
+        compile_error!(
+            "No supported host for this compilation target. If you implement a CustomHost, use it explicitely."
+        )
     }
 }
