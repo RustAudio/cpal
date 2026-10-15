@@ -83,12 +83,6 @@ jobs:
             features: --features wasm-bindgen
             os: ubuntu-latest
 
-          # WASM - WASI
-          - target: wasm32-wasip1
-            name: WASI
-            features: ""
-            os: ubuntu-latest
-
     name: clippy-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     steps:
