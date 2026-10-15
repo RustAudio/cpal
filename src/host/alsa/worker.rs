@@ -334,11 +334,13 @@ fn process_input(
 ) -> Result<(), Error> {
     let mut frames_read = 0;
     while frames_read < stream.period_size {
-        match stream
+        // Bind the result first: an IO in a match scrutinee lives across the arms, and
+        // alsa allows only one IO per PCM, so recovery must not run while it is alive.
+        let result = stream
             .handle
             .io_bytes()
-            .readi(&mut buffer[frames_read * stream.frame_size..])
-        {
+            .readi(&mut buffer[frames_read * stream.frame_size..]);
+        match result {
             Ok(n) => frames_read += n,
             // EAGAIN = no frames available: skip this cycle if no progress was made,
             // otherwise treat as an underrun (partial period cannot be delivered safely).
@@ -419,11 +421,13 @@ fn process_output(
 
     let mut frames_written = 0;
     while frames_written < stream.period_size {
-        match stream
+        // Bind the result first, as for input above: recovery must not run while
+        // this PCM's IO is still alive.
+        let result = stream
             .handle
             .io_bytes()
-            .writei(&buffer[frames_written * stream.frame_size..])
-        {
+            .writei(&buffer[frames_written * stream.frame_size..]);
+        match result {
             Ok(n) => frames_written += n,
             // EAGAIN = device cannot currently accept more frames: skip this cycle if no
             // progress was made, otherwise treat as an underrun (partial period cannot be
