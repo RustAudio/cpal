@@ -118,9 +118,9 @@ formats.retain(|f| f.is_int());
 
 [`SampleFormat`]: https://docs.rs/cpal/latest/cpal/enum.SampleFormat.html
 
-## 5. `SampleFormat` methods made `const`, and take `self`
+## 6. `NullHost` removed.
 
-**What changed:** `SampleFormat` methods are now constant, and don't take a reference anymore.
+**What changed:** `NullHost` has been entirely removed
 
 ```rust
 // Target = thumbv7em-none-eabihf
@@ -128,14 +128,14 @@ formats.retain(|f| f.is_int());
 // Before (v0.18): `NullHost` returned
 let host = cpal::default_host();
 
-// After (v0.19): compilation error
+// After (v0.19): panic
 let host = cpal::default_host();
 // error: No supported host for this compilation target. If you implement a CustomHost, use it explicitely.
 ```
 
-**Impact:** Calling `default_host()` on unsupported targets must now by config gated,
+**Impact:** Calling `default_host()` on unsupported targets must now by config gated, to avoid a panic.
 
-**Why:** The `NullHost` was a relic, and served only to prevent compile errors on unsupported targets, if a no-op host is really needed, a `CustomHost` can be implemented and used.
+**Why:** The `NullHost` was a relic, and served only to prevent compile errors on unsupported targets, if a no-op host is really needed, a `CustomHost` can be implemented and used. A runtime panic is induced as opposed to a compilation error so as to allow compilation for unsupported targets.
 
 [`CustomHost`]: https://docs.rs/cpal/latest/cpal/platform/struct.CustomHost.html
 ---

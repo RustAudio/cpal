@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Breaking: `ErrorKind::Xrun` (see UPGRADING.md).
 - **Null**: Breaking: The `NullHost` (see UPRGRADING.md).
+
 ### Fixed
 
 - **ALSA**: Fix a remaining timestamp segfault on 32-bit platforms with a 64-bit kernel `time_t`.

@@ -1002,14 +1002,11 @@ mod platform_impl {
     target_os = "netbsd",
     target_vendor = "apple",
     target_os = "android",
-    any(
-        all(target_arch = "wasm32", target_os = "emscripten"),
-        all(
-            target_arch = "wasm32",
-            target_os = "unknown",
-            feature = "wasm-bindgen"
-        ),
-    )
+    all(
+        target_arch = "wasm32",
+        any(target_os = "emscripten", target_os = "unknown"),
+        feature = "wasm-bindgen"
+    ),
 )))]
 mod platform_impl {
     #[cfg(feature = "custom")]
@@ -1019,8 +1016,6 @@ mod platform_impl {
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        compile_error!(
-            "No supported host for this compilation target. If you implement a CustomHost, use it explicitely."
-        )
+        panic!("No supported host for this compilation target. If you implement a CustomHost, use it explicitely.")
     }
 }
