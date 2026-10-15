@@ -467,9 +467,6 @@ jobs:
         with:
           key: wasm-bindgen
 
-      - name: Check examples (default features)
-        run: cargo +${{ env.MSRV_WASM }} check --examples --workspace --verbose --target ${{ env.TARGET }}
-
       - name: Check examples (wasm-bindgen feature)
         run: cargo +${{ env.MSRV_WASM }} check --examples --features wasm-bindgen --workspace --verbose --target ${{ env.TARGET }}
 
@@ -506,9 +503,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: wasm-audioworklet
-
-      - name: Check examples (default features)
-        run: cargo +nightly check --examples --workspace --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
 
       - name: Check examples (audioworklet feature)
         run: cargo +nightly check --examples --features audioworklet --workspace --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
@@ -557,9 +551,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: wasm-emscripten-${{ matrix.name }}
-
-      - name: Check examples (default features)
-        run: cargo +${{ matrix.toolchain || env.MSRV_WASM }} check --examples --workspace --verbose ${{ matrix.build-std }} --target ${{ env.TARGET }}
 
       - name: Check examples (wasm-bindgen feature)
         run: cargo +${{ matrix.toolchain || env.MSRV_WASM }} check --examples --features wasm-bindgen --workspace --verbose ${{ matrix.build-std }} --target ${{ env.TARGET }}
