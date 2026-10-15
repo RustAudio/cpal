@@ -1002,11 +1002,14 @@ mod platform_impl {
     target_os = "netbsd",
     target_vendor = "apple",
     target_os = "android",
-    all(
-        target_arch = "wasm32",
-        any(target_os = "emscripten", target_os = "unknown"),
-        feature = "wasm-bindgen"
-    ),
+    any(
+        all(target_arch = "wasm32", target_os = "emscripten"),
+        all(
+            target_arch = "wasm32",
+            target_os = "unknown",
+            feature = "wasm-bindgen"
+        ),
+    )
 )))]
 mod platform_impl {
     #[cfg(feature = "custom")]
