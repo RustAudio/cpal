@@ -880,7 +880,7 @@ mod platform_impl {
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
         #[cfg(feature = "jack")] Jack "JACK" => JackHost,
         #[cfg(target_os = "freebsd")] Oss "OSS" => OssHost,
-        Alsa "ALSA" => AlsaHost,
+        #[cfg(not(target_os = "freebsd"))] Alsa "ALSA" => AlsaHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 

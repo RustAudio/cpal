@@ -54,10 +54,9 @@ impl HostTrait for Host {
     }
 
     fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
-        let canonical_id = DeviceId::new(id.host(), canonical_dsp_path(id.id()));
         self.devices()
             .ok()?
-            .find(|d| d.id().ok().as_ref() == Some(&canonical_id))
+            .find(|d| d.id().ok().as_ref() == Some(&id))
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
@@ -66,16 +65,6 @@ impl HostTrait for Host {
 
     fn default_output_device(&self) -> Option<Self::Device> {
         self.default_device()
-    }
-}
-
-/// Normalize a device name to a full path
-/// "dsp0"` (or) "/dev/dsp0" -> "/dev/dsp0"
-fn canonical_dsp_path(id: &str) -> String {
-    if id.starts_with('/') {
-        id.to_owned()
-    } else {
-        format!("/dev/{id}")
     }
 }
 

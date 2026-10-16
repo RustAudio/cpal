@@ -2,7 +2,7 @@
 
 use std::{fs, io, vec};
 
-use crate::{DeviceDirection, Error};
+use crate::{DeviceDirection, Error, traits::DeviceTrait};
 
 use super::{DEFAULT_DSP_PATH, SNDSTAT_PATH, error_from_io};
 
@@ -13,6 +13,72 @@ pub struct Device {
     /// Human-readable name from sndstat, (e.g. "Intel 82801I (ICH9) High Definition Audio Controller")
     pub(super) desc: Option<String>,
     pub(super) direction: DeviceDirection,
+}
+
+impl DeviceTrait for Device {
+    type SupportedInputConfigs = Vec<crate::SupportedStreamConfig>;
+    type SupportedOutputConfigs = Vec<crate::SupportedStreamConfig>;
+    type Stream = super::Stream;
+
+    fn description(&self) -> Result<Option<String>, Error> {
+        Err(Error::from(crate::ErrorKind::NotSupported))
+    }
+
+    fn id(&self) -> Result<crate::DeviceId, Error> {
+        Ok(crate::DeviceId::new(crate::HostId::OSS, self.path.clone()))
+    }
+
+    fn supports_duplex(&self) -> bool {
+        // todo: SNDCTL_DSP_GETCAPS can be used to actually
+        // check for true duplex as opposed to simplex
+        false
+    }
+
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
+        Err(Error::from(crate::ErrorKind::NotSupported))
+    }
+
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
+        Err(Error::from(crate::ErrorKind::NotSupported))
+    }
+
+    fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, Error> {
+        Err(Error::from(crate::ErrorKind::NotSupported))
+    }
+
+    fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, Error> {
+        Err(Error::from(crate::ErrorKind::NotSupported))
+    }
+
+    fn build_input_stream_raw<D, E>(
+        &self,
+        config: crate::StreamConfig,
+        sample_format: crate::SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        D: FnMut(&crate::Data, &crate::CallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static
+    {
+        Err(Error::from(crate::ErrorKind::NotSupported))
+    }
+
+    fn build_output_stream_raw<D, E>(
+        &self,
+        config: crate::StreamConfig,
+        sample_format: crate::SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        D: FnMut(&mut crate::Data, &crate::CallbackInfo) + Send + 'static,
+        E: FnMut(Error) + Send + 'static
+    {
+        Err(Error::from(crate::ErrorKind::NotSupported))
+    }
 }
 
 /// the virtual default node, opens nothing so capabilities are unknown until it is opened
