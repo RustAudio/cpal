@@ -73,6 +73,9 @@ pub(crate) mod pipewire;
 ))]
 pub(crate) mod pulseaudio;
 
+#[cfg(target_os = "freebsd")]
+pub(crate) mod oss;
+
 #[cfg(windows)]
 pub(crate) mod wasapi;
 
