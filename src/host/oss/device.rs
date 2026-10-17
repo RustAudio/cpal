@@ -1,4 +1,4 @@
-//! OSS devices: enumeration via /dev/sndstat.
+//! OSS device enumeration via /dev/sndstat.
 
 use std::{fs, io, vec};
 
