@@ -81,6 +81,22 @@ impl DeviceTrait for Device {
     }
 }
 
+/// Return the default device.
+/// If the /dev/dsp virtual node is available, always return that,
+/// otherwise fallback to the first device, otherwise, None.
+pub fn default_device() -> Option<Device> {
+    if std::path::Path::new(DEFAULT_DSP_PATH).exists() {
+        Some(Device {
+            path: DEFAULT_DSP_PATH.to_owned(),
+            desc: Some("Default Audio Device".to_owned()),
+            direction: DeviceDirection::Unknown,
+        })
+    } else {
+        // [todo] enumerate devices and return the first one, if any
+        None
+    }
+}
+
 /// the virtual default node, opens nothing so capabilities are unknown until it is opened
 // [TODO]: is this always present? I assumed not.
 pub fn default_device() -> Self {

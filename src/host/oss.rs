@@ -30,13 +30,6 @@ impl Host {
     pub fn new() -> Result<Self, Error> {
         Ok(Self)
     }
-
-    fn default_device(&self) -> Option<Device> {
-        if !Path::new(DEFAULT_DSP_PATH).exists() {
-            return None;
-        }
-        Some(Device::default_device())
-    }
 }
 
 impl HostTrait for Host {
@@ -60,11 +53,11 @@ impl HostTrait for Host {
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        self.default_device()
+        devices::default_device()
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        self.default_device()
+        devices::default_device()
     }
 }
 
