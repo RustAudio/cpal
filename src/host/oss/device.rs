@@ -12,7 +12,15 @@ use crate::{
     Error,
 };
 
-use super::{DEFAULT_DSP_PATH, SNDSTAT_PATH, error_from_io};
+use super::{
+    DEFAULT_DSP_PATH,
+    SNDSTAT_PATH,
+    error_from_io,
+    probe::{
+        self,
+        Mode,
+    },
+};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Device {
@@ -65,6 +73,14 @@ impl DeviceTrait for Device {
         Ok(crate::DeviceId::new(crate::HostId::Oss, self.path.clone()))
     }
 
+    fn supports_input(&self) -> bool {
+        matches!(self.direction, DeviceDirection::Input | DeviceDirection::Duplex)
+    }
+    
+    fn supports_output(&self) -> bool {
+        matches!(self.direction, DeviceDirection::Output | DeviceDirection::Duplex)
+    }
+
     fn supports_duplex(&self) -> bool {
         // todo: SNDCTL_DSP_GETCAPS can be used to actually
         // check for true duplex as opposed to simplex
@@ -72,13 +88,28 @@ impl DeviceTrait for Device {
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        if self.supports_input() {
+            match probe::probe_configs(&self.path, Mode::Read) {
+                Ok(ranges) => Ok(SupportedConfigsIter { inner: ranges.into_iter() }),
+                Err(e) => Err(error_from_io(e)),
+            }
+        } else {
+            Ok(SupportedConfigsIter { inner: Vec::new().into_iter() } )
+        }
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        if self.supports_input() {
+            match probe::probe_configs(&self.path, Mode::Write) {
+                Ok(ranges) => Ok(SupportedConfigsIter { inner: ranges.into_iter() }),
+                Err(e) => Err(error_from_io(e)),
+            }
+        } else {
+            Ok(SupportedConfigsIter { inner: Vec::new().into_iter() } )
+        }
     }
 
+    /// [TODO]: either `supported_input_configs`.first() / best? or probe a specific format with `SNDCTL_DSP_GETCAPS`
     fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, Error> {
         Err(Error::from(ErrorKind::HostUnavailable))
     }

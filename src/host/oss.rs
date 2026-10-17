@@ -15,6 +15,7 @@ pub use self::stream::Stream;
 
 mod device;
 mod stream;
+mod probe;
 
 /// Kernel routes this node to the default unit (`hw.snd.default_unit`).
 const DEFAULT_DSP_PATH: &str = "/dev/dsp";
