@@ -82,7 +82,8 @@ const PROBE_CHANNELS: &[i32] = &[1, 2, 4, 6, 8];
 
 /// Probes a DSP devices for its supported configs by poking at it with various common configs.
 /// 
-// [NOTE]: I assume calling this/ioctl with Mode::ReadWrite would list duplex formats or fail if <=simplex?
+/// [NOTE]: `SupportedBufferSize` is always `::Unknown`, due to OSS buffersize being a tad odd. 
+/// [TODO]: I assume calling this/ioctl with Mode::ReadWrite would list duplex formats or fail if <=simplex?
 pub(super) fn probe_configs(path: &str, mode: Mode) -> std::io::Result<Vec<SupportedStreamConfigRange>> {
     let mut out = Vec::new();
     let fmts = {
