@@ -4,6 +4,7 @@ use std::{fs, io, vec};
 
 use crate::{
     SupportedStreamConfigRange,
+    DeviceDescriptionBuilder,
     traits::DeviceTrait,
     DeviceDescription,
     DeviceDirection,
@@ -51,7 +52,13 @@ impl DeviceTrait for Device {
     type Stream = super::Stream;
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        let name = self.desc.as_ref().unwrap_or(&self.path);
+        let builder = DeviceDescriptionBuilder::new(name)
+            .address(&self.path)
+            .direction(self.direction);
+            // .extended(lines); extra lines from /dev/sndstat
+
+        Ok(builder.build())
     }
 
     fn id(&self) -> Result<crate::DeviceId, Error> {
@@ -115,7 +122,7 @@ impl DeviceTrait for Device {
 /// If the /dev/dsp virtual node is available, always return that,
 /// otherwise fallback to the first device, otherwise, None.
 /// 
-/// *Note*:Capabilities are unknown until the device is opened.
+/// *Note*: Capabilities are unknown until the device is opened.
 pub fn default_device() -> Option<Device> {
     if std::path::Path::new(DEFAULT_DSP_PATH).exists() {
         Some(Device {
