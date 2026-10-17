@@ -131,7 +131,6 @@ pub(crate) mod latch;
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
-    target_os = "freebsd",
     target_os = "netbsd",
 ))]
 pub(crate) type Notify = (std::sync::Mutex<bool>, std::sync::Condvar);
@@ -243,7 +242,6 @@ pub(crate) use error_emit::try_emit_error;
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
-    target_os = "freebsd",
     target_os = "netbsd",
     target_os = "windows",
     target_vendor = "apple",
