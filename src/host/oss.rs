@@ -53,11 +53,11 @@ impl HostTrait for Host {
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        devices::default_device()
+        device::default_device()
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        devices::default_device()
+        device::default_device()
     }
 }
 

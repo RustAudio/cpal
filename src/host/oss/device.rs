@@ -2,11 +2,18 @@
 
 use std::{fs, io, vec};
 
-use crate::{DeviceDirection, Error, traits::DeviceTrait};
+use crate::{
+    SupportedStreamConfigRange,
+    traits::DeviceTrait,
+    DeviceDescription,
+    DeviceDirection,
+    ErrorKind,
+    Error,
+};
 
 use super::{DEFAULT_DSP_PATH, SNDSTAT_PATH, error_from_io};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct Device {
     /// The full path to the device node to open (e.g. "/dev/dsp0" or "/dev/dsp")
     pub(super) path: String,
@@ -15,17 +22,40 @@ pub struct Device {
     pub(super) direction: DeviceDirection,
 }
 
+impl std::fmt::Display for Device {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OSS device at {}", self.path)
+    }
+}
+
+#[derive(Clone)]
+pub struct SupportedConfigsIter {
+    inner: vec::IntoIter<SupportedStreamConfigRange>,
+}
+
+impl Iterator for SupportedConfigsIter {
+    type Item = SupportedStreamConfigRange;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
 impl DeviceTrait for Device {
-    type SupportedInputConfigs = Vec<crate::SupportedStreamConfig>;
-    type SupportedOutputConfigs = Vec<crate::SupportedStreamConfig>;
+    type SupportedInputConfigs = SupportedConfigsIter;
+    type SupportedOutputConfigs = SupportedConfigsIter;
     type Stream = super::Stream;
 
-    fn description(&self) -> Result<Option<String>, Error> {
-        Err(Error::from(crate::ErrorKind::NotSupported))
+    fn description(&self) -> Result<DeviceDescription, Error> {
+        Err(Error::from(ErrorKind::HostUnavailable))
     }
 
     fn id(&self) -> Result<crate::DeviceId, Error> {
-        Ok(crate::DeviceId::new(crate::HostId::OSS, self.path.clone()))
+        Ok(crate::DeviceId::new(crate::HostId::Oss, self.path.clone()))
     }
 
     fn supports_duplex(&self) -> bool {
@@ -35,19 +65,19 @@ impl DeviceTrait for Device {
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
-        Err(Error::from(crate::ErrorKind::NotSupported))
+        Err(Error::from(ErrorKind::HostUnavailable))
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
-        Err(Error::from(crate::ErrorKind::NotSupported))
+        Err(Error::from(ErrorKind::HostUnavailable))
     }
 
     fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, Error> {
-        Err(Error::from(crate::ErrorKind::NotSupported))
+        Err(Error::from(ErrorKind::HostUnavailable))
     }
 
     fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, Error> {
-        Err(Error::from(crate::ErrorKind::NotSupported))
+        Err(Error::from(ErrorKind::HostUnavailable))
     }
 
     fn build_input_stream_raw<D, E>(
@@ -62,7 +92,7 @@ impl DeviceTrait for Device {
         D: FnMut(&crate::Data, &crate::CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static
     {
-        Err(Error::from(crate::ErrorKind::NotSupported))
+        Err(Error::from(ErrorKind::HostUnavailable))
     }
 
     fn build_output_stream_raw<D, E>(
@@ -77,13 +107,15 @@ impl DeviceTrait for Device {
         D: FnMut(&mut crate::Data, &crate::CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static
     {
-        Err(Error::from(crate::ErrorKind::NotSupported))
+        Err(Error::from(ErrorKind::HostUnavailable))
     }
 }
 
 /// Return the default device.
 /// If the /dev/dsp virtual node is available, always return that,
 /// otherwise fallback to the first device, otherwise, None.
+/// 
+/// *Note*:Capabilities are unknown until the device is opened.
 pub fn default_device() -> Option<Device> {
     if std::path::Path::new(DEFAULT_DSP_PATH).exists() {
         Some(Device {
@@ -97,16 +129,6 @@ pub fn default_device() -> Option<Device> {
     }
 }
 
-/// the virtual default node, opens nothing so capabilities are unknown until it is opened
-// [TODO]: is this always present? I assumed not.
-pub fn default_device() -> Self {
-    Self {
-        path: DEFAULT_DSP_PATH.to_owned(),
-        desc: Some("Default Audio Device".to_owned()),
-        direction: DeviceDirection::Unknown,
-    }
-}
-
 pub struct Devices {
     inner: vec::IntoIter<Device>,
 }
@@ -117,8 +139,8 @@ impl Devices {
     pub fn new() -> Result<Self, Error> {
         let devices = match fs::read(SNDSTAT_PATH) {
             Ok(bytes) => parse_sndstat(&String::from_utf8_lossy(&bytes)),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(Error::HostNotAvailable),
-            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(Error::PermissionDenied),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(Error::new(ErrorKind::DeviceNotAvailable)),
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(Error::new(ErrorKind::PermissionDenied)),
             Err(e) => return Err(error_from_io(e)),
         };
         Ok(Self {
