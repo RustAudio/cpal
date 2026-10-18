@@ -228,6 +228,16 @@ pub(super) fn configure(
     }
 
     // Read back the real block size
-    let blk = ioctl_int(fd, SNDCTL_DSP_GETBLKSIZE, 0).map_err(error_from_io)?;
+    let blk = ioctl_int(fd, SNDCTL_DSP_GETBLKSIZE, 0).map_err(|e| {
+        Error::with_message(
+            ErrorKind::UnsupportedConfig, // use whichever kind fits
+            format!(
+                "GETBLKSIZE failed: {e} (errno {:?}, request {:#010x}, fd {})",
+                e.raw_os_error(),
+                SNDCTL_DSP_GETBLKSIZE,
+                fd.as_raw_fd(),
+            ),
+        )
+    })?;
     Ok(blk.max(1) as usize)
 }
