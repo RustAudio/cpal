@@ -13,6 +13,23 @@
 //!     on a fatal error: call the error callback and stop
 //! }
 
+use std::{
+    thread::JoinHandle,
+    os::fd::AsRawFd,
+    time::Duration,
+    io::Write,
+    fs::File,
+    sync::{
+        Condvar,
+        Mutex,
+        Arc,
+        atomic::{
+            AtomicBool,
+            Ordering,
+        },
+    },
+};
+
 use crate::{
     host::{
         equilibrium::fill_equilibrium,
@@ -33,24 +50,9 @@ use super::{
     syscall::{self, AudioBufInfo, ioctl_int, ioctl_ptr},
     error_from_io,
     formats,
+    clock,
 };
 
-use std::{
-    thread::JoinHandle,
-    os::fd::AsRawFd,
-    time::Duration,
-    io::Write,
-    fs::File,
-    sync::{
-        Condvar,
-        Mutex,
-        Arc,
-        atomic::{
-            AtomicBool,
-            Ordering,
-        },
-    },
-};
 
 /// [TODO] ::new_input/output/duplex
 pub struct Stream {
@@ -64,11 +66,13 @@ unsafe impl Sync for Stream {}
 
 impl StreamTrait for Stream {
     fn start(&self) -> Result<(), Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        *self.control.paused.lock().unwrap() = true;
+        Ok(())
     }
 
     fn pause(&self) -> Result<(), Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        *self.control.paused.lock().unwrap() = false;
+        Ok(())
     }
 
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
@@ -82,47 +86,34 @@ impl StreamTrait for Stream {
     /// Returns the current time using the same clock
     /// as the stream.
     /// 
-    /// The clock in question is `CLOCK_MONOTONIC`, rationale:
-    /// 
-    /// `CLOCK_MONOTONIC`: The default clock, used by std::time::Instant
-    /// `CLOCK_MONOTONIC_PRECISE`: more precise but costs more per call
-    /// `CLOCK_MONOTONIC_FAST/COARSE`: Cheaper, but far coarser
-    /// `CLOCK_REALTIME`: Can go backwards as wall clock
-    /// 
-    /// [FreeBSD Clock Docs](https://man.freebsd.org/cgi/man.cgi?clock_gettime)
+    /// The clock in question is `CLOCK_MONOTONIC`.
     fn now(&self) -> StreamInstant {
-        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-
-        let r = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
-        debug_assert_eq!(r, 0); // `clock_gettime` should never fail
-
-        StreamInstant::new(ts.tv_nsec as u64, ts.tv_nsec as u32)
+        clock::now()
     }
 }
 
-
-/// [TODO]: use this in Stream::now() aswell
-fn get_streaminstant() -> StreamInstant {
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-
-    let r = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
-    debug_assert_eq!(r, 0); // `clock_gettime` should never fail
-
-    StreamInstant::new(ts.tv_nsec as u64, ts.tv_nsec as u32)
-}
-
-#[derive(Default)]
 pub(super) struct Control {
     stop: AtomicBool,
-    paused: Mutex<bool>, // [TODO], remove derive default and set to true so stream starts paused
+    paused: Mutex<bool>,
     cv: Condvar,
 }
 
+impl Default for Control {
+    fn default() -> Self {
+        Self {
+            // explicitely set default values (for some)
+            stop: AtomicBool::new(false),
+            paused: Mutex::new(true), // Start the stream paused so that the user must first call `stream.start()`
+            cv: Condvar::new(),
+        }
+    }
+}
+
 // no moving into another thread currently so data_callback is required as mut
-pub(super) fn run_output<D, E>(fd: File, ctl: Arc<Control>, period_bytes: usize, mut data_callback: D, error_callback: E, sample_format: SampleFormat)
+pub(super) fn run_output<D, E>(fd: File, ctl: Arc<Control>, period_bytes: usize, mut data_callback: D, mut error_callback: E, sample_format: SampleFormat)
 where
     D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
-    E: FnMut(Error) + Send + 'static,
+    E: FnMut(Error                   ) + Send + 'static,
 {
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
@@ -140,8 +131,8 @@ where
         if ctl.stop.load(Ordering::Acquire) { break; }
 
         if filled == 0 {
-            let callback_ts = get_streaminstant();
-            let device_ts = get_streaminstant(); // [TODO] + delay;
+            let callback_ts = clock::now();
+            let device_ts = clock::now(); // [TODO] + delay;
             fill_equilibrium(&mut buf, sample_format);
 
             // [TODO] safety note
@@ -159,6 +150,7 @@ where
             let e = std::io::Error::last_os_error();
             if e.kind() == std::io::ErrorKind::Interrupted { continue; } else {
                 // error callback
+                error_callback(error_from_io(e));
             }
         }
         if r == 0 { continue; } // timeout: loop around and re-check flags
@@ -174,6 +166,7 @@ where
                 if e.kind() == std::io::ErrorKind::WouldBlock { continue; }
                 if e.kind() == std::io::ErrorKind::Interrupted { continue; }
                 // error callback
+                error_callback(error_from_io(e));
             }
         }
     }
@@ -187,9 +180,6 @@ const RATE_TOLERANCE_HZ: c_int = 2;
 fn rate_close_enough(asked: c_int, got: c_int) -> bool {
     (asked - got).abs() <= RATE_TOLERANCE_HZ
 }
-
-const SNDCTL_DSP_GETBLKSIZE: libc::c_ulong = 0xC004_5004;  // _IOWR('P', 4, int)
-const SNDCTL_DSP_SETFRAGMENT: libc::c_ulong = 0xC004_500A; // _IOWR('P', 10, int)
 
 // [NOTE]: Only works for output
 pub(super) fn configure(
@@ -206,7 +196,7 @@ pub(super) fn configure(
         let bytes = frames as usize * config.channels as usize * fmt.sample_size();
         let log2 = bytes.next_power_of_two().trailing_zeros() as libc::c_int;
         let arg = (2 << 16) | log2; // 2 fragments, 2^log2 bytes each
-        let _ = ioctl_int(fd, SNDCTL_DSP_SETFRAGMENT, arg); // a hint, so ignore failure
+        let _ = ioctl_int(fd, syscall::SNDCTL_DSP_SETFRAGMENT, arg); // a hint, so ignore failure
     }
 
     // Each call writes back what the driver actually chose: reject mismatches.

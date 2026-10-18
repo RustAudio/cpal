@@ -14,9 +14,10 @@ pub use self::device::{Device, Devices};
 pub use self::stream::Stream;
 
 mod formats;
+mod syscall;
 mod device;
 mod stream;
-mod syscall;
+mod clock;
 mod probe;
 
 /// Kernel routes this node to the default unit (`hw.snd.default_unit`).
@@ -64,15 +65,15 @@ impl HostTrait for Host {
     }
 }
 
-/// Map an OS error from `open`/`ioctl`/`read`/`write` on a dsp node to a `cpal::Error`
-#[allow(dead_code)]
+/// Map an OS error from `open`/`ioctl`/`read`/`write` on a dsp node to a `cpal::Error`.
 fn error_from_io(err: io::Error) -> Error {
-    match err.raw_os_error() {
-        Some(libc::ENODEV | libc::ENXIO | libc::ENOENT) => ErrorKind::DeviceNotAvailable  .into(),
-        Some(libc::EPERM  | libc::EACCES              ) => ErrorKind::PermissionDenied    .into(),
-        Some(libc::EBUSY  | libc::EAGAIN              ) => ErrorKind::DeviceBusy          .into(),
-        Some(libc::EINVAL                             ) => ErrorKind::UnsupportedConfig   .into(),
-        Some(libc::ENOSYS | libc::ENOTSUP             ) => ErrorKind::UnsupportedOperation.into(),
-        _ => Error::with_message(ErrorKind::BackendError, err.to_string()),
-    }
+    let kind = match err.raw_os_error() {
+        Some(libc::ENODEV | libc::ENXIO | libc::ENOENT) => ErrorKind::DeviceNotAvailable,
+        Some(libc::EPERM  | libc::EACCES              ) => ErrorKind::PermissionDenied,
+        Some(libc::EBUSY  | libc::EAGAIN              ) => ErrorKind::DeviceBusy,
+        Some(libc::EINVAL                             ) => ErrorKind::UnsupportedConfig,
+        Some(libc::ENOSYS | libc::ENOTSUP             ) => ErrorKind::UnsupportedOperation,
+        _                                               => ErrorKind::BackendError,
+    };
+    Error::with_message(kind, err.to_string())
 }
