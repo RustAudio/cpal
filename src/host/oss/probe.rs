@@ -30,7 +30,6 @@ use std::{
 use crate::{
     SupportedStreamConfigRange,
     SupportedBufferSize,
-    COMMON_SAMPLE_RATES,
 };
 
 use super::{
@@ -89,7 +88,7 @@ pub(super) fn probe_configs(path: &str, mode: Mode) -> std::io::Result<Vec<Suppo
         for &ch in PROBE_CHANNELS {
             let mut rates = Vec::new();
 
-            for &rate in COMMON_SAMPLE_RATES {
+            for &rate in PROBE_RATES {
                 let rate: i32 = rate.try_into().expect("All the samples rates are non-negative");
 
                 // Fresh fd per attempt as OSS settings are sticky once the device is configured.
