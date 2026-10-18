@@ -1,6 +1,9 @@
 //! Mapping between OSS `AFMT_*` values and `SampleFormat`.
 //! 
 //! AFMT stands for Audio Format.
+//! 
+//! The source of truth for much of this file is /usr/include/sys/soundcard.h from 
+//! FreeBSD-15.1-RELEASE
 
 use libc::c_int;
 

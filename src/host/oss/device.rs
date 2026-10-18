@@ -8,10 +8,16 @@ use crate::{
     DeviceDescriptionBuilder,
     validate_stream_config,
     traits::DeviceTrait,
+    DuplexCallbackInfo,
+    DuplexStreamConfig,
     DeviceDescription,
     DeviceDirection,
+    StreamConfig,
+    CallbackInfo,
+    SampleFormat,
     ErrorKind,
     Error,
+    Data,
 };
 
 use super::{
@@ -129,6 +135,10 @@ impl DeviceTrait for Device {
         Err(Error::from(ErrorKind::HostUnavailable))
     }
 
+    fn default_duplex_config(&self) -> Result<crate::DuplexStreamConfig, Error> {
+        Err(Error::from(ErrorKind::HostUnavailable))
+    }
+
     fn build_input_stream_raw<D, E>(
         &self,
         config: crate::StreamConfig,
@@ -141,20 +151,36 @@ impl DeviceTrait for Device {
         D: FnMut(&crate::Data, &crate::CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static
     {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        validate_stream_config(&config)?;
+
+        // Open and configure first, before dispatching to the worker thread, so errors can be returned here
+        let fd = open_dsp(&self.path, Mode::Read).map_err(error_from_io)?; // diff from output
+        let period_bytes = stream::configure(&fd, &config, sample_format)?;
+
+        let control = Arc::new(Control::default());
+        let worker_ctl = control.clone();
+
+        let worker = std::thread::Builder::new()
+            .name("cpal_oss_in".into()) // diff from output
+            .spawn(move || {
+                stream::input_loop(fd, worker_ctl, period_bytes, data_callback, error_callback, sample_format); // diff from output
+            })
+            .map_err(error_from_io)?;
+
+        Ok(super::Stream { control, worker: Some(worker), latch: Latch::new() })
     }
 
     fn build_output_stream_raw<D, E>(
         &self,
-        config: crate::StreamConfig,
-        sample_format: crate::SampleFormat,
+        config: StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<std::time::Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut crate::Data, &crate::CallbackInfo) + Send + 'static,
-        E: FnMut(Error) + Send + 'static
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
+        E: FnMut(Error                   ) + Send + 'static
     {
         validate_stream_config(&config)?;
 
@@ -166,14 +192,72 @@ impl DeviceTrait for Device {
         let worker_ctl = control.clone();
 
         let worker = std::thread::Builder::new()
-            .name("cpal-oss-out".into())
+            .name("cpal_oss_out".into())
             .spawn(move || {
-                stream::run_output(fd, worker_ctl, period_bytes, data_callback, error_callback, sample_format);
+                stream::output_loop(fd, worker_ctl, period_bytes, data_callback, error_callback, sample_format);
             })
             .map_err(error_from_io)?;
 
         Ok(super::Stream { control, worker: Some(worker), latch: Latch::new() })
     }
+
+    /// Create a dynamically typed synchronized duplex stream.
+    /// 
+    /// **Note**: OSS duplex streams must have the same input and output sample format,
+    /// this is a limitation of the host itself.
+    fn build_duplex_stream_raw<D, E>(
+        &self,
+        config: DuplexStreamConfig,
+        input_sample_format: SampleFormat,
+        output_sample_format: SampleFormat,
+        data_callback: D,
+        error_callback: E,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self::Stream, Error>
+    where
+        D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
+        E: FnMut(Error                                ) + Send + 'static,
+    {
+        validate_duplex_stream_config(&config)?;
+        let sample_format = if input_sample_format == output_sample_format {
+            input_sample_format
+        } else {
+            // Decided not to use InvalidInput, as it's a perfectly valid thing to try
+            return Err(Error::with_message(ErrorKind::UnsupportedConfig, "OSS duplex must share the sample sample format between input and output"));
+        };
+
+        // Open and configure first, before dispatching to the worker thread, so errors can be returned here
+        let fd = open_dsp(&self.path, Mode::Write).map_err(error_from_io)?;
+        let (in_period_bytes, out_period_bytes) = stream::configure_duplex(&fd, &config, sample_format)?;
+
+        let control = Arc::new(Control::default());
+        let worker_ctl = control.clone();
+
+        let worker = std::thread::Builder::new()
+            .name("cpal_oss_duplex".into())
+            .spawn(move || {
+                stream::duplex_loop(fd, worker_ctl, in_period_bytes, out_period_bytes, data_callback, error_callback, sample_format);
+            })
+            .map_err(error_from_io)?;
+
+        Ok(super::Stream { control, worker: Some(worker), latch: Latch::new() })
+    }
+}
+
+fn validate_duplex_stream_config(config: &DuplexStreamConfig) -> Result<(), Error> {
+    let input = StreamConfig {
+        channels: config.input_channels,
+        sample_rate: config.sample_rate,
+        buffer_size: config.buffer_size,
+    };
+    validate_stream_config(&input)?;
+
+    let output = StreamConfig {
+        channels: config.output_channels,
+        sample_rate: config.sample_rate,
+        buffer_size: config.buffer_size,
+    };
+    validate_stream_config(&output)
 }
 
 /// Return the default device.
@@ -199,8 +283,13 @@ pub struct Devices {
 }
 
 impl Devices {
-    /// if the file is missing, assume OSS is unavailable, as /dev/sndstat is created by sound(4) on creationg
+    /// If the file is missing, assume OSS is unavailable, as /dev/sndstat is created by sound(4) on creationg
     /// do not assume no devices, as that forms a valid sndstat file
+    /// 
+    /// [TODO]: Remove this and use `ossinfo`
+    /// [NOTE]: This is formally obsolete now, and exists for compatability.
+    /// [DOCS]: [Depreciation notice and description](http://manuals.opensound.com/usersguide/sndstat.html)
+    /// [DOCS]: [IOCTL to replace this](https://man.freebsd.org/cgi/man.cgi?manpath=FreeBSD+14.1-RELEASE+and+Ports&query=sndstat&sektion=4#1)
     pub fn new() -> Result<Self, Error> {
         let devices = match fs::read(SNDSTAT_PATH) {
             Ok(bytes) => parse_sndstat(&String::from_utf8_lossy(&bytes)),
