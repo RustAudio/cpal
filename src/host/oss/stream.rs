@@ -276,27 +276,30 @@ where
     // Prime the playback ring with one period of silence. Otherwise the first
     // read + callback delays the first write and the device underruns immediately.
     fill_equilibrium(&mut out_buf, sample_format);
-    let mut primed = 0;
-    while primed < out_buf.len() {
-        if ctl.stop.load(Ordering::Acquire) { return; }
+    // for _ in 0..fragstotal
+    for _ in 0..4 {
+        let mut primed = 0;
+        while primed < out_buf.len() {
+            if ctl.stop.load(Ordering::Acquire) { return; }
 
-        let mut pfd = libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
-        let r = unsafe { libc::poll(&mut pfd, 1, 50) };
-        if r < 0 {
-            let e = std::io::Error::last_os_error();
-            if e.kind() == std::io::ErrorKind::Interrupted { continue; }
-            error_callback(error_from_io(e));
-        }
-        if r == 0 { continue; }
-
-        match (&fd).write(&out_buf[primed..]) {
-            Ok(n) => primed += n,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::WouldBlock  { continue; }
+            let mut pfd = libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
+            let r = unsafe { libc::poll(&mut pfd, 1, 50) };
+            if r < 0 {
+                let e = std::io::Error::last_os_error();
                 if e.kind() == std::io::ErrorKind::Interrupted { continue; }
-
                 error_callback(error_from_io(e));
-                break;
+            }
+            if r == 0 { continue; }
+
+            match (&fd).write(&out_buf[primed..]) {
+                Ok(n) => primed += n,
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock  { continue; }
+                    if e.kind() == std::io::ErrorKind::Interrupted { continue; }
+
+                    error_callback(error_from_io(e));
+                    break;
+                }
             }
         }
     }
