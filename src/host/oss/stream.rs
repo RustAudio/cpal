@@ -66,17 +66,25 @@ unsafe impl Sync for Stream {}
 
 impl StreamTrait for Stream {
     fn start(&self) -> Result<(), Error> {
-        *self.control.paused.lock().unwrap() = true;
+        *self.control.paused.lock().unwrap() = false;
+        self.control.cv.notify_all();
         Ok(())
     }
 
     fn pause(&self) -> Result<(), Error> {
-        *self.control.paused.lock().unwrap() = false;
+        *self.control.paused.lock().unwrap() = true;
+        self.control.cv.notify_all();
         Ok(())
     }
 
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        {
+            // hold the mutex across both store and notify
+            let _p = self.control.paused.lock().unwrap();
+            self.control.stop.store(true, Ordering::Release);
+            self.control.cv.notify_all();
+        }
+        Ok(()) // join happens in Drop; poll timeout bounds it to <=50 ms
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
@@ -89,6 +97,19 @@ impl StreamTrait for Stream {
     /// The clock in question is `CLOCK_MONOTONIC`.
     fn now(&self) -> StreamInstant {
         clock::now()
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        {
+            let _p = self.control.paused.lock().unwrap();
+            self.control.stop.store(true, Ordering::Release);
+            self.control.cv.notify_all();
+        }
+        if let Some(h) = self.worker.take() {
+            let _ = h.join();   // returns within ~50 ms (poll timeout)
+        }
     }
 }
 
