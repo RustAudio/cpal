@@ -55,6 +55,20 @@ pub(super) fn open_dsp(path: &str, mode: Mode) -> std::io::Result<File> {
         .open(path)
 }
 
+/// Common sample rates used to probe a device with.
+/// 
+/// I tried swapping to cpal's own ones, but this caused issues.
+/// trying to set a sample rate above the devices max rate caused:
+///   - BackendError "Argument List too long (os error 7)" being returned
+///   - "pcm0: feeder_build_rate(): can't set destination rate" being logged to the terminal
+/// 
+/// The end goal is to properly use cpal's common list, but first validate that every value is
+/// within the device's reported supported min and max values, because:
+///   - probing anyway would be wasteful and not 'correct'
+///   - it causes things to be printed to the terminal, which is suboptimal
+/// 
+/// [TODO]: Migrate to cpal's actual `COMMON_SAMPLE_RATES`
+const PROBE_RATES: &[i32] = &[8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000];
 const PROBE_CHANNELS: &[i32] = &[1, 2, 4, 6, 8];
 
 /// Probes a DSP devices for its supported configs by poking at it with various common configs.
