@@ -202,13 +202,13 @@ pub(super) fn configure(
 
     // Each call writes back what the driver actually chose: reject mismatches.
     if ioctl_int(fd, consts::SNDCTL_DSP_SETFMT, afmt).map_err(error_from_io)? != afmt {
-        return Err(Error::new(ErrorKind::UnsupportedConfig));
+        return Err(Error::with_message(ErrorKind::UnsupportedConfig, "AFMT: {afmt} was rejected"));
     }
     if ioctl_int(fd, consts::SNDCTL_DSP_CHANNELS, ch).map_err(error_from_io)? != ch {
-        return Err(Error::new(ErrorKind::UnsupportedConfig));
+        return Err(Error::with_message(ErrorKind::UnsupportedConfig, "Channels: {ch} was rejected"));
     }
     if ioctl_int(fd, consts::SNDCTL_DSP_SPEED, rate).map_err(error_from_io)? != rate {
-        return Err(Error::new(ErrorKind::UnsupportedConfig));
+        return Err(Error::with_message(ErrorKind::UnsupportedConfig, "'Speed': {rate} was rejected"));
     }
 
     // Read back the real block size
