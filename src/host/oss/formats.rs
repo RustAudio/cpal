@@ -16,6 +16,7 @@ pub(super) fn sample_format_from_afmt(afmt: c_int) -> Option<SampleFormat> {
     FORMATS.iter().find(|&&(a, _)| a == afmt).map(|&(_, f)| f)
 }
 
+// [TODO] make infalliable
 pub(super) fn afmt_from_sample_format(format: SampleFormat) -> Option<c_int> {
     FORMATS.iter().find(|&&(_, f)| f == format).map(|&(a, _)| a)
 }
