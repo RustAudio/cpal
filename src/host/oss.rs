@@ -68,11 +68,11 @@ impl HostTrait for Host {
 #[allow(dead_code)]
 fn error_from_io(err: io::Error) -> Error {
     match err.raw_os_error() {
-        Some(libc::ENODEV | libc::ENXIO | libc::ENOENT) => ErrorKind::DeviceNotAvailable.into(),
-        Some(libc::EPERM | libc::EACCES) => ErrorKind::PermissionDenied.into(),
-        Some(libc::EBUSY | libc::EAGAIN) => ErrorKind::DeviceBusy.into(),
-        Some(libc::EINVAL) => ErrorKind::UnsupportedConfig.into(),
-        Some(libc::ENOSYS | libc::ENOTSUP) => ErrorKind::UnsupportedOperation.into(),
+        Some(libc::ENODEV | libc::ENXIO | libc::ENOENT) => ErrorKind::DeviceNotAvailable  .into(),
+        Some(libc::EPERM  | libc::EACCES              ) => ErrorKind::PermissionDenied    .into(),
+        Some(libc::EBUSY  | libc::EAGAIN              ) => ErrorKind::DeviceBusy          .into(),
+        Some(libc::EINVAL                             ) => ErrorKind::UnsupportedConfig   .into(),
+        Some(libc::ENOSYS | libc::ENOTSUP             ) => ErrorKind::UnsupportedOperation.into(),
         _ => Error::with_message(ErrorKind::BackendError, err.to_string()),
     }
 }
