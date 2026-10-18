@@ -18,7 +18,6 @@ pub(crate) mod aaudio;
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
-    target_os = "freebsd",
     target_os = "netbsd"
 ))]
 pub(crate) mod alsa;
@@ -72,6 +71,9 @@ pub(crate) mod pipewire;
     feature = "pulseaudio"
 ))]
 pub(crate) mod pulseaudio;
+
+#[cfg(target_os = "freebsd")]
+pub(crate) mod oss;
 
 #[cfg(windows)]
 pub(crate) mod wasapi;
@@ -129,7 +131,6 @@ pub(crate) mod latch;
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
-    target_os = "freebsd",
     target_os = "netbsd",
 ))]
 pub(crate) type Notify = (std::sync::Mutex<bool>, std::sync::Condvar);
@@ -241,7 +242,6 @@ pub(crate) use error_emit::try_emit_error;
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
-    target_os = "freebsd",
     target_os = "netbsd",
     target_os = "windows",
     target_vendor = "apple",

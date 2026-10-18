@@ -120,6 +120,7 @@ macro_rules! impl_platform_host {
         /// - `"custom"` - Custom host (requires `custom` feature)
         /// - `"jack"` - JACK Audio Connection Kit
         /// - `"null"` - Null host
+        /// - `"oss"` - Open Sound System
         /// - `"wasapi"` - Windows Audio Session API
         /// - `"webaudio"` - Web Audio API
         ///
@@ -866,6 +867,9 @@ macro_rules! __cpal_select_host_name {
 mod platform_impl {
     #[cfg(feature = "jack")]
     use super::JackHost;
+    #[cfg(target_os = "freebsd")]
+    use crate::host::oss::Host as OssHost;
+    #[cfg(not(target_os = "freebsd"))]
     use crate::host::alsa::Host as AlsaHost;
     #[cfg(feature = "pipewire")]
     use crate::host::pipewire::Host as PipeWireHost;
@@ -875,7 +879,8 @@ mod platform_impl {
         #[cfg(feature = "pipewire")] PipeWire => PipeWireHost,
         #[cfg(feature = "pulseaudio")] PulseAudio => PulseAudioHost,
         #[cfg(feature = "jack")] Jack "JACK" => JackHost,
-        Alsa "ALSA" => AlsaHost,
+        #[cfg(target_os = "freebsd")] Oss "OSS" => OssHost,
+        #[cfg(not(target_os = "freebsd"))] Alsa "ALSA" => AlsaHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 
@@ -893,9 +898,15 @@ mod platform_impl {
                 return host.into();
             }
         }
-        AlsaHost::new()
+        #[cfg(target_os = "freebsd")]
+        return OssHost::new()
             .expect("the default host should always be available")
-            .into()
+            .into();
+
+        #[cfg(not(target_os = "freebsd"))]
+        return AlsaHost::new()
+            .expect("the default host should always be available")
+            .into();
     }
 }
 
