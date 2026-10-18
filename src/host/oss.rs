@@ -13,8 +13,10 @@ use crate::{
 pub use self::device::{Device, Devices};
 pub use self::stream::Stream;
 
+mod formats;
 mod device;
 mod stream;
+mod consts;
 mod probe;
 
 /// Kernel routes this node to the default unit (`hw.snd.default_unit`).

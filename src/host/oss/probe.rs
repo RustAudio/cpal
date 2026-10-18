@@ -55,8 +55,8 @@ const AFMT_FLOAT:  libc::c_int = 0x0000_4000;
 pub enum Mode { Read, Write, ReadWrite }
 
 /// Open a dsp file for ioctl
-fn open_dsp(path: &str, mode: Mode) -> std::io::Result<File> {
-    let (r, w) = match mode {
+pub(super) fn open_dsp(path: &str, mode: Mode) -> std::io::Result<File> {
+    let (r, w) = match mode { // [TODO]: Mode.r(), Mode.w()
         Mode::Read => (true, false),
         Mode::Write => (false, true),
         Mode::ReadWrite => (true, true),
@@ -69,7 +69,7 @@ fn open_dsp(path: &str, mode: Mode) -> std::io::Result<File> {
 }
 
 /// [TODO]: cpal error returns?
-fn ioctl_int(f: &File, req: libc::c_ulong, val: libc::c_int) -> std::io::Result<libc::c_int> {
+pub(super) fn ioctl_int(f: &File, req: libc::c_ulong, val: libc::c_int) -> std::io::Result<libc::c_int> {
     let mut v = val;
     match unsafe { libc::ioctl(f.as_raw_fd(), req, &mut v) } {
         -1 => Err(std::io::Error::last_os_error()),
@@ -77,7 +77,7 @@ fn ioctl_int(f: &File, req: libc::c_ulong, val: libc::c_int) -> std::io::Result<
     }
 }
 
-const PROBE_RATES: &[i32] = &[8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000];
+const PROBE_RATES: &[i32] = &[8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000]; // [todo] use cpals actual ones
 const PROBE_CHANNELS: &[i32] = &[1, 2, 4, 6, 8];
 
 /// Probes a DSP devices for its supported configs by poking at it with various common configs.

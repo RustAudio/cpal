@@ -1,10 +1,12 @@
 //! OSS device enumeration via /dev/sndstat.
 
-use std::{fs, io, vec};
+use std::{fs, io, vec, fmt, sync::Arc};
 
 use crate::{
+    host::{latch::Latch, oss::stream},
     SupportedStreamConfigRange,
     DeviceDescriptionBuilder,
+    validate_stream_config,
     traits::DeviceTrait,
     DeviceDescription,
     DeviceDirection,
@@ -15,9 +17,13 @@ use crate::{
 use super::{
     DEFAULT_DSP_PATH,
     SNDSTAT_PATH,
+    stream::Control,
     error_from_io,
+    consts,
     probe::{
-        self,
+        probe_configs,
+        ioctl_int,
+        open_dsp,
         Mode,
     },
 };
@@ -27,13 +33,15 @@ pub struct Device {
     /// The full path to the device node to open (e.g. "/dev/dsp0" or "/dev/dsp")
     pub(super) path: String,
     /// Human-readable name from sndstat, (e.g. "Intel 82801I (ICH9) High Definition Audio Controller")
-    pub(super) desc: Option<String>,
+    pub(super) desc: Option<String>, // [TODO] Maybe not Option?
     pub(super) direction: DeviceDirection,
 }
 
-impl std::fmt::Display for Device {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "OSS device at {}", self.path)
+// Every single host seems to have this exact same Display code
+impl fmt::Display for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let desc = self.description().map_err(|_| fmt::Error)?;
+        f.write_str(desc.name())
     }
 }
 
@@ -81,15 +89,19 @@ impl DeviceTrait for Device {
         matches!(self.direction, DeviceDirection::Output | DeviceDirection::Duplex)
     }
 
+    /// Whether or whether not the driver reports true native duplex for this device.
+    /// Any failure to open or query means returns false.
+    /// 
+    /// [NOTE]: This currently does not cache the result, and performs a syscall everytime.
     fn supports_duplex(&self) -> bool {
-        // todo: SNDCTL_DSP_GETCAPS can be used to actually
-        // check for true duplex as opposed to simplex
-        false
+        let Ok(fd) = open_dsp(&self.path, Mode::ReadWrite) else { return false };
+        let Ok(caps) = ioctl_int(&fd, consts::SNDCTL_DSP_GETCAPS, 0) else { return false };
+        caps & consts::PCM_CAP_DUPLEX != 0
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         if self.supports_input() {
-            match probe::probe_configs(&self.path, Mode::Read) {
+            match probe_configs(&self.path, Mode::Read) {
                 Ok(ranges) => Ok(SupportedConfigsIter { inner: ranges.into_iter() }),
                 Err(e) => Err(error_from_io(e)),
             }
@@ -100,7 +112,7 @@ impl DeviceTrait for Device {
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         if self.supports_input() {
-            match probe::probe_configs(&self.path, Mode::Write) {
+            match probe_configs(&self.path, Mode::Write) {
                 Ok(ranges) => Ok(SupportedConfigsIter { inner: ranges.into_iter() }),
                 Err(e) => Err(error_from_io(e)),
             }
@@ -145,7 +157,23 @@ impl DeviceTrait for Device {
         D: FnMut(&mut crate::Data, &crate::CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static
     {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        validate_stream_config(&config)?;
+
+        // Open and configure first, before dispatching to the worker thread, so errors can be returned here
+        let fd = open_dsp(&self.path, Mode::Write).map_err(error_from_io)?;
+        let period_bytes = stream::configure(&fd, &config, sample_format)?;
+
+        let control = Arc::new(Control::default());
+        let worker_ctl = control.clone();
+
+        let worker = std::thread::Builder::new()
+            .name("cpal-oss-out".into())
+            .spawn(move || {
+                stream::run_output(fd, worker_ctl, period_bytes, data_callback, error_callback, sample_format);
+            })
+            .map_err(error_from_io)?;
+
+        Ok(super::Stream { control, worker: Some(worker), latch: Latch::new() })
     }
 }
 

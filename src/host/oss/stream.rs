@@ -14,7 +14,10 @@
 //! }
 
 use crate::{
-    host::equilibrium::fill_equilibrium,
+    host::{
+        equilibrium::fill_equilibrium,
+        latch::Latch,
+    },
     traits::StreamTrait,
     StreamTimestamp,
     StreamInstant,
@@ -26,7 +29,15 @@ use crate::{
     Data,
 };
 
+use super::{
+    probe::ioctl_int,
+    error_from_io,
+    formats,
+    consts,
+};
+
 use std::{
+    thread::JoinHandle,
     os::fd::AsRawFd,
     time::Duration,
     io::Write,
@@ -42,7 +53,12 @@ use std::{
     },
 };
 
-pub struct Stream {}
+/// [TODO] ::new_input/output/duplex
+pub struct Stream {
+    pub(super) control: Arc<Control>,
+    pub(super) worker: Option<JoinHandle<()>>,
+    pub(super) latch: Latch
+}
 
 unsafe impl Send for Stream {}
 unsafe impl Sync for Stream {}
@@ -96,14 +112,15 @@ fn get_streaminstant() -> StreamInstant {
     StreamInstant::new(ts.tv_nsec as u64, ts.tv_nsec as u32)
 }
 
-struct Control {
+#[derive(Default)]
+pub(super) struct Control {
     stop: AtomicBool,
     paused: Mutex<bool>,
     cv: Condvar,
 }
 
 // no moving into another thread currently so data_callback is required as mut
-fn run_output<D, E>(fd: File, ctl: Arc<Control>, period_bytes: usize, mut data_callback: D, error_callback: E, sample_format: SampleFormat)
+pub(super) fn run_output<D, E>(fd: File, ctl: Arc<Control>, period_bytes: usize, mut data_callback: D, error_callback: E, sample_format: SampleFormat)
 where
     D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
@@ -161,4 +178,40 @@ where
             }
         }
     }
+}
+
+const SNDCTL_DSP_GETBLKSIZE: libc::c_ulong = 0xC004_5004;  // _IOWR('P', 4, int)
+const SNDCTL_DSP_SETFRAGMENT: libc::c_ulong = 0xC004_500A; // _IOWR('P', 10, int)
+
+pub(super) fn configure(
+    fd: &File,
+    config: &crate::StreamConfig,
+    fmt: crate::SampleFormat,
+) -> Result<usize, Error> {
+    let Some(afmt) = formats::afmt_from_sample_format(fmt) else { return Err(Error::new(ErrorKind::UnsupportedConfig)); };
+    let ch = config.channels as libc::c_int;
+    let rate = config.sample_rate as libc::c_int;
+
+    // Fragment size first: classic OSS sizes the buffer when the format is fixed.
+    if let crate::BufferSize::Fixed(frames) = config.buffer_size {
+        let bytes = frames as usize * config.channels as usize * fmt.sample_size();
+        let log2 = bytes.next_power_of_two().trailing_zeros() as libc::c_int;
+        let arg = (2 << 16) | log2; // 2 fragments, 2^log2 bytes each
+        let _ = ioctl_int(fd, SNDCTL_DSP_SETFRAGMENT, arg); // a hint, so ignore failure
+    }
+
+    // Each call writes back what the driver actually chose: reject mismatches.
+    if ioctl_int(fd, consts::SNDCTL_DSP_SETFMT, afmt).map_err(error_from_io)? != afmt {
+        return Err(Error::new(ErrorKind::UnsupportedConfig));
+    }
+    if ioctl_int(fd, consts::SNDCTL_DSP_CHANNELS, ch).map_err(error_from_io)? != ch {
+        return Err(Error::new(ErrorKind::UnsupportedConfig));
+    }
+    if ioctl_int(fd, consts::SNDCTL_DSP_SPEED, rate).map_err(error_from_io)? != rate {
+        return Err(Error::new(ErrorKind::UnsupportedConfig));
+    }
+
+    // Read back the real block size
+    let blk = ioctl_int(fd, SNDCTL_DSP_GETBLKSIZE, 0).map_err(error_from_io)?;
+    Ok(blk.max(1) as usize)
 }
