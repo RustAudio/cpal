@@ -180,6 +180,15 @@ where
     }
 }
 
+use libc::c_int;
+
+/// The driver may round the rate by a Hz or so (e.g. 48000 -> 47999).
+const RATE_TOLERANCE_HZ: c_int = 2;
+
+fn rate_close_enough(asked: c_int, got: c_int) -> bool {
+    (asked - got).abs() <= RATE_TOLERANCE_HZ
+}
+
 const SNDCTL_DSP_GETBLKSIZE: libc::c_ulong = 0xC004_5004;  // _IOWR('P', 4, int)
 const SNDCTL_DSP_SETFRAGMENT: libc::c_ulong = 0xC004_500A; // _IOWR('P', 10, int)
 
@@ -211,7 +220,7 @@ pub(super) fn configure(
     //     return Err(Error::with_message(ErrorKind::UnsupportedConfig, format!("Sample Rate: {rate} was rejected")));
     // }
     let got = ioctl_int(fd, consts::SNDCTL_DSP_SPEED, rate).map_err(error_from_io)?;
-    if got != rate {
+    if !rate_close_enough(rate, got) {
         return Err(Error::with_message(
             ErrorKind::UnsupportedConfig,
             format!("SPEED: asked for {rate}, driver gave {got}"),
