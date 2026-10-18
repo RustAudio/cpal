@@ -16,7 +16,7 @@ pub use self::stream::Stream;
 mod formats;
 mod device;
 mod stream;
-mod consts;
+mod syscall;
 mod probe;
 
 /// Kernel routes this node to the default unit (`hw.snd.default_unit`).

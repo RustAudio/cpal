@@ -30,10 +30,9 @@ use crate::{
 };
 
 use super::{
-    probe::ioctl_int,
+    syscall::{self, AudioBufInfo, ioctl_int, ioctl_ptr},
     error_from_io,
     formats,
-    consts,
 };
 
 use std::{
@@ -192,6 +191,7 @@ fn rate_close_enough(asked: c_int, got: c_int) -> bool {
 const SNDCTL_DSP_GETBLKSIZE: libc::c_ulong = 0xC004_5004;  // _IOWR('P', 4, int)
 const SNDCTL_DSP_SETFRAGMENT: libc::c_ulong = 0xC004_500A; // _IOWR('P', 10, int)
 
+// [NOTE]: Only works for output
 pub(super) fn configure(
     fd: &File,
     config: &crate::StreamConfig,
@@ -210,16 +210,16 @@ pub(super) fn configure(
     }
 
     // Each call writes back what the driver actually chose: reject mismatches.
-    if ioctl_int(fd, consts::SNDCTL_DSP_SETFMT, afmt).map_err(error_from_io)? != afmt {
+    if ioctl_int(fd, syscall::SNDCTL_DSP_SETFMT, afmt).map_err(error_from_io)? != afmt {
         return Err(Error::with_message(ErrorKind::UnsupportedConfig, format!("Format: {fmt}/{afmt} was rejected")));
     }
-    if ioctl_int(fd, consts::SNDCTL_DSP_CHANNELS, ch).map_err(error_from_io)? != ch {
+    if ioctl_int(fd, syscall::SNDCTL_DSP_CHANNELS, ch).map_err(error_from_io)? != ch {
         return Err(Error::with_message(ErrorKind::UnsupportedConfig, format!("Channels: {ch} was rejected")));
     }
     // if ioctl_int(fd, consts::SNDCTL_DSP_SPEED, rate).map_err(error_from_io)? != rate {
     //     return Err(Error::with_message(ErrorKind::UnsupportedConfig, format!("Sample Rate: {rate} was rejected")));
     // }
-    let got = ioctl_int(fd, consts::SNDCTL_DSP_SPEED, rate).map_err(error_from_io)?;
+    let got = ioctl_int(fd, syscall::SNDCTL_DSP_SPEED, rate).map_err(error_from_io)?;
     if !rate_close_enough(rate, got) {
         return Err(Error::with_message(
             ErrorKind::UnsupportedConfig,
@@ -228,16 +228,7 @@ pub(super) fn configure(
     }
 
     // Read back the real block size
-    let blk = ioctl_int(fd, SNDCTL_DSP_GETBLKSIZE, 0).map_err(|e| {
-        Error::with_message(
-            ErrorKind::UnsupportedConfig, // use whichever kind fits
-            format!(
-                "GETBLKSIZE failed: {e} (errno {:?}, request {:#010x}, fd {})",
-                e.raw_os_error(),
-                SNDCTL_DSP_GETBLKSIZE,
-                fd.as_raw_fd(),
-            ),
-        )
-    })?;
-    Ok(blk.max(1) as usize)
+    let mut info = AudioBufInfo::default();
+    ioctl_ptr(fd, syscall::SNDCTL_DSP_GETOSPACE, &mut info).map_err(error_from_io)?; // [TODO] move to syscall
+    Ok(info.fragsize.max(1) as usize)
 }
