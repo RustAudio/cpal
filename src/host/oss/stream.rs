@@ -12,6 +12,8 @@
 //!     on error: call the error callback
 //!     on a fatal error: call the error callback and stop
 //! }
+//! 
+//! [TODO]: High-priority threads.
 
 use std::{
     thread::JoinHandle,
