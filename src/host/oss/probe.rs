@@ -1,7 +1,6 @@
 //! Utilities for probing an audio device for its capabilities, formats etc.
-//! 
-//! The source of truth for much of this file is /usr/include/sys/soundcard.h from 
-//! FreeBSD-15.1-RELEASE
+//! This is not a general purpose OSS-spec host, each implementation varies in capabilities,
+//! versions, specific quirks, and legacy/backwards compatability. This is for FreeBSD.
 //! 
 //! # Notes
 //! 

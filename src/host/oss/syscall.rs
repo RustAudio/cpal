@@ -10,6 +10,9 @@
 //! - **size:** (13 bits) The argument's size in bytes, so the kernel knows how much to copy.
 //! - **group:** (8 bits) The driver family. OSS DSP requests use `'P'` (0x50).
 //! - **command:** (8 bits) The specific command within the group.
+//! 
+//! The source of truth for much of this file is /usr/include/sys/soundcard.h from 
+//! FreeBSD-15.1-RELEASE
 
 use libc::{c_int, c_ulong};
 use std::os::fd::AsRawFd;

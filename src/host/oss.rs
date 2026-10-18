@@ -68,6 +68,7 @@ impl HostTrait for Host {
 /// Map an OS error from `open`/`ioctl`/`read`/`write` on a dsp node to a `cpal::Error`.
 fn error_from_io(err: io::Error) -> Error {
     let kind = match err.raw_os_error() {
+        // [TODO] add EOF?
         Some(libc::ENODEV | libc::ENXIO | libc::ENOENT) => ErrorKind::DeviceNotAvailable,
         Some(libc::EPERM  | libc::EACCES              ) => ErrorKind::PermissionDenied,
         Some(libc::EBUSY  | libc::EAGAIN              ) => ErrorKind::DeviceBusy,
