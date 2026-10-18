@@ -114,7 +114,7 @@ fn get_streaminstant() -> StreamInstant {
 #[derive(Default)]
 pub(super) struct Control {
     stop: AtomicBool,
-    paused: Mutex<bool>,
+    paused: Mutex<bool>, // [TODO], remove derive default and set to true so stream starts paused
     cv: Condvar,
 }
 
@@ -127,8 +127,10 @@ where
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
 
+    eprintln!("worker: started");
     loop {
         if ctl.stop.load(Ordering::Acquire) { break; }
+        eprintln!("A");
 
         // Park the thread if the stream is currently paused (re-checking stop when woken)
         {
@@ -138,6 +140,7 @@ where
             }
         }
         if ctl.stop.load(Ordering::Acquire) { break; }
+        eprintln!("B");
 
         if filled == 0 {
             let callback_ts = get_streaminstant();
@@ -149,7 +152,9 @@ where
             let mut data = unsafe { Data::from_parts(buf.as_mut_ptr() as *mut (), samples, sample_format) };
             let info = CallbackInfo::new(StreamTimestamp { callback: callback_ts, device: device_ts }, false); // [TODO] handle xruns
             // [TODO] add documentation to when OSS xruns are reported relative to the callback
-            data_callback(&mut data, &info)
+            eprintln!("C");
+            data_callback(&mut data, &info);
+            eprintln!("D");
         }
 
         // wait untill the device can accept data
@@ -159,6 +164,7 @@ where
             let e = std::io::Error::last_os_error();
             if e.kind() == std::io::ErrorKind::Interrupted { continue; } else {
                 // error callback
+                eprintln!("E")
             }
         }
         if r == 0 { continue; } // timeout: loop around and re-check flags
@@ -174,6 +180,7 @@ where
                 if e.kind() == std::io::ErrorKind::WouldBlock { continue; }
                 if e.kind() == std::io::ErrorKind::Interrupted { continue; }
                 // error callback
+                eprintln!("F");
             }
         }
     }
