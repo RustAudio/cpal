@@ -12,6 +12,8 @@
 //! - **command:** (8 bits) The specific command within the group.
 
 use libc::{c_int, c_ulong};
+use std::os::fd::AsRawFd;
+use std::fs::File;
 
 const IOC_VOID:     c_ulong = 1 << 29;
 const IOC_OUT:      c_ulong = 1 << 30;
@@ -36,7 +38,7 @@ const DSP: u8 = b'P'; // group for all SNDCTL_DSP_* requests
 
 // command numbers within the group
 const CMD_SPEED:       u8 = 2;
-const CMD_GETBLKSIZE:  u8 = 4;
+const CMD_GETBLKSIZE:  u8 = 4; // ! obselete
 const CMD_SETFMT:      u8 = 5;
 const CMD_CHANNELS:    u8 = 6;
 const CMD_SETFRAGMENT: u8 = 10;
@@ -44,9 +46,11 @@ const CMD_GETFMTS:     u8 = 11;
 const CMD_GETCAPS:     u8 = 15;
 const CMD_TRIGGER:     u8 = 16; // `GETTRIGGER` and `SETTRIGGER` share it, just with opposite directions
 const CMD_GETODELAY:   u8 = 23;
+const CMD_GETOSPACE: u8 = 12;
+const CMD_GETISPACE: u8 = 13;
 
 pub const SNDCTL_DSP_SPEED:       c_ulong = iowr::<c_int>(DSP, CMD_SPEED      );
-pub const SNDCTL_DSP_GETBLKSIZE:  c_ulong = iowr::<c_int>(DSP, CMD_GETBLKSIZE );
+pub const SNDCTL_DSP_GETBLKSIZE:  c_ulong = iowr::<c_int>(DSP, CMD_GETBLKSIZE ); // ! obselete
 pub const SNDCTL_DSP_SETFMT:      c_ulong = iowr::<c_int>(DSP, CMD_SETFMT     );
 pub const SNDCTL_DSP_CHANNELS:    c_ulong = iowr::<c_int>(DSP, CMD_CHANNELS   );
 pub const SNDCTL_DSP_SETFRAGMENT: c_ulong = iowr::<c_int>(DSP, CMD_SETFRAGMENT);
@@ -55,6 +59,9 @@ pub const SNDCTL_DSP_GETCAPS:     c_ulong = ior ::<c_int>(DSP, CMD_GETCAPS    );
 pub const SNDCTL_DSP_GETTRIGGER:  c_ulong = ior ::<c_int>(DSP, CMD_TRIGGER    );
 pub const SNDCTL_DSP_SETTRIGGER:  c_ulong = iow ::<c_int>(DSP, CMD_TRIGGER    );
 pub const SNDCTL_DSP_GETODELAY:   c_ulong = ior ::<c_int>(DSP, CMD_GETODELAY  );
+
+pub const SNDCTL_DSP_GETOSPACE: c_ulong = ior::<AudioBufInfo>(DSP, CMD_GETOSPACE);
+pub const SNDCTL_DSP_GETISPACE: c_ulong = ior::<AudioBufInfo>(DSP, CMD_GETISPACE);
 
 // Sample Formats
 // AFMT = Audio Format
@@ -70,7 +77,35 @@ pub const PCM_CAP_TRIGGER: c_int = 1 << 12;
 pub const PCM_CAP_INPUT:   c_int = 1 << 16;
 pub const PCM_CAP_OUTPUT:  c_int = 1 << 17;
 
+/// FFI Mirror of OSS' `audio_buf_info`
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug)]
+pub struct AudioBufInfo {  // | Output:          | Input:                  |
+    pub fragments:  c_int, // | Fragments free   | Fragments ready to read |
+    pub fragstotal: c_int, // |      Total fragments in the buffer         |
+    pub fragsize:   c_int, // |           bytes per fragment               |
+    pub bytes:      c_int, // | Bytes free       | Bytes ready to read     |
+}
+
 // Compile time assertions
 const _: () = assert!(SNDCTL_DSP_GETCAPS    == 0x4004_500F);
 const _: () = assert!(SNDCTL_DSP_SPEED      == 0xC004_5002);
 const _: () = assert!(SNDCTL_DSP_SETTRIGGER == 0x8004_5010);
+
+/// [TODO]: cpal error returns?
+pub(super) fn ioctl_int(f: &File, req: c_ulong, val: libc::c_int) -> std::io::Result<libc::c_int> {
+    let mut v = val;
+    match unsafe { libc::ioctl(f.as_raw_fd(), req, &mut v) } {
+        -1 => Err(std::io::Error::last_os_error()),
+        _ => Ok(v),
+    }
+}
+
+pub(super) fn ioctl_ptr<T>(f: &File, req: c_ulong, arg: &mut T) -> std::io::Result<()> {
+    // SAFETY: `arg` is a valid, aligned `T` for the whole call. `req` must be an ioctl
+    // whose argument is a pointer to exactly one `T`.
+    match unsafe { libc::ioctl(f.as_raw_fd(), req, arg as *mut T) } {
+        -1 => Err(std::io::Error::last_os_error()),
+        _ => Ok(()),
+    }
+}

@@ -15,14 +15,13 @@ use crate::{
 };
 
 use super::{
+    syscall::{self, ioctl_int},
     DEFAULT_DSP_PATH,
     SNDSTAT_PATH,
     stream::Control,
     error_from_io,
-    consts,
     probe::{
         probe_configs,
-        ioctl_int,
         open_dsp,
         Mode,
     },
@@ -95,8 +94,8 @@ impl DeviceTrait for Device {
     /// [NOTE]: This currently does not cache the result, and performs a syscall everytime.
     fn supports_duplex(&self) -> bool {
         let Ok(fd) = open_dsp(&self.path, Mode::ReadWrite) else { return false };
-        let Ok(caps) = ioctl_int(&fd, consts::SNDCTL_DSP_GETCAPS, 0) else { return false };
-        caps & consts::PCM_CAP_DUPLEX != 0
+        let Ok(caps) = ioctl_int(&fd, syscall::SNDCTL_DSP_GETCAPS, 0) else { return false };
+        caps & syscall::PCM_CAP_DUPLEX != 0
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {

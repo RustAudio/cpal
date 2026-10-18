@@ -20,13 +20,7 @@
 //!     - `PCM_CAP_TRIGGER`: Supports `SNDCTL_DSP_SETTRIGGER`, meaning the stream can be explicitely start/stopped
 
 use std::{
-    os::{
-        unix::fs::OpenOptionsExt,
-        fd::{
-            OwnedFd,
-            AsRawFd,
-        }
-    },
+    os::unix::fs::OpenOptionsExt,
     fs::{
         OpenOptions,
         File,
@@ -38,6 +32,8 @@ use crate::{
     SupportedBufferSize,
     SampleFormat,
 };
+
+use super::syscall::ioctl_int;
 
 // FreeBSD ioctl encoding: IOC_OUT=0x4000_0000, IOC_INOUT=0xC000_0000,
 // (size << 16) | (group << 8) | number. Group is 'P' (0x50), size is 4 (int).
@@ -66,15 +62,6 @@ pub(super) fn open_dsp(path: &str, mode: Mode) -> std::io::Result<File> {
         .write(w)
         .custom_flags(libc::O_NONBLOCK)
         .open(path)
-}
-
-/// [TODO]: cpal error returns?
-pub(super) fn ioctl_int(f: &File, req: libc::c_ulong, val: libc::c_int) -> std::io::Result<libc::c_int> {
-    let mut v = val;
-    match unsafe { libc::ioctl(f.as_raw_fd(), req, &mut v) } {
-        -1 => Err(std::io::Error::last_os_error()),
-        _ => Ok(v),
-    }
 }
 
 const PROBE_RATES: &[i32] = &[8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000]; // [todo] use cpals actual ones

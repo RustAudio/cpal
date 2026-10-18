@@ -2,7 +2,7 @@
 
 use libc::c_int;
 
-use super::consts::{AFMT_FLOAT, AFMT_S16_LE, AFMT_S32_LE, AFMT_U8};
+use super::syscall::{AFMT_FLOAT, AFMT_S16_LE, AFMT_S32_LE, AFMT_U8};
 use crate::SampleFormat;
 
 pub(super) const FORMATS: &[(c_int, SampleFormat)] = &[
