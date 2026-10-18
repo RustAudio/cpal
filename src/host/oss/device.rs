@@ -7,6 +7,7 @@ use crate::{
     SupportedStreamConfigRange,
     DeviceDescriptionBuilder,
     validate_stream_config,
+    SupportedStreamConfig,
     traits::DeviceTrait,
     DuplexCallbackInfo,
     DuplexStreamConfig,
@@ -127,29 +128,29 @@ impl DeviceTrait for Device {
     }
 
     /// [TODO]: either `supported_input_configs`.first() / best? or probe a specific format with `SNDCTL_DSP_GETCAPS`
-    fn default_input_config(&self) -> Result<crate::SupportedStreamConfig, Error> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         Err(Error::from(ErrorKind::HostUnavailable))
     }
 
-    fn default_output_config(&self) -> Result<crate::SupportedStreamConfig, Error> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         Err(Error::from(ErrorKind::HostUnavailable))
     }
 
-    fn default_duplex_config(&self) -> Result<crate::DuplexStreamConfig, Error> {
+    fn default_duplex_config(&self) -> Result<DuplexStreamConfig, Error> {
         Err(Error::from(ErrorKind::HostUnavailable))
     }
 
     fn build_input_stream_raw<D, E>(
         &self,
-        config: crate::StreamConfig,
-        sample_format: crate::SampleFormat,
+        config: StreamConfig,
+        sample_format: SampleFormat,
         data_callback: D,
         error_callback: E,
         timeout: Option<std::time::Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&crate::Data, &crate::CallbackInfo) + Send + 'static,
-        E: FnMut(Error) + Send + 'static
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
+        E: FnMut(Error               ) + Send + 'static
     {
         validate_stream_config(&config)?;
 
@@ -227,7 +228,7 @@ impl DeviceTrait for Device {
         };
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
-        let fd = open_dsp(&self.path, Mode::Write).map_err(error_from_io)?;
+        let fd = open_dsp(&self.path, Mode::ReadWrite).map_err(error_from_io)?;
         let (in_period_bytes, out_period_bytes) = stream::configure_duplex(&fd, &config, sample_format)?;
 
         let control = Arc::new(Control::default());
