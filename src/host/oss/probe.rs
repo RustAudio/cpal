@@ -30,22 +30,13 @@ use std::{
 use crate::{
     SupportedStreamConfigRange,
     SupportedBufferSize,
-    SampleFormat,
+    COMMON_SAMPLE_RATES,
 };
 
-use super::syscall::ioctl_int;
-
-// FreeBSD ioctl encoding: IOC_OUT=0x4000_0000, IOC_INOUT=0xC000_0000,
-// (size << 16) | (group << 8) | number. Group is 'P' (0x50), size is 4 (int).
-const SNDCTL_DSP_SPEED:    libc::c_ulong = 0xC004_5002; // _IOWR('P', 2, int)
-const SNDCTL_DSP_SETFMT:   libc::c_ulong = 0xC004_5005; // _IOWR('P', 5, int)
-const SNDCTL_DSP_CHANNELS: libc::c_ulong = 0xC004_5006; // _IOWR('P', 6, int)
-const SNDCTL_DSP_GETFMTS:  libc::c_ulong = 0x4004_500B; // _IOR('P', 11, int)
-
-const AFMT_U8:     libc::c_int = 0x0000_0008;
-const AFMT_S16_LE: libc::c_int = 0x0000_0010;
-const AFMT_S32_LE: libc::c_int = 0x0000_1000;
-const AFMT_FLOAT:  libc::c_int = 0x0000_4000;
+use super::{
+    syscall::{self, ioctl_int},
+    formats,
+};
 
 #[derive(Clone, Copy)]
 pub enum Mode { Read, Write, ReadWrite }
@@ -64,7 +55,6 @@ pub(super) fn open_dsp(path: &str, mode: Mode) -> std::io::Result<File> {
         .open(path)
 }
 
-const PROBE_RATES: &[i32] = &[8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000]; // [todo] use cpals actual ones
 const PROBE_CHANNELS: &[i32] = &[1, 2, 4, 6, 8];
 
 /// Probes a DSP devices for its supported configs by poking at it with various common configs.
@@ -75,28 +65,29 @@ pub(super) fn probe_configs(path: &str, mode: Mode) -> std::io::Result<Vec<Suppo
     let mut out = Vec::new();
     let fmts = {
         let fd = open_dsp(path, mode)?;
-        ioctl_int(&fd, SNDCTL_DSP_GETFMTS, 0)?
+        ioctl_int(&fd, syscall::SNDCTL_DSP_GETFMTS, 0)?
     };
 
-    for (afmt, sample_format) in [
-        (AFMT_FLOAT,  SampleFormat::F32), // note: AFMT_FLOAT is a compatability shim
-        (AFMT_S32_LE, SampleFormat::I32),
-        (AFMT_S16_LE, SampleFormat::I16),
-        (AFMT_U8,     SampleFormat::U8 ),
-    ] {
+    for (afmt, sample_format) in formats::FORMATS {
+        // Early return if the device doesn't support it, no point trying
         if fmts & afmt == 0 { continue; }
+
         for &ch in PROBE_CHANNELS {
             let mut rates = Vec::new();
-            for &rate in PROBE_RATES {
+
+            for &rate in COMMON_SAMPLE_RATES {
+                let rate: i32 = rate.try_into().expect("All the samples rates are non-negative");
+
                 // Fresh fd per attempt as OSS settings are sticky once the device is configured.
                 let fd = open_dsp(path, mode)?;
-                if ioctl_int(&fd, SNDCTL_DSP_SETFMT, afmt)? != afmt { break; }
-                if ioctl_int(&fd, SNDCTL_DSP_CHANNELS, ch)? != ch { break; }
-                if ioctl_int(&fd, SNDCTL_DSP_SPEED, rate)? == rate { rates.push(rate as u32); }
+                if ioctl_int(&fd, syscall::SNDCTL_DSP_SETFMT, *afmt)? != *afmt { break; }
+                if ioctl_int(&fd, syscall::SNDCTL_DSP_CHANNELS, ch)? != ch { break; }
+                if ioctl_int(&fd, syscall::SNDCTL_DSP_SPEED, rate)? == rate { rates.push(rate as u32); }
             }
+
             if let (Some(&min), Some(&max)) = (rates.first(), rates.last()) {
                 out.push(SupportedStreamConfigRange::new(
-                    ch as u16, min, max, SupportedBufferSize::Unknown, sample_format,
+                    ch as u16, min, max, SupportedBufferSize::Unknown, *sample_format,
                 ));
             }
         }

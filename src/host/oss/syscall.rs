@@ -49,8 +49,17 @@ const CMD_GETODELAY:   u8 = 23;
 const CMD_GETOSPACE: u8 = 12;
 const CMD_GETISPACE: u8 = 13;
 
+
+// FreeBSD ioctl encoding: IOC_OUT=0x4000_0000, IOC_INOUT=0xC000_0000,
+// (size << 16) | (group << 8) | number. Group is 'P' (0x50), size is 4 (int).
+
+
+// I refuse to fallback to using `GETBLKSKIZE`,
+// - it's officially obsolete
+// - it is ambiguous as to its direction, when opening a duplex fd
+// - freebsd reccomends using the modern `GETI/OSPACE`
+// pub const SNDCTL_DSP_GETBLKSIZE:  c_ulong = ior ::<c_int>(DSP, CMD_GETBLKSIZE );
 pub const SNDCTL_DSP_SPEED:       c_ulong = iowr::<c_int>(DSP, CMD_SPEED      );
-pub const SNDCTL_DSP_GETBLKSIZE:  c_ulong = iowr::<c_int>(DSP, CMD_GETBLKSIZE ); // ! obselete
 pub const SNDCTL_DSP_SETFMT:      c_ulong = iowr::<c_int>(DSP, CMD_SETFMT     );
 pub const SNDCTL_DSP_CHANNELS:    c_ulong = iowr::<c_int>(DSP, CMD_CHANNELS   );
 pub const SNDCTL_DSP_SETFRAGMENT: c_ulong = iowr::<c_int>(DSP, CMD_SETFRAGMENT);
@@ -62,14 +71,6 @@ pub const SNDCTL_DSP_GETODELAY:   c_ulong = ior ::<c_int>(DSP, CMD_GETODELAY  );
 
 pub const SNDCTL_DSP_GETOSPACE: c_ulong = ior::<AudioBufInfo>(DSP, CMD_GETOSPACE);
 pub const SNDCTL_DSP_GETISPACE: c_ulong = ior::<AudioBufInfo>(DSP, CMD_GETISPACE);
-
-// Sample Formats
-// AFMT = Audio Format
-pub const AFMT_QUERY:  c_int = 0;
-pub const AFMT_U8:     c_int = 1 << 3;
-pub const AFMT_S16_LE: c_int = 1 << 4;
-pub const AFMT_S32_LE: c_int = 1 << 12;
-pub const AFMT_FLOAT:  c_int = 1 << 14;
 
 // Capability Flags
 pub const PCM_CAP_DUPLEX:  c_int = 1 << 8;
@@ -87,12 +88,6 @@ pub struct AudioBufInfo {  // | Output:          | Input:                  |
     pub bytes:      c_int, // | Bytes free       | Bytes ready to read     |
 }
 
-// Compile time assertions
-const _: () = assert!(SNDCTL_DSP_GETCAPS    == 0x4004_500F);
-const _: () = assert!(SNDCTL_DSP_SPEED      == 0xC004_5002);
-const _: () = assert!(SNDCTL_DSP_SETTRIGGER == 0x8004_5010);
-
-/// [TODO]: cpal error returns?
 pub(super) fn ioctl_int(f: &File, req: c_ulong, val: libc::c_int) -> std::io::Result<libc::c_int> {
     let mut v = val;
     match unsafe { libc::ioctl(f.as_raw_fd(), req, &mut v) } {
