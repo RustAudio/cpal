@@ -686,12 +686,12 @@ fn run_input(
     error_callback: &ErrorCallbackArc,
 ) {
     #[cfg(feature = "realtime")]
-    if let Err(err) = boost_current_thread_priority(
+    let _rt_priority = boost_current_thread_priority(
         run_ctxt.stream.period_frames,
         run_ctxt.stream.config.sample_rate,
-    ) {
-        emit_error(error_callback, err);
-    }
+    )
+    .map_err(|err| emit_error(error_callback, err))
+    .unwrap_or_default();
 
     let stream = &run_ctxt.stream;
     let scratch_len = if stream.sample_format == SampleFormat::I24 {
@@ -730,12 +730,12 @@ fn run_output(
     error_callback: &ErrorCallbackArc,
 ) {
     #[cfg(feature = "realtime")]
-    if let Err(err) = boost_current_thread_priority(
+    let _rt_priority = boost_current_thread_priority(
         run_ctxt.stream.period_frames,
         run_ctxt.stream.config.sample_rate,
-    ) {
-        emit_error(error_callback, err);
-    }
+    )
+    .map_err(|err| emit_error(error_callback, err))
+    .unwrap_or_default();
 
     // The clock frequency is constant for the stream's lifetime.
     let clock_frequency = match unsafe { run_ctxt.stream.audio_clock.GetFrequency() }
@@ -797,17 +797,33 @@ fn run_output(
     }
 }
 
+/// Holds the MMCSS registration made by `audio_thread_priority` and reverts it on drop.
+#[cfg(feature = "realtime")]
+#[derive(Default)]
+struct RtPriority(Option<audio_thread_priority::RtPriorityHandle>);
+
+#[cfg(feature = "realtime")]
+impl Drop for RtPriority {
+    fn drop(&mut self) {
+        if let Some(handle) = self.0.take() {
+            // Nothing useful to do if reverting fails while the thread is exiting.
+            let _ = audio_thread_priority::demote_current_thread_from_real_time(handle);
+        }
+    }
+}
+
 /// Attempts to elevate the current thread to real-time or high-priority scheduling.
 #[cfg(feature = "realtime")]
 fn boost_current_thread_priority(
     period_frames: FrameCount,
     sample_rate: SampleRate,
-) -> Result<(), Error> {
+) -> Result<RtPriority, Error> {
     match audio_thread_priority::promote_current_thread_to_real_time(period_frames, sample_rate) {
-        Ok(_) => Ok(()),
+        Ok(handle) => Ok(RtPriority(Some(handle))),
         Err(_) => unsafe {
             let thread_handle = Threading::GetCurrentThread();
             Threading::SetThreadPriority(thread_handle, Threading::THREAD_PRIORITY_TIME_CRITICAL)
+                .map(|()| RtPriority::default())
                 .context("Failed to promote audio thread to real-time priority")
         },
     }
