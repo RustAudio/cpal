@@ -137,7 +137,7 @@ windows = { version = "0.62", features = [
 ] }
 audio_thread_priority = { version = "0.36", optional = true, default-features = false }
 asio-sys = { version = "0.5.0", path = "asio-sys", optional = true }
-azo = { version = "0.4.0", features = ["host"], optional = true }
+azo = { version = "0.5.2", features = ["host"], optional = true }
 closure-ffi = { version = "5.1.2", optional = true }
 num-traits = { version = "0.2", optional = true }
 parking_lot = { version = "0.12.5", optional = true }

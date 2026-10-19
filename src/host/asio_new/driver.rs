@@ -1,7 +1,7 @@
 use azo::WinResult;
 use azo::driver::{Driver, Proxy};
 use azo::dto::{ChannelCounts, ChannelId};
-use azo::utils::Host as AzoHost;
+use azo::Host as AzoHost;
 use azo::windows_core::GUID;
 use parking_lot::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet};
@@ -48,7 +48,7 @@ impl Factory {
 
         let driver = self
             .azo_host
-            .create_driver(*clsid)?
+            .create_driver(clsid)?
             .pipe(Handle);
 
         let new = Session
