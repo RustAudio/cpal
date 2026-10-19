@@ -686,12 +686,17 @@ fn run_input(
     error_callback: &ErrorCallbackArc,
 ) {
     #[cfg(feature = "realtime")]
-    if let Err(err) = boost_current_thread_priority(
+    let _priority = match boost_current_thread_priority(
         run_ctxt.stream.period_frames,
         run_ctxt.stream.config.sample_rate,
+        error_callback,
     ) {
-        emit_error(error_callback, err);
-    }
+        Ok(guard) => guard,
+        Err(err) => {
+            emit_error(error_callback, err);
+            None
+        }
+    };
 
     let stream = &run_ctxt.stream;
     let scratch_len = if stream.sample_format == SampleFormat::I24 {
@@ -730,12 +735,17 @@ fn run_output(
     error_callback: &ErrorCallbackArc,
 ) {
     #[cfg(feature = "realtime")]
-    if let Err(err) = boost_current_thread_priority(
+    let _priority = match boost_current_thread_priority(
         run_ctxt.stream.period_frames,
         run_ctxt.stream.config.sample_rate,
+        error_callback,
     ) {
-        emit_error(error_callback, err);
-    }
+        Ok(guard) => guard,
+        Err(err) => {
+            emit_error(error_callback, err);
+            None
+        }
+    };
 
     // The clock frequency is constant for the stream's lifetime.
     let clock_frequency = match unsafe { run_ctxt.stream.audio_clock.GetFrequency() }
@@ -802,14 +812,51 @@ fn run_output(
 fn boost_current_thread_priority(
     period_frames: FrameCount,
     sample_rate: SampleRate,
-) -> Result<(), Error> {
-    match audio_thread_priority::promote_current_thread_to_real_time(period_frames, sample_rate) {
-        Ok(_) => Ok(()),
+    error_callback: &ErrorCallbackArc,
+) -> Result<Option<ThreadPriorityGuard<'_>>, Error> {
+    match ThreadPriorityGuard::acquire(
+        || {
+            audio_thread_priority::promote_current_thread_to_real_time(period_frames, sample_rate)
+                .map(|handle| (handle, error_callback))
+        },
+        release_thread_priority,
+    ) {
+        Ok(guard) => Ok(Some(guard)),
         Err(_) => unsafe {
             let thread_handle = Threading::GetCurrentThread();
             Threading::SetThreadPriority(thread_handle, Threading::THREAD_PRIORITY_TIME_CRITICAL)
                 .context("Failed to promote audio thread to real-time priority")
+                .map(|()| None)
         },
+    }
+}
+
+// Owned by the WASAPI worker, not Stream: MMCSS registration must be reverted by
+// the registering thread, after its final data callback, including early exits.
+#[cfg(feature = "realtime")]
+type ThreadPriorityGuard<'a> = super::priority::Guard<
+    (
+        audio_thread_priority::RtPriorityHandle,
+        &'a ErrorCallbackArc,
+    ),
+    fn(
+        (
+            audio_thread_priority::RtPriorityHandle,
+            &'a ErrorCallbackArc,
+        ),
+    ),
+>;
+
+#[cfg(feature = "realtime")]
+fn release_thread_priority(
+    (handle, error_callback): (audio_thread_priority::RtPriorityHandle, &ErrorCallbackArc),
+) {
+    if let Err(err) = audio_thread_priority::demote_current_thread_from_real_time(handle) {
+        // Do not invoke user code during an existing unwind, or wait for an error
+        // callback that may be held by a thread waiting for this worker to exit.
+        if !thread::panicking() {
+            let _ = crate::host::error_emit::try_emit_error(error_callback, err.into());
+        }
     }
 }
 

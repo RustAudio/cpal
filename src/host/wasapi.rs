@@ -22,6 +22,8 @@ pub use self::stream::Stream;
 use crate::{Error, ErrorKind, traits::HostTrait};
 
 mod device;
+#[cfg(any(feature = "realtime", test))]
+mod priority;
 mod stream;
 
 /// The WASAPI host, the default windows host type.
