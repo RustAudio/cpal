@@ -128,14 +128,14 @@ formats.retain(|f| f.is_int());
 // Before (v0.18): `NullHost` returned
 let host = cpal::default_host();
 
-// After (v0.19): panic
+// After (v0.19): Doesn't exist
 let host = cpal::default_host();
-// error: No supported host for this compilation target. If you implement a CustomHost, use it explicitely.
+// error[E0425]: cannot find function `default_host` in crate `cpal`
 ```
 
-**Impact:** Calling `default_host()` on unsupported targets must now by config gated, to avoid a panic.
+**Impact:** `default_host()` on unsupported targets no longer exists
 
-**Why:** `NullHost` was a relic that only existed to keep unsupported targets compiling. If a no-op host is genuinely needed, a `CustomHost` can be implemented and used instead. `default_host()` now panics at runtime on unsupported targets rather than failing at compile time, so code that depends on cpal still builds there as long as it never calls `default_host()` (e.g., because it explicitly uses a `CustomHost`).
+**Why:** `NullHost` was a relic that only existed to keep unsupported targets compiling. If a no-op host is genuinely needed, a `CustomHost` can be implemented and used instead. `default_host()` is now removed on unsupported targets, so that code depending on cpal still builds there as long as it never calls `default_host()` (e.g., because it explicitly uses a `CustomHost`).
 
 [`CustomHost`]: https://docs.rs/cpal/latest/cpal/platform/struct.CustomHost.html
 ---
