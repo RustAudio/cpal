@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Breaking: `ErrorKind::Xrun` (see UPGRADING.md).
-- **Null**: Breaking: The `NullHost` no longer exists (see UPRGRADING.md).
+- Breaking: The `NullHost` (see UPRGRADING.md).
 
 ### Fixed
 
