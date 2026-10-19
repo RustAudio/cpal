@@ -24,7 +24,7 @@ use super::utils::{
 mod callbacks;
 
 /// Keeps track of all created [`Session`]s to prevent creating
-/// multiple instances of the same driver in the same `AzoHost`
+/// multiple instances of the same driver in the same [`AzoHost`]
 #[derive(Debug)]
 pub struct Factory {
     azo_host: Arc<AzoHost>,
