@@ -54,7 +54,6 @@ The minimum Rust version (MSRV) and minimum operating system / runtime version b
 | WASAPI / ASIO | Windows | 1.85 | Windows 10 |
 | WASM (`wasm32-unknown-unknown`) | WebAssembly | 1.85 | — |
 | WASM (`wasm32-unknown-emscripten`) | WebAssembly | 1.85 | Emscripten 6.0.3, wasm-bindgen 0.2.127 |
-| WASM (`wasm32-wasip1`) | WebAssembly | 1.85 | — |
 | WASM (`audioworklet`) | WebAssembly | nightly | — |
 
 The `audioworklet` backend additionally requires `-Zbuild-std` with atomics support enabled.

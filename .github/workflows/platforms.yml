@@ -30,7 +30,6 @@ env:
   MSRV_JACK: "1.85"
   MSRV_PIPEWIRE: "1.85"
   MSRV_PULSEAUDIO: "1.88"
-  MSRV_WASIP1: "1.85"
   MSRV_WASM: "1.85"
   MSRV_WINDOWS: "1.85"
 
@@ -468,9 +467,6 @@ jobs:
         with:
           key: wasm-bindgen
 
-      - name: Check examples (default features)
-        run: cargo +${{ env.MSRV_WASM }} check --examples --workspace --verbose --target ${{ env.TARGET }}
-
       - name: Check examples (wasm-bindgen feature)
         run: cargo +${{ env.MSRV_WASM }} check --examples --features wasm-bindgen --workspace --verbose --target ${{ env.TARGET }}
 
@@ -507,9 +503,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: wasm-audioworklet
-
-      - name: Check examples (default features)
-        run: cargo +nightly check --examples --workspace --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
 
       - name: Check examples (audioworklet feature)
         run: cargo +nightly check --examples --features audioworklet --workspace --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
@@ -559,39 +552,11 @@ jobs:
         with:
           key: wasm-emscripten-${{ matrix.name }}
 
-      - name: Check examples (default features)
-        run: cargo +${{ matrix.toolchain || env.MSRV_WASM }} check --examples --workspace --verbose ${{ matrix.build-std }} --target ${{ env.TARGET }}
-
       - name: Check examples (wasm-bindgen feature)
         run: cargo +${{ matrix.toolchain || env.MSRV_WASM }} check --examples --features wasm-bindgen --workspace --verbose ${{ matrix.build-std }} --target ${{ env.TARGET }}
 
       - name: Check all features
         run: cargo +${{ matrix.toolchain || env.MSRV_WASM }} check --workspace --all-features --verbose ${{ matrix.build-std }} --target ${{ env.TARGET }}
-
-  # WebAssembly - WASI Preview 1
-  wasm-wasip1:
-    runs-on: ubuntu-latest
-    env:
-      TARGET: wasm32-wasip1
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust MSRV (${{ env.MSRV_WASIP1 }})
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.MSRV_WASIP1 }}
-          targets: ${{ env.TARGET }}
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: wasm-wasip1
-
-      - name: Check examples (default features)
-        run: cargo +${{ env.MSRV_WASIP1 }} check --examples --workspace --target ${{ env.TARGET }} --verbose
-
-      - name: Check all features
-        run: cargo +${{ env.MSRV_WASIP1 }} check --workspace --all-features --verbose --target ${{ env.TARGET }}
 
   docs-cpal:
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')
@@ -673,7 +638,6 @@ jobs:
       - wasm-audioworklet
       - wasm-bindgen
       - wasm-emscripten
-      - wasm-wasip1
       - windows
     runs-on: ubuntu-latest
     steps:
