@@ -681,23 +681,29 @@ fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
 }
 
 fn run_input(
+    run_ctxt: RunContext,
+    data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
+    error_callback: &ErrorCallbackArc,
+) {
+    let period_frames = run_ctxt.stream.period_frames;
+    let sample_rate = run_ctxt.stream.config.sample_rate;
+    super::priority::run(
+        || match boost_current_thread_priority(period_frames, sample_rate, error_callback) {
+            Ok(guard) => guard,
+            Err(err) => {
+                emit_error(error_callback, err);
+                None
+            }
+        },
+        || run_input_body(run_ctxt, data_callback, error_callback),
+    );
+}
+
+fn run_input_body(
     mut run_ctxt: RunContext,
     data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
     error_callback: &ErrorCallbackArc,
 ) {
-    #[cfg(feature = "realtime")]
-    let _priority = match boost_current_thread_priority(
-        run_ctxt.stream.period_frames,
-        run_ctxt.stream.config.sample_rate,
-        error_callback,
-    ) {
-        Ok(guard) => guard,
-        Err(err) => {
-            emit_error(error_callback, err);
-            None
-        }
-    };
-
     let stream = &run_ctxt.stream;
     let scratch_len = if stream.sample_format == SampleFormat::I24 {
         stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
@@ -730,23 +736,29 @@ fn run_input(
 }
 
 fn run_output(
+    run_ctxt: RunContext,
+    data_callback: &mut dyn FnMut(&mut Data, &CallbackInfo),
+    error_callback: &ErrorCallbackArc,
+) {
+    let period_frames = run_ctxt.stream.period_frames;
+    let sample_rate = run_ctxt.stream.config.sample_rate;
+    super::priority::run(
+        || match boost_current_thread_priority(period_frames, sample_rate, error_callback) {
+            Ok(guard) => guard,
+            Err(err) => {
+                emit_error(error_callback, err);
+                None
+            }
+        },
+        || run_output_body(run_ctxt, data_callback, error_callback),
+    );
+}
+
+fn run_output_body(
     mut run_ctxt: RunContext,
     data_callback: &mut dyn FnMut(&mut Data, &CallbackInfo),
     error_callback: &ErrorCallbackArc,
 ) {
-    #[cfg(feature = "realtime")]
-    let _priority = match boost_current_thread_priority(
-        run_ctxt.stream.period_frames,
-        run_ctxt.stream.config.sample_rate,
-        error_callback,
-    ) {
-        Ok(guard) => guard,
-        Err(err) => {
-            emit_error(error_callback, err);
-            None
-        }
-    };
-
     // The clock frequency is constant for the stream's lifetime.
     let clock_frequency = match unsafe { run_ctxt.stream.audio_clock.GetFrequency() }
         .context("Failed to get audio clock frequency")
@@ -846,6 +858,15 @@ type ThreadPriorityGuard<'a> = super::priority::Guard<
         ),
     ),
 >;
+
+#[cfg(not(feature = "realtime"))]
+fn boost_current_thread_priority(
+    _: FrameCount,
+    _: SampleRate,
+    _: &ErrorCallbackArc,
+) -> Result<Option<()>, Error> {
+    Ok(None)
+}
 
 #[cfg(feature = "realtime")]
 fn release_thread_priority(

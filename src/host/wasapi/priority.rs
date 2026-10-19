@@ -1,10 +1,19 @@
 //! Worker-local ownership of a successful scheduling registration.
 
+/// The common worker prologue: acquisition completes before the body, and its
+/// owner remains in this frame until the body returns or unwinds.
+pub(super) fn run<G, R>(acquire: impl FnOnce() -> G, body: impl FnOnce() -> R) -> R {
+    let _priority = acquire();
+    body()
+}
+
+#[cfg(any(feature = "realtime", test))]
 pub(super) struct Guard<H, F: FnMut(H)> {
     handle: Option<H>,
     release: F,
 }
 
+#[cfg(any(feature = "realtime", test))]
 impl<H, F: FnMut(H)> Guard<H, F> {
     pub(super) fn acquire<E>(
         promote: impl FnOnce() -> Result<H, E>,
@@ -17,6 +26,7 @@ impl<H, F: FnMut(H)> Guard<H, F> {
     }
 }
 
+#[cfg(any(feature = "realtime", test))]
 impl<H, F: FnMut(H)> Drop for Guard<H, F> {
     fn drop(&mut self) {
         if let Some(handle) = self.handle.take() {
@@ -36,26 +46,30 @@ mod tests {
             let active = Rc::new(Cell::new(false));
             let releases = Cell::new(0);
             let owner = thread::current().id();
-            {
-                // Rc deliberately makes this handle non-Send, like the Windows handle.
-                let _guard = Guard::acquire(
-                    || -> Result<_, ()> {
-                        active.set(true);
-                        Ok(Rc::clone(&active))
-                    },
-                    |handle: Rc<Cell<bool>>| {
-                        assert_eq!(thread::current().id(), owner);
-                        assert!(handle.replace(false));
-                        releases.set(releases.get() + 1);
-                    },
-                )
-                .unwrap();
-                assert!(active.get(), "promotion precedes the first body call");
-                for _ in 0..32 {
-                    assert!(active.get());
-                    assert_eq!(releases.get(), 0);
-                }
-            }
+            super::run(
+                || {
+                    // Rc deliberately makes this handle non-Send, like the Windows handle.
+                    Guard::acquire(
+                        || -> Result<_, ()> {
+                            active.set(true);
+                            Ok(Rc::clone(&active))
+                        },
+                        |handle: Rc<Cell<bool>>| {
+                            assert_eq!(thread::current().id(), owner);
+                            assert!(handle.replace(false));
+                            releases.set(releases.get() + 1);
+                        },
+                    )
+                    .unwrap()
+                },
+                || {
+                    assert!(active.get(), "promotion precedes the first body call");
+                    for _ in 0..32 {
+                        assert!(active.get());
+                        assert_eq!(releases.get(), 0);
+                    }
+                },
+            );
             assert!(!active.get());
             assert_eq!(releases.get(), 1);
         });
@@ -80,18 +94,25 @@ mod tests {
             let releases = Cell::new(0);
             let owner = thread::current().id();
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let _guard = Guard::acquire(
-                    || Ok::<_, ()>(owner),
-                    |registered_on| {
-                        assert_eq!(registered_on, thread::current().id());
-                        releases.set(releases.get() + 1);
+                super::run(
+                    || {
+                        Guard::acquire(
+                            || Ok::<_, ()>(owner),
+                            |registered_on| {
+                                assert_eq!(registered_on, thread::current().id());
+                                releases.set(releases.get() + 1);
+                            },
+                        )
+                        .unwrap()
+                    },
+                    || {
+                        assert_eq!(releases.get(), 0, "registration must span the worker body");
+                        if panic {
+                            panic!("injected worker failure");
+                        }
+                        Err::<(), _>("injected device error")
                     },
                 )
-                .unwrap();
-                if panic {
-                    panic!("injected worker failure");
-                }
-                Err::<(), _>("injected device error")
             }));
             assert_eq!(outcome.is_err(), panic);
             assert_eq!(releases.get(), 1);

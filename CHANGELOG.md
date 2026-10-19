@@ -47,7 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **WASAPI**: Retain successful MMCSS registrations for the worker lifetime and revert them on the registering thread when input or output workers exit.
 - **ALSA**: Fix a remaining timestamp segfault on 32-bit platforms with a 64-bit kernel `time_t`.
 - **ALSA**: Improved enumeration accuracy for supported format, channel and rate combinations.
 - **ASIO**: Fix a deadlock when dropping a `Stream` that owns another ASIO `Stream`.
@@ -76,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PipeWire**: The host is now detected when `PIPEWIRE_RUNTIME_DIR`/`XDG_RUNTIME_DIR` are unset but the socket exists at `/run/pipewire`.
 - **PipeWire**: Dropping a stream no longer risks crashing the process with `SIGXCPU` if it was real-time promoted.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
+- **WASAPI**: Release MMCSS registrations when audio workers exit, while keeping them active throughout processing.
 - **WASAPI**: Revert "Default device changes no longer report `DeviceChanged`" as it was misinformed.
 - **WASAPI**: Output streams now start with real audio immediately instead of undefined content in the render buffer.
 - **WASAPI**: A stream paused immediately after starting no longer plays silence before real audio on resume.
