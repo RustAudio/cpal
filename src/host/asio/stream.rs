@@ -27,6 +27,8 @@ use crate::{
 struct TimeBase {
     last_ns: AtomicU64,
     epoch_ns: AtomicU64,
+    /// The latest instant handed out, re-reported whenever the driver's time steps back.
+    latest_ns: AtomicU64,
 }
 
 /// Nanosecond span of one full `timeGetTime()` wrap period (~49.7 days).
@@ -38,14 +40,20 @@ impl TimeBase {
         // `Relaxed` is sufficient: callbacks run on a single ASIO thread. The only
         // cross-thread caller is `now()`, which may race at wrap time (~1µs every 49.7 days).
         let prev = self.last_ns.swap(ns, Ordering::Relaxed);
-        let epoch = if ns < prev {
+        // A real wrap steps back by nearly a full period. Smaller steps back are not wraps:
+        // drivers jitter `systemTime` (Focusrite USB ASIO steps back by up to ~1.7 ms), and
+        // `now()` passes whole milliseconds, which can trail the last callback's value.
+        let epoch = if prev.saturating_sub(ns) > TIMEGETIME_WRAP_NS / 2 {
             self.epoch_ns
                 .fetch_add(TIMEGETIME_WRAP_NS, Ordering::Relaxed)
                 .wrapping_add(TIMEGETIME_WRAP_NS)
         } else {
             self.epoch_ns.load(Ordering::Relaxed)
         };
-        StreamInstant::from_nanos(epoch.wrapping_add(ns))
+        // Instants must never run backwards, so a step back re-reports the latest instant.
+        let ns = epoch.wrapping_add(ns);
+        let latest = self.latest_ns.fetch_max(ns, Ordering::Relaxed);
+        StreamInstant::from_nanos(latest.max(ns))
     }
 }
 
@@ -1543,4 +1551,50 @@ unsafe fn apply_input_callback_to_data<A, D>(
     };
     let info = CallbackInfo { timestamp, xrun };
     data_callback(&data, &info);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn nanos(instant: StreamInstant) -> u128 {
+        instant.as_nanos()
+    }
+
+    #[test]
+    fn small_step_back_repeats_the_latest_instant() {
+        // Callbacks 88 and 89 from #1370: the driver's `systemTime` stepped back 725.6 µs.
+        let time_base = TimeBase::default();
+        let before = time_base.to_stream_instant(305_623_021_311_900);
+        let after = time_base.to_stream_instant(305_623_020_586_300);
+        assert_eq!(nanos(after), nanos(before));
+
+        // The step back is not counted as a wrap, so later instants are not offset.
+        let next = time_base.to_stream_instant(305_623_021_674_700);
+        assert_eq!(nanos(next), 305_623_021_674_700);
+    }
+
+    #[test]
+    fn now_trailing_the_last_callback_repeats_the_latest_instant() {
+        // `now()` truncates to whole milliseconds, so it can trail a sub-ms callback time.
+        let time_base = TimeBase::default();
+        time_base.to_stream_instant(5_000_400_000);
+        let now = time_base.to_stream_instant(5_000 * 1_000_000);
+        assert_eq!(nanos(now), 5_000_400_000);
+        let next = time_base.to_stream_instant(5_003_066_000);
+        assert_eq!(nanos(next), 5_003_066_000);
+    }
+
+    #[test]
+    fn real_wrap_extends_the_epoch() {
+        let time_base = TimeBase::default();
+        let before = time_base.to_stream_instant(TIMEGETIME_WRAP_NS - 1_000_000);
+        let after = time_base.to_stream_instant(2_000_000);
+        assert_eq!(nanos(after) - nanos(before), 3_000_000);
+
+        // And a second wrap a full period later.
+        time_base.to_stream_instant(TIMEGETIME_WRAP_NS - 1_000_000);
+        let again = time_base.to_stream_instant(1_000_000);
+        assert_eq!(nanos(again), 2 * TIMEGETIME_WRAP_NS as u128 + 1_000_000);
+    }
 }
