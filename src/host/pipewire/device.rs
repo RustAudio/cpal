@@ -4,7 +4,7 @@ use std::{
     hash::{Hash, Hasher},
     rc::Rc,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, Ordering},
         mpsc,
     },
@@ -27,10 +27,10 @@ use pipewire::{
 
 use super::stream::Stream;
 use crate::{
-    BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, HostId, InterfaceType,
-    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    ApplicationInfo, BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription,
+    DeviceDescriptionBuilder, DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount,
+    HostId, InterfaceType, SampleFormat, SampleRate, StreamConfig, StreamMetadata, StreamRole,
+    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
         Notify, emit_error,
         latch::Latch,
@@ -68,6 +68,65 @@ enum Role {
     StreamInput,
 }
 
+/// The application and stream metadata that a host gives the streams built from its devices.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Identity {
+    pub(crate) application: Option<ApplicationInfo>,
+    pub(crate) stream: StreamMetadata,
+}
+
+impl Identity {
+    /// The stream's `media.name`: the metadata's name, or cpal's own.
+    fn media_name(&self, direction: DeviceDirection) -> String {
+        self.stream.name.clone().unwrap_or_else(|| {
+            let kind = match direction {
+                DeviceDirection::Input => "capture",
+                _ => "playback",
+            };
+            format!("cpal-{kind}-{}", std::process::id())
+        })
+    }
+
+    /// The properties that name the application, for both the stream and its client.
+    fn application_properties(&self) -> Vec<(&'static str, &str)> {
+        let Some(application) = &self.application else {
+            return Vec::new();
+        };
+        let mut properties = vec![(*pw::keys::APP_NAME, application.name.as_str())];
+        if let Some(icon_name) = &application.icon_name {
+            properties.push((*pw::keys::APP_ICON_NAME, icon_name.as_str()));
+        }
+        properties
+    }
+
+    /// The properties that describe the stream: the application's, its name and its role.
+    fn stream_properties(&self, media_name: &str) -> Vec<(&'static str, String)> {
+        let mut properties: Vec<(&'static str, String)> = self
+            .application_properties()
+            .into_iter()
+            .map(|(key, value)| (key, value.to_owned()))
+            .collect();
+        properties.push((*pw::keys::MEDIA_NAME, media_name.to_owned()));
+        if let Some(role) = self.stream.role {
+            properties.push((*pw::keys::MEDIA_ROLE, media_role(role).to_owned()));
+        }
+        properties
+    }
+}
+
+/// PipeWire's `media.role` for a role, as WirePlumber's policies name them.
+fn media_role(role: StreamRole) -> &'static str {
+    match role {
+        StreamRole::Music => "Music",
+        StreamRole::Movie => "Movie",
+        StreamRole::Game => "Game",
+        StreamRole::Communication => "Communication",
+        StreamRole::Notification => "Notification",
+        StreamRole::Production => "Production",
+        StreamRole::Accessibility => "Accessibility",
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Device {
     node_name: String,
@@ -87,6 +146,7 @@ pub struct Device {
     address: Option<String>,
     driver: Option<String>,
     connect_automatically: Arc<AtomicBool>,
+    identity: Arc<Mutex<Identity>>,
 }
 
 impl Device {
@@ -148,10 +208,19 @@ impl Device {
         }
     }
 
+    fn identity(&self) -> Identity {
+        self.identity
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     pub(crate) fn pw_properties(
         &self,
         direction: DeviceDirection,
         config: &StreamConfig,
+        identity: &Identity,
+        media_name: &str,
     ) -> PropertiesBox {
         let mut properties = match direction {
             DeviceDirection::Output => pw::properties::properties! {
@@ -185,6 +254,10 @@ impl Device {
                 *pw::keys::NODE_LATENCY,
                 format!("{buffer_size}/{rate}", rate = config.sample_rate),
             );
+        }
+
+        for (key, value) in identity.stream_properties(media_name) {
+            properties.insert(key, value);
         }
         properties
     }
@@ -384,16 +457,25 @@ impl DeviceTrait for Device {
         // needing a larger buffer, which can pull `capture` backward.
         let data_callback = crate::host::monotonic_input_callback(data_callback);
         let start = std::time::Instant::now();
+        let identity = self.identity();
+        let media_name = identity.media_name(DeviceDirection::Input);
         let handle = thread::Builder::new()
             .name("pw_in".to_owned())
             .spawn(move || {
                 let _pw = PwInitGuard::new();
-                let properties = device.pw_properties(DeviceDirection::Input, &config);
+                let properties =
+                    device.pw_properties(DeviceDirection::Input, &config, &identity, &media_name);
 
                 let stream_data = match super::stream::connect_input(
                     super::stream::ConnectParams {
                         config,
                         properties,
+                        name: media_name,
+                        client_properties: identity
+                            .application_properties()
+                            .into_iter()
+                            .map(|(key, value)| (key, value.to_owned()))
+                            .collect(),
                         sample_format,
                         last_quantum: last_quantum_clone,
                         start,
@@ -582,16 +664,25 @@ impl DeviceTrait for Device {
         // a larger buffer leave the graph, which can pull `playback` backward.
         let data_callback = crate::host::monotonic_output_callback(data_callback);
         let start = std::time::Instant::now();
+        let identity = self.identity();
+        let media_name = identity.media_name(DeviceDirection::Output);
         let handle = thread::Builder::new()
             .name("pw_out".to_owned())
             .spawn(move || {
                 let _pw = PwInitGuard::new();
-                let properties = device.pw_properties(DeviceDirection::Output, &config);
+                let properties =
+                    device.pw_properties(DeviceDirection::Output, &config, &identity, &media_name);
 
                 let stream_data = match super::stream::connect_output(
                     super::stream::ConnectParams {
                         config,
                         properties,
+                        name: media_name,
+                        client_properties: identity
+                            .application_properties()
+                            .into_iter()
+                            .map(|(key, value)| (key, value.to_owned()))
+                            .collect(),
                         sample_format,
                         last_quantum: last_quantum_clone,
                         start,
@@ -824,7 +915,10 @@ fn remote_props() -> Option<PropertiesBox> {
 // Enumeration does not take a configurable timeout.
 const ENUMERATION_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device>> {
+pub fn init_devices(
+    connect_automatically: Arc<AtomicBool>,
+    identity: Arc<Mutex<Identity>>,
+) -> Option<Vec<Device>> {
     let _pw = PwInitGuard::new();
     let mainloop = MainLoopRc::new(None).ok()?;
     let context = ContextRc::new(&mainloop, None).ok()?;
@@ -1141,6 +1235,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
         device.min_quantum = settings.min_quantum;
         device.max_quantum = settings.max_quantum;
         device.connect_automatically = connect_automatically.clone();
+        device.identity = identity.clone();
     }
 
     // Resolve each discovered hardware node: global settings apply unless the node
@@ -1156,6 +1251,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                 device.min_quantum = settings.min_quantum;
                 device.max_quantum = settings.max_quantum;
                 device.connect_automatically = connect_automatically.clone();
+                device.identity = identity.clone();
                 device
             }),
     );
@@ -1175,8 +1271,57 @@ fn parse_allow_rates(list: &str) -> Option<Vec<SampleRate>> {
 
 #[cfg(test)]
 mod test {
-    use super::{Class, Device, parse_allow_rates, parse_fraction};
-    use crate::host::pipewire::utils::default;
+    use super::{Class, Device, Identity, parse_allow_rates, parse_fraction};
+    use crate::{
+        ApplicationInfo, DeviceDirection, StreamMetadata, StreamRole,
+        host::pipewire::utils::default,
+    };
+
+    #[test]
+    fn identity_properties() {
+        let identity = Identity::default();
+        let pid = std::process::id();
+        let name = identity.media_name(DeviceDirection::Output);
+        assert_eq!(name, format!("cpal-playback-{pid}"));
+        assert_eq!(
+            identity.media_name(DeviceDirection::Input),
+            format!("cpal-capture-{pid}")
+        );
+        assert!(identity.application_properties().is_empty());
+        assert_eq!(
+            identity.stream_properties(&name),
+            vec![("media.name", name.clone())]
+        );
+
+        let identity = Identity {
+            application: Some(ApplicationInfo {
+                name: "Player".into(),
+                icon_name: Some("player".into()),
+            }),
+            stream: StreamMetadata {
+                name: Some("A song".into()),
+                role: Some(StreamRole::Communication),
+            },
+        };
+        let name = identity.media_name(DeviceDirection::Output);
+        assert_eq!(name, "A song");
+        assert_eq!(
+            identity.application_properties(),
+            vec![
+                ("application.name", "Player"),
+                ("application.icon-name", "player")
+            ]
+        );
+        assert_eq!(
+            identity.stream_properties(&name),
+            vec![
+                ("application.name", "Player".to_owned()),
+                ("application.icon-name", "player".to_owned()),
+                ("media.name", "A song".to_owned()),
+                ("media.role", "Communication".to_owned()),
+            ]
+        );
+    }
 
     #[test]
     fn rate_parse() {
