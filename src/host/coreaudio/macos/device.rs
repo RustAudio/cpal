@@ -50,14 +50,13 @@ use super::{
 };
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
-    DeviceId, Error, ErrorKind, FrameCount, InterfaceType, ResultExt, SampleFormat, SampleRate,
-    StreamConfig, StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange,
+    DeviceId, Error, ErrorKind, InterfaceType, ResultExt, SampleFormat, SampleRate, StreamConfig,
+    StreamTimestamp, SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
     host::{
         ErrorCallbackArc,
         coreaudio::macos::{StreamInner, loopback::LoopbackDevice},
         equilibrium::fill_equilibrium,
-        frames_to_duration, try_emit_error,
+        try_emit_error,
     },
     traits::DeviceTrait,
 };
@@ -600,6 +599,7 @@ impl Device {
         )?;
 
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
+        let error_callback_for_capture = error_callback.clone();
         let error_callback_disconnect = error_callback.clone();
         let pending_xrun = Arc::new(AtomicBool::new(false));
         let pending_xrun_overload = pending_xrun.clone();
@@ -613,19 +613,27 @@ impl Device {
         let latency_frames = Arc::new(AtomicUsize::new(
             device_buffer_frames.map_or(0, |frames| frames + extra_latency_frames),
         ));
-        let callback_latency_frames = latency_frames.clone();
         let draining = Arc::new(AtomicBool::new(false));
         let draining_input = draining.clone();
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_input_callback(move |args: Args| unsafe {
+            let m_host_time = mach2::mach_time::mach_absolute_time();
+            let callback = match host_time_to_stream_instant(m_host_time) {
+                Err(err) => {
+                    let _ = try_emit_error(&error_callback_for_capture, err);
+                    return Err(());
+                }
+                Ok(ts) => ts,
+            };
+
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
             // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
             // exactly one buffer containing all channels, so mBuffers[0] is always valid.
             let AudioBuffer {
-                mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
                 mData: data,
+                ..
             } = (*args.data.data).mBuffers[0];
 
             let data = data as *mut ();
@@ -633,27 +641,20 @@ impl Device {
             let data = Data::from_parts(data, len, sample_format);
 
             if !draining_input.load(Ordering::Relaxed) {
-                let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+                let capture = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                     Err(err) => {
                         let _ = try_emit_error(&error_callback, err);
                         return Err(());
                     }
-                    Ok(cb) => cb,
+                    Ok(ts) => ts,
                 };
-                let latency_frames = resolve_latency_frames(
-                    &callback_latency_frames,
-                    len,
-                    channels as usize,
-                    extra_latency_frames,
-                );
-                let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
-                let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
                 let timestamp = StreamTimestamp {
                     callback,
                     device: capture,
                 };
                 let xrun = pending_xrun.swap(false, Ordering::Relaxed);
-                data_callback(&data, &CallbackInfo { timestamp, xrun });
+
+                data_callback(&data, &CallbackInfo::new(timestamp, xrun));
             }
             Ok(())
         })?;
@@ -762,20 +763,28 @@ impl Device {
         let latency_frames = Arc::new(AtomicUsize::new(
             device_buffer_frames.map_or(0, |frames| frames + extra_latency_frames),
         ));
-        let callback_latency_frames = latency_frames.clone();
         let draining = Arc::new(AtomicBool::new(false));
         let draining_render = draining.clone();
         let drain_frames = latency_frames.clone();
 
         type Args = render_callback::Args<data::Raw>;
         audio_unit.set_render_callback(move |args: Args| unsafe {
+            let m_host_time = mach2::mach_time::mach_absolute_time();
+            let callback = match host_time_to_stream_instant(m_host_time) {
+                Err(err) => {
+                    let _ = try_emit_error(&error_callback_for_render, err);
+                    return Err(());
+                }
+                Ok(ts) => ts,
+            };
+
             // SAFETY: We configure the stream format as interleaved (via asbd_from_config which
             // does not set kAudioFormatFlagIsNonInterleaved). Interleaved format always has
             // exactly one buffer containing all channels, so mBuffers[0] is always valid.
             let AudioBuffer {
-                mNumberChannels: channels,
                 mDataByteSize: data_byte_size,
                 mData: data,
+                ..
             } = (*args.data.data).mBuffers[0];
 
             let data = data as *mut ();
@@ -790,29 +799,20 @@ impl Device {
 
             let mut data = Data::from_parts(data, len, sample_format);
 
-            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+            let playback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
                     let _ = try_emit_error(&error_callback_for_render, err);
                     return Err(());
                 }
-                Ok(cb) => cb,
+                Ok(ts) => ts,
             };
-            let latency_frames = resolve_latency_frames(
-                &callback_latency_frames,
-                len,
-                channels as usize,
-                extra_latency_frames,
-            );
-            let delay = frames_to_duration(latency_frames as FrameCount, sample_rate);
-            let playback = callback + delay;
             let timestamp = StreamTimestamp {
                 callback,
                 device: playback,
             };
             let xrun = pending_xrun.swap(false, Ordering::Relaxed);
 
-            let info = CallbackInfo { timestamp, xrun };
-            data_callback(&mut data, &info);
+            data_callback(&mut data, &CallbackInfo::new(timestamp, xrun));
             Ok(())
         })?;
 
@@ -953,24 +953,6 @@ pub(crate) fn device_latency_frames(audio_unit: &AudioUnit, scope: Scope) -> usi
         .map_or(0, |buffer| {
             buffer + get_device_extra_latency_frames(audio_unit, scope)
         })
-}
-
-/// Buffer depth for one callback.
-///
-/// Refreshed by the stream's monitor when the device buffer is resized; falls back to estimating
-/// the device buffer from this callback, plus the fixed device latency and safety offset, when
-/// the depth is unknown (zero).
-#[inline]
-fn resolve_latency_frames(
-    cached: &AtomicUsize,
-    len: usize,
-    channels: usize,
-    extra_latency_frames: usize,
-) -> usize {
-    match cached.load(Ordering::Relaxed) {
-        0 => len.checked_div(channels).unwrap_or(0) + extra_latency_frames,
-        n => n,
-    }
 }
 
 /// Setup common callback variables, querying both the I/O buffer size and extra hardware latency.

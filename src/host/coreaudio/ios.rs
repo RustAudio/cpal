@@ -29,8 +29,8 @@ use crate::{
     StreamInstant, StreamTimestamp, SupportedBufferSize, SupportedStreamConfig,
     SupportedStreamConfigRange,
     host::{
-        ErrorCallbackArc, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
-        secs_to_nanos, try_emit_error, wait_for_drain,
+        ErrorCallbackArc, equilibrium::fill_equilibrium, latch::Latch, secs_to_nanos,
+        try_emit_error, wait_for_drain,
     },
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
@@ -233,8 +233,6 @@ impl DeviceTrait for Device {
         setup_input_callback(
             &mut audio_unit,
             sample_format,
-            config.sample_rate,
-            latency_nanos,
             draining.clone(),
             data_callback,
             move |e| {
@@ -300,8 +298,6 @@ impl DeviceTrait for Device {
         setup_output_callback(
             &mut audio_unit,
             sample_format,
-            config.sample_rate,
-            latency_nanos,
             draining.clone(),
             data_callback,
             move |e| {
@@ -620,32 +616,10 @@ unsafe fn extract_audio_buffer(
     (buffer, data)
 }
 
-/// Buffer depth for one callback.
-///
-/// Refreshed on route changes by the session event manager; falls back to this buffer's own frame
-/// count, converted at the stream's rate, when the depth is unknown (zero).
-#[inline]
-fn resolve_delay(
-    latency_nanos: &AtomicU64,
-    len: usize,
-    channels: usize,
-    sample_rate: SampleRate,
-) -> Duration {
-    match latency_nanos.load(Ordering::Relaxed) {
-        0 => frames_to_duration(
-            len.checked_div(channels).unwrap_or(0) as FrameCount,
-            sample_rate,
-        ),
-        n => Duration::from_nanos(n),
-    }
-}
-
 /// Setup input callback with proper latency calculation.
 fn setup_input_callback<D, E>(
     audio_unit: &mut AudioUnit,
     sample_format: SampleFormat,
-    sample_rate: SampleRate,
-    latency_nanos: Arc<AtomicU64>,
     draining: Arc<AtomicBool>,
     mut data_callback: D,
     mut error_callback: E,
@@ -658,38 +632,35 @@ where
     type Args = render_callback::Args<data::Raw>;
 
     audio_unit.set_input_callback(move |args: Args| {
+        let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+        let callback = match host_time_to_stream_instant(m_host_time) {
+            Err(err) => {
+                error_callback(err);
+                return Err(());
+            }
+            Ok(ts) => ts,
+        };
+
         // SAFETY: CoreAudio provides valid AudioBufferList for the callback duration
-        let (buffer, data) =
+        let (_, data) =
             unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, true) };
 
         if !draining.load(Ordering::Relaxed) {
-            let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+            let capture = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
                 Err(err) => {
                     error_callback(err);
                     return Err(());
                 }
-                Ok(cb) => cb,
+                Ok(ts) => ts,
             };
 
-            let delay = resolve_delay(
-                &latency_nanos,
-                data.len(),
-                buffer.mNumberChannels as usize,
-                sample_rate,
-            );
-            let capture = callback.checked_sub(delay).unwrap_or(StreamInstant::ZERO);
             let timestamp = StreamTimestamp {
                 callback,
                 device: capture,
             };
+
             // iOS exposes no xrun signal.
-            data_callback(
-                &data,
-                &CallbackInfo {
-                    timestamp,
-                    xrun: false,
-                },
-            );
+            data_callback(&data, &CallbackInfo::new(timestamp, false));
         }
         Ok(())
     })?;
@@ -701,8 +672,6 @@ where
 fn setup_output_callback<D, E>(
     audio_unit: &mut AudioUnit,
     sample_format: SampleFormat,
-    sample_rate: SampleRate,
-    latency_nanos: Arc<AtomicU64>,
     draining: Arc<AtomicBool>,
     mut data_callback: D,
     mut error_callback: E,
@@ -715,6 +684,15 @@ where
     type Args = render_callback::Args<data::Raw>;
 
     audio_unit.set_render_callback(move |args: Args| {
+        let m_host_time = unsafe { mach2::mach_time::mach_absolute_time() };
+        let callback = match host_time_to_stream_instant(m_host_time) {
+            Err(err) => {
+                error_callback(err);
+                return Err(());
+            }
+            Ok(ts) => ts,
+        };
+
         // SAFETY: CoreAudio provides valid AudioBufferList for the callback duration
         let (buffer, mut data) =
             unsafe { extract_audio_buffer(&args, bytes_per_channel, sample_format, false) };
@@ -733,32 +711,21 @@ where
             return Ok(());
         }
 
-        let callback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
+        let playback = match host_time_to_stream_instant(args.time_stamp.mHostTime) {
             Err(err) => {
                 error_callback(err);
                 return Err(());
             }
-            Ok(cb) => cb,
+            Ok(ts) => ts,
         };
 
-        let delay = resolve_delay(
-            &latency_nanos,
-            data.len(),
-            buffer.mNumberChannels as usize,
-            sample_rate,
-        );
-        let playback = callback + delay;
         let timestamp = StreamTimestamp {
             callback,
             device: playback,
         };
 
         // iOS exposes no xrun signal.
-        let info = CallbackInfo {
-            timestamp,
-            xrun: false,
-        };
-        data_callback(&mut data, &info);
+        data_callback(&mut data, &CallbackInfo::new(timestamp, false));
         Ok(())
     })?;
 
