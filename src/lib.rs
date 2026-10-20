@@ -224,6 +224,7 @@ pub use platform::{
     SupportedOutputConfigs, available_hosts, default_host, host_from_id,
 };
 pub use sample_format::{FromSample, I24, Sample, SampleFormat, SizedSample, U24};
+pub use stream_metadata::{ApplicationInfo, StreamMetadata, StreamRole};
 #[cfg(all(
     target_arch = "wasm32",
     any(target_os = "emscripten", target_os = "unknown"),
@@ -237,6 +238,7 @@ mod error;
 mod host;
 pub mod platform;
 mod sample_format;
+mod stream_metadata;
 mod timestamp;
 pub mod traits;
 

@@ -32,6 +32,18 @@ pub use crate::host::jack::Host as JackHost;
 #[cfg_attr(docsrs, doc(cfg(feature = "pipewire")))]
 pub use crate::host::pipewire::Host as PipeWireHost;
 
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+    ),
+    feature = "pulseaudio",
+))]
+#[cfg_attr(docsrs, doc(cfg(feature = "pulseaudio")))]
+pub use crate::host::pulseaudio::Host as PulseAudioHost;
+
 #[cfg(feature = "custom")]
 pub use crate::host::custom::{Device as CustomDevice, Host as CustomHost, Stream as CustomStream};
 
