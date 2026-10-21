@@ -134,7 +134,7 @@ impl Host {
         // returns, fall through to the next host with no other option than to leak the thread.
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let name = CString::new(format!("cpal-pulseaudio-{}", std::process::id())).unwrap();
+            let name = CString::new(format!("cpal_pulseaudio_{}", std::process::id())).unwrap();
             let _ = tx.send(pulseaudio::Client::from_env(&name));
         });
         let client = rx
