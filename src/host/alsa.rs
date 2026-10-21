@@ -5,7 +5,6 @@
 extern crate alsa;
 #[cfg(feature = "realtime")]
 extern crate alsa_sys;
-extern crate libc;
 
 use std::{
     mem,
