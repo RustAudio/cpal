@@ -49,8 +49,8 @@ const CMD_GETFMTS:     u8 = 11;
 const CMD_GETCAPS:     u8 = 15;
 const CMD_TRIGGER:     u8 = 16; // `GETTRIGGER` and `SETTRIGGER` share it, just with opposite directions
 const CMD_GETODELAY:   u8 = 23;
-const CMD_GETOSPACE: u8 = 12;
-const CMD_GETISPACE: u8 = 13;
+const CMD_GETOSPACE:   u8 = 12;
+const CMD_GETISPACE:   u8 = 13;
 
 
 // FreeBSD ioctl encoding: IOC_OUT=0x4000_0000, IOC_INOUT=0xC000_0000,
