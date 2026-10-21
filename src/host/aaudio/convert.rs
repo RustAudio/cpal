@@ -58,27 +58,17 @@ pub fn input_stream_instant(stream: &ndk::audio::AudioStream, sample_rate: u32) 
 impl From<ndk::audio::AudioError> for Error {
     fn from(error: ndk::audio::AudioError) -> Self {
         use ndk::audio::AudioError::*;
-        match error {
-            Disconnected | Unavailable | NoService | InvalidHandle => {
-                Error::with_message(ErrorKind::DeviceUnavailable, error.to_string())
-            }
-            NoFreeHandles | NoMemory => {
-                Error::with_message(ErrorKind::ResourceExhausted, error.to_string())
-            }
-            WouldBlock | Timeout => Error::with_message(ErrorKind::DeviceBusy, error.to_string()),
-            InvalidFormat | InvalidRate => {
-                Error::with_message(ErrorKind::UnsupportedConfig, error.to_string())
-            }
-            IllegalArgument | Null | OutOfRange => {
-                Error::with_message(ErrorKind::InvalidInput, error.to_string())
-            }
-            Internal | InvalidState => {
-                Error::with_message(ErrorKind::StreamInvalidated, error.to_string())
-            }
-            Unimplemented => {
-                Error::with_message(ErrorKind::UnsupportedOperation, error.to_string())
-            }
-            _ => Error::with_message(ErrorKind::BackendError, error.to_string()),
-        }
+        let kind = match error {
+            Disconnected | Unavailable | NoService | InvalidHandle => ErrorKind::DeviceUnavailable,
+            NoFreeHandles | NoMemory => ErrorKind::ResourceExhausted,
+            WouldBlock | Timeout => ErrorKind::DeviceBusy,
+            InvalidFormat | InvalidRate => ErrorKind::UnsupportedConfig,
+            IllegalArgument | Null | OutOfRange => ErrorKind::InvalidInput,
+            Internal | InvalidState => ErrorKind::StreamInvalidated,
+            Unimplemented => ErrorKind::UnsupportedOperation,
+            _ => ErrorKind::BackendError,
+        };
+
+        Error::with_message(kind, error.to_string())
     }
 }
