@@ -1022,7 +1022,7 @@ impl Device {
         let (timer_tx, timer_rx) = mpsc::channel::<Error>();
         let error_cb_for_timer = Arc::clone(&error_callback_shared);
         std::thread::Builder::new()
-            .name("cpal-asio-event-timer".into())
+            .name("cpal_asio_event_timer".into())
             .spawn(move || {
                 let mut pending: Option<Error> = None;
                 loop {

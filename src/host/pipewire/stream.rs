@@ -738,7 +738,7 @@ where
     let rate = config.sample_rate as _;
     let stream = StreamRc::new(
         core.clone(),
-        &format!("cpal-playback-{}", std::process::id()),
+        &format!("cpal_pw_out_{}", std::process::id()),
         properties,
     )?;
 
@@ -1013,7 +1013,7 @@ where
     let rate = config.sample_rate as _;
     let stream = StreamRc::new(
         core.clone(),
-        &format!("cpal-capture-{}", std::process::id()),
+        &format!("cpal_pw_in_{}", std::process::id()),
         properties,
     )?;
     let listener = stream
