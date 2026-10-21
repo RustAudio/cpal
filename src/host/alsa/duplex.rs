@@ -97,7 +97,7 @@ pub(super) fn duplex_stream_worker(
         };
         if let Err(err) = result {
             match err.kind() {
-                ErrorKind::DeviceNotAvailable => {
+                ErrorKind::DeviceUnavailable => {
                     error_callback(err);
                     stream.control.signal_worker_exit();
                     return;
@@ -256,7 +256,7 @@ fn poll_for_duplex_period(
             match handle.state() {
                 alsa::pcm::State::Disconnected => {
                     return Err(Error::with_message(
-                        ErrorKind::DeviceNotAvailable,
+                        ErrorKind::DeviceUnavailable,
                         "Device disconnected",
                     ));
                 }
@@ -290,7 +290,7 @@ fn poll_for_duplex_period(
         || playback_revents.intersects(alsa::poll::Flags::HUP | alsa::poll::Flags::NVAL)
     {
         return Err(Error::with_message(
-            ErrorKind::DeviceNotAvailable,
+            ErrorKind::DeviceUnavailable,
             "Device disconnected",
         ));
     }

@@ -53,7 +53,7 @@ impl Device {
         check_os_status(status)?;
 
         if cfstring.is_null() {
-            return Err(ErrorKind::DeviceNotAvailable.into());
+            return Err(ErrorKind::DeviceUnavailable.into());
         }
 
         let ns_string: Retained<NSString> = unsafe {

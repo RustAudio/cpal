@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bump `audio_thread_priority` dependency to 0.36.
 - `DeviceTrait` and `StreamTrait` now require `Send + Sync` as supertrait bounds.
 - `StreamTrait::play` is renamed to `start`.
+- `DeviceNotAvailable` is renamed to `DeviceUnavailable`.
 - `InputCallbackInfo`/`OutputCallbackInfo` merged into `CallbackInfo`.
 - `InputStreamTimestamp`/`OutputStreamTimestamp` merged into `StreamTimestamp`; `capture`/`playback` renamed `device`.
 - `StreamInstant` creation is now `const`.

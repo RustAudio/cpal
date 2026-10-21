@@ -393,7 +393,7 @@ pub(crate) fn get_user_media_error(js_err: &wasm_bindgen::JsValue) -> crate::Err
 
     let kind = match name.as_deref() {
         Some("NotAllowedError" | "SecurityError") => ErrorKind::PermissionDenied,
-        Some("NotFoundError") => ErrorKind::DeviceNotAvailable,
+        Some("NotFoundError") => ErrorKind::DeviceUnavailable,
         Some("OverconstrainedError") => ErrorKind::UnsupportedConfig,
         Some("NotReadableError") => ErrorKind::DeviceBusy,
         Some("TypeError") => ErrorKind::InvalidInput,

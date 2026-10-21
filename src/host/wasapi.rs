@@ -66,7 +66,7 @@ impl From<windows::core::Error> for Error {
             Audio::AUDCLNT_E_SERVICE_NOT_RUNNING => ErrorKind::HostUnavailable,
 
             Audio::AUDCLNT_E_DEVICE_INVALIDATED | Audio::AUDCLNT_E_ENDPOINT_CREATE_FAILED => {
-                ErrorKind::DeviceNotAvailable
+                ErrorKind::DeviceUnavailable
             }
 
             Audio::AUDCLNT_E_DEVICE_IN_USE => ErrorKind::DeviceBusy,

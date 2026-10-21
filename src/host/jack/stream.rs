@@ -237,7 +237,7 @@ fn connect_pairs(client: &jack::Client, pairs: &[(&str, &str)]) -> Result<(), Er
                 let _ = client.disconnect_ports_by_name(prev_from, prev_to);
             }
             return Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
+                ErrorKind::DeviceUnavailable,
                 format!("JACK failed to connect port '{from}' to '{to}': {e}"),
             ));
         }
@@ -740,7 +740,7 @@ impl jack::NotificationHandler for JackNotificationHandler {
         emit_error(
             &self.error_callback_ptr,
             Error::with_message(
-                ErrorKind::DeviceNotAvailable,
+                ErrorKind::DeviceUnavailable,
                 format!("JACK server shut down: {reason}"),
             ),
         );
