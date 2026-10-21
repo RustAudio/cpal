@@ -335,7 +335,7 @@ impl<D> UserData<D> {
                 {
                     emit_error(
                         &self.error_callback,
-                        Error::with_message(ErrorKind::DeviceNotAvailable, "Device disconnected"),
+                        Error::with_message(ErrorKind::DeviceUnavailable, "Device disconnected"),
                     );
                 }
             }
@@ -591,7 +591,7 @@ pub(super) fn watch_default_device(
                                     emit_error(
                                         &error_callback_cb,
                                         Error::with_message(
-                                            ErrorKind::DeviceNotAvailable,
+                                            ErrorKind::DeviceUnavailable,
                                             "default device removed",
                                         ),
                                     );
@@ -611,7 +611,7 @@ pub(super) fn watch_default_device(
 }
 
 /// Watches the registry for the node going away, and fires `error_callback` with
-/// [`ErrorKind::DeviceNotAvailable`] when it does.
+/// [`ErrorKind::DeviceUnavailable`] when it does.
 ///
 /// The watch lasts as long as the returned listener is held.
 pub(super) fn watch_target_node(
@@ -645,7 +645,7 @@ pub(super) fn watch_target_node(
             if node_id.get() == Some(id) && !invalidated.swap(true, Ordering::Relaxed) {
                 emit_error(
                     &error_callback,
-                    Error::with_message(ErrorKind::DeviceNotAvailable, "Device disconnected"),
+                    Error::with_message(ErrorKind::DeviceUnavailable, "Device disconnected"),
                 );
             }
         })

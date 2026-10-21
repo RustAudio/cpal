@@ -60,7 +60,7 @@ impl From<ndk::audio::AudioError> for Error {
         use ndk::audio::AudioError::*;
         match error {
             Disconnected | Unavailable | NoService | InvalidHandle => {
-                Error::with_message(ErrorKind::DeviceNotAvailable, error.to_string())
+                Error::with_message(ErrorKind::DeviceUnavailable, error.to_string())
             }
             NoFreeHandles | NoMemory => {
                 Error::with_message(ErrorKind::ResourceExhausted, error.to_string())

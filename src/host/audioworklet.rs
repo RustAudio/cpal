@@ -521,7 +521,7 @@ impl DeviceTrait for Device {
                     Command::Play => {
                         if audio_context.resume().is_err() {
                             (error_callback.borrow_mut())(Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
+                                ErrorKind::DeviceUnavailable,
                                 "Failed to resume audio context",
                             ));
                         }
@@ -529,7 +529,7 @@ impl DeviceTrait for Device {
                     Command::Pause => {
                         if audio_context.suspend().is_err() {
                             (error_callback.borrow_mut())(Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
+                                ErrorKind::DeviceUnavailable,
                                 "Failed to suspend audio context",
                             ));
                         }
@@ -760,7 +760,7 @@ impl DeviceTrait for Device {
                     Command::Play => {
                         if audio_context.resume().is_err() {
                             (error_callback.borrow_mut())(Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
+                                ErrorKind::DeviceUnavailable,
                                 "Failed to resume audio context",
                             ));
                         }
@@ -768,7 +768,7 @@ impl DeviceTrait for Device {
                     Command::Pause => {
                         if audio_context.suspend().is_err() {
                             (error_callback.borrow_mut())(Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
+                                ErrorKind::DeviceUnavailable,
                                 "Failed to suspend audio context",
                             ));
                         }
@@ -1049,7 +1049,7 @@ impl DeviceTrait for Device {
                     Command::Play => {
                         if audio_context.resume().is_err() {
                             (error_callback.borrow_mut())(Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
+                                ErrorKind::DeviceUnavailable,
                                 "Failed to resume audio context",
                             ));
                         }
@@ -1057,7 +1057,7 @@ impl DeviceTrait for Device {
                     Command::Pause => {
                         if audio_context.suspend().is_err() {
                             (error_callback.borrow_mut())(Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
+                                ErrorKind::DeviceUnavailable,
                                 "Failed to suspend audio context",
                             ));
                         }
