@@ -117,7 +117,7 @@ impl DeviceTrait for Device {
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
-        if self.supports_input() {
+        if self.supports_output() {
             match probe_configs(&self.path, Mode::Write) {
                 Ok(ranges) => Ok(SupportedConfigsIter { inner: ranges.into_iter() }),
                 Err(e) => Err(error_from_io(e)),
