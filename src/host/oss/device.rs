@@ -103,6 +103,7 @@ impl DeviceTrait for Device {
         let Ok(fd) = open_dsp(&self.path, Mode::ReadWrite) else { return false };
         let Ok(caps) = ioctl_int(&fd, syscall::SNDCTL_DSP_GETCAPS, 0) else { return false };
         caps & syscall::PCM_CAP_DUPLEX != 0
+        // make self.direction mutable and set here
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
@@ -278,18 +279,26 @@ fn validate_duplex_stream_config(config: &DuplexStreamConfig) -> Result<(), Erro
 /// Return the default device.
 /// If the /dev/dsp virtual node is available, always return that,
 /// otherwise fallback to the first device, otherwise, None.
-/// 
-/// *Note*: Capabilities are unknown until the device is opened.
 pub fn default_device() -> Option<Device> {
     if std::path::Path::new(DEFAULT_DSP_PATH).exists() {
         Some(Device {
             path: DEFAULT_DSP_PATH.to_owned(),
             desc: Some("Default Audio Device".to_owned()),
-            direction: DeviceDirection::Unknown,
+            direction: detect_direction(DEFAULT_DSP_PATH),
         })
     } else {
         // [todo] enumerate devices and return the first one, if any
         None
+    }
+}
+
+/// **Note**: This could fail when the device is busy, which is suboptimal, [TODO]
+fn detect_direction(path: &str) -> DeviceDirection {
+    match (open_dsp(path, Mode::Read), open_dsp(path, Mode::Write)) {
+        (Ok(_),  Ok(_) ) => DeviceDirection::Duplex,
+        (Ok(_),  Err(_)) => DeviceDirection::Input,
+        (Err(_), Ok(_) ) => DeviceDirection::Output,
+        _ => DeviceDirection::Unknown,
     }
 }
 
