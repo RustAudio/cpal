@@ -127,13 +127,27 @@ impl DeviceTrait for Device {
         }
     }
 
-    /// [TODO]: either `supported_input_configs`.first() / best? or probe a specific format with `SNDCTL_DSP_GETCAPS`
+    // [TODO]: best? or research probing a specific format with `SNDCTL_DSP_GETCAPS`
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        if self.supports_input() {
+            self.supported_input_configs()?
+                .next()
+                .map(|range| range.with_max_sample_rate())
+                .ok_or(Error::new(ErrorKind::UnsupportedConfig))
+        } else {
+            Err(Error::new(ErrorKind::UnsupportedOperation))
+        }
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        if self.supports_output() {
+            self.supported_output_configs()?
+                .next()
+                .map(|range| range.with_max_sample_rate())
+                .ok_or(Error::new(ErrorKind::UnsupportedConfig))
+        } else {
+            Err(Error::new(ErrorKind::UnsupportedOperation))
+        }
     }
 
     fn default_duplex_config(&self) -> Result<DuplexStreamConfig, Error> {
