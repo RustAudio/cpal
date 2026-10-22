@@ -423,16 +423,19 @@ pub(super) fn configure(
         let _ = ioctl_int(fd, syscall::SNDCTL_DSP_SETFRAGMENT, arg); // a hint, so ignore failure
     }
 
+    eprintln!("A");
     // Each call writes back what the driver actually chose: reject mismatches.
     if ioctl_int(fd, syscall::SNDCTL_DSP_SETFMT, afmt).map_err(error_from_io)? != afmt {
         return Err(Error::with_message(ErrorKind::UnsupportedConfig, format!("Format: {fmt}/{afmt} was rejected")));
     }
+    eprintln!("B");
     if ioctl_int(fd, syscall::SNDCTL_DSP_CHANNELS, ch).map_err(error_from_io)? != ch {
         return Err(Error::with_message(ErrorKind::UnsupportedConfig, format!("Channels: {ch} was rejected")));
     }
     // if ioctl_int(fd, consts::SNDCTL_DSP_SPEED, rate).map_err(error_from_io)? != rate {
     //     return Err(Error::with_message(ErrorKind::UnsupportedConfig, format!("Sample Rate: {rate} was rejected")));
     // }
+    eprintln!("C");
     let got = ioctl_int(fd, syscall::SNDCTL_DSP_SPEED, rate).map_err(error_from_io)?;
     if !rate_close_enough(rate, got) {
         return Err(Error::with_message(
