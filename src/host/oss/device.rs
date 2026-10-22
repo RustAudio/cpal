@@ -84,6 +84,8 @@ impl DeviceTrait for Device {
     }
 
     fn id(&self) -> Result<crate::DeviceId, Error> {
+        // I don't think this is persistent between changing devices
+        // infalliable though
         Ok(crate::DeviceId::new(crate::HostId::Oss, self.path.clone()))
     }
 
@@ -140,6 +142,11 @@ impl DeviceTrait for Device {
         }
     }
 
+    // this isn't the best approach atall, it can spew out exotic configs as 'default',
+    // e.g., on my headphones: 1ch 192kHz, Unkown (though thats due to my probing), F32 (fine)
+    //
+    // research: maybe `AUDIOINFO` has something for this?
+    // 2ch 48khz 1024 f32 would be far more sane
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         if self.supports_output() {
             self.supported_output_configs()?
@@ -151,9 +158,12 @@ impl DeviceTrait for Device {
         }
     }
 
-    fn default_duplex_config(&self) -> Result<DuplexStreamConfig, Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
-    }
+    // Leaving this here as a reminder for me to look into this,
+    // havent read through the default fn in DeviceTrait, but I
+    // doubt it will work properly due to OSS duplex limitations
+    // fn default_duplex_config(&self) -> Result<DuplexStreamConfig, Error> {
+    //     Err(Error::from(ErrorKind::HostUnavailable))
+    // }
 
     fn build_input_stream_raw<D, E>(
         &self,
