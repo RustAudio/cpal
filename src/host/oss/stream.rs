@@ -409,6 +409,7 @@ pub(super) fn configure(
     fd: &File,
     config: &StreamConfig,
     fmt: SampleFormat,
+    input: bool, // a bool here as it should only be input/output, use `configure_duplex` otherwise. [TODO] unify them?
 ) -> Result<usize, Error> {
     let Some(afmt) = formats::afmt_from_sample_format(fmt) else { return Err(Error::new(ErrorKind::UnsupportedConfig)); };
     let ch = config.channels as c_int;
@@ -442,8 +443,12 @@ pub(super) fn configure(
 
     // Read back the real block size
     let mut info = AudioBufInfo::default();
-    ioctl_ptr(fd, syscall::SNDCTL_DSP_GETOSPACE, &mut info).map_err(error_from_io)?;
-    Ok(info.fragsize.max(1) as usize)
+    let req = match input {
+        true => syscall::SNDCTL_DSP_GETISPACE,
+        false => syscall::SNDCTL_DSP_GETOSPACE,
+    };
+    ioctl_ptr(fd, req, &mut info).map_err(error_from_io)?;
+    Ok(info.fragsize.max(1) as usize) // not a good idea?
 }
 
 /// Configure an open device file descriptor

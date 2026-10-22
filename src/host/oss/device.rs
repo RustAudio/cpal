@@ -171,7 +171,7 @@ impl DeviceTrait for Device {
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
         let fd = open_dsp(&self.path, Mode::Read).map_err(error_from_io)?; // diff from output
-        let period_bytes = stream::configure(&fd, &config, sample_format)?;
+        let period_bytes = stream::configure(&fd, &config, sample_format, true)?;
 
         let control = Arc::new(Control::default());
         let worker_ctl = control.clone();
@@ -202,7 +202,7 @@ impl DeviceTrait for Device {
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
         let fd = open_dsp(&self.path, Mode::Write).map_err(error_from_io)?;
-        let period_bytes = stream::configure(&fd, &config, sample_format)?;
+        let period_bytes = stream::configure(&fd, &config, sample_format, false)?;
 
         let control = Arc::new(Control::default());
         let worker_ctl = control.clone();
