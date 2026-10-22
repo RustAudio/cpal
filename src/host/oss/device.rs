@@ -112,7 +112,7 @@ impl DeviceTrait for Device {
                 Err(e) => Err(error_from_io(e)),
             }
         } else {
-            Ok(SupportedConfigsIter { inner: Vec::new().into_iter() } )
+            Err(Error::new(ErrorKind::UnsupportedOperation))
         }
     }
 
@@ -123,7 +123,7 @@ impl DeviceTrait for Device {
                 Err(e) => Err(error_from_io(e)),
             }
         } else {
-            Ok(SupportedConfigsIter { inner: Vec::new().into_iter() } )
+            Err(Error::new(ErrorKind::UnsupportedOperation))
         }
     }
 
