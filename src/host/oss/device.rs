@@ -180,6 +180,7 @@ impl DeviceTrait for Device {
         validate_stream_config(&config)?;
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
+        eprintln!("FD");
         let fd = open_dsp(&self.path, Mode::Read).map_err(error_from_io)?; // diff from output
         let period_bytes = stream::configure(&fd, &config, sample_format, true)?;
 
