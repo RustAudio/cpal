@@ -1,6 +1,4 @@
-use crate::{
-    BufferSize, CallbackInfo, ChannelCount, SampleRate,
-};
+use crate::{BufferSize, CallbackInfo, ChannelCount, SampleRate};
 
 /// Information relevant to a single call to the user's duplex stream data callback.
 ///
