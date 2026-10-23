@@ -353,7 +353,7 @@ where
 
         // SAFETY: Both buffers live across the callback, the callback only borrows them
         // (read-only for input via `&Data`, read-write for output via `&mut Data`)
-        let in_data  = unsafe { Data::from_parts(in_buf.as_ptr()   as *mut (), in_samples,  sample_format ) };
+        let in_data      = unsafe { Data::from_parts(in_buf .as_ptr()     as *mut (), in_samples,  sample_format) };
         let mut out_data = unsafe { Data::from_parts(out_buf.as_mut_ptr() as *mut (), out_samples, sample_format) };
         let info = DuplexCallbackInfo::new(
             // [TODO]: report xruns

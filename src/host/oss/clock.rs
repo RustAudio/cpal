@@ -16,5 +16,5 @@ pub(super) fn now() -> StreamInstant {
     let r = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
     debug_assert_eq!(r, 0); // `clock_gettime` should never fail
 
-    StreamInstant::new(ts.tv_nsec as u64, ts.tv_nsec as u32)
+    StreamInstant::new(ts.tv_sec as u64, ts.tv_nsec as u32)
 }
