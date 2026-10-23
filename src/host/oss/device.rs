@@ -105,7 +105,7 @@ impl DeviceTrait for Device {
         let Ok(fd) = open_dsp(&self.path, Mode::ReadWrite) else { return false };
         let Ok(caps) = ioctl_int(&fd, syscall::SNDCTL_DSP_GETCAPS, 0) else { return false };
         caps & syscall::PCM_CAP_DUPLEX != 0
-        // make self.direction mutable and set here
+        // [TODO]: make self.direction mutable (with only &self?) and set here
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
@@ -227,10 +227,8 @@ impl DeviceTrait for Device {
         Ok(super::Stream { control, worker: Some(worker), latch: Latch::new() })
     }
 
-    /// Create a dynamically typed synchronized duplex stream.
-    /// 
-    /// **Note**: OSS duplex streams must have the same input and output sample format,
-    /// this is a limitation of the host itself.
+    // [NOTE]: OSS duplex streams must have the same input and output sample format,
+    // this is a limitation of the host itself.
     fn build_duplex_stream_raw<D, E>(
         &self,
         config: DuplexStreamConfig,
@@ -248,7 +246,6 @@ impl DeviceTrait for Device {
         let sample_format = if input_sample_format == output_sample_format {
             input_sample_format
         } else {
-            // Decided not to use InvalidInput, as it's a perfectly valid thing to try
             return Err(Error::with_message(ErrorKind::UnsupportedConfig, "OSS duplex must share the sample sample format between input and output"));
         };
 
