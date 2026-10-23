@@ -61,12 +61,12 @@ pub(crate) fn validate_duplex_config(config: &DuplexStreamConfig) -> Result<(), 
         sample_rate: config.sample_rate,
         buffer_size: config.buffer_size,
     };
-    crate::validate_stream_config(input)?;
+    crate::validate_stream_config(&input)?;
 
     let output = crate::StreamConfig {
         channels: config.output_channels,
         sample_rate: config.sample_rate,
         buffer_size: config.buffer_size,
     };
-    crate::validate_stream_config(output)
+    crate::validate_stream_config(&output)
 }
