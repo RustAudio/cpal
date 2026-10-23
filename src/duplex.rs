@@ -1,4 +1,4 @@
-use crate::{BufferSize, CallbackInfo, ChannelCount, SampleRate};
+use crate::{BufferSize, CallbackInfo, ChannelCount, SampleRate, StreamConfig};
 
 /// Information relevant to a single call to the user's duplex stream data callback.
 ///
@@ -39,4 +39,21 @@ pub struct DuplexStreamConfig {
     pub sample_rate: SampleRate,
     /// The desired buffer size, in frames per callback.
     pub buffer_size: BufferSize,
+}
+
+/// Applies [`validate_config`] to each direction of a duplex configuration.
+pub(crate) fn validate_duplex_config(config: &DuplexStreamConfig) -> Result<(), crate::Error> {
+    let input = StreamConfig {
+        channels: config.input_channels,
+        sample_rate: config.sample_rate,
+        buffer_size: config.buffer_size,
+    };
+    validate_stream_config(&input)?;
+
+    let output = StreamConfig {
+        channels: config.output_channels,
+        sample_rate: config.sample_rate,
+        buffer_size: config.buffer_size,
+    };
+    validate_stream_config(&output)
 }
