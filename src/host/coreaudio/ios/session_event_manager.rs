@@ -62,7 +62,7 @@ fn route_change_error(notification: &NSNotification) -> Option<Error> {
         )),
 
         AVAudioSessionRouteChangeReason::NoSuitableRouteForCategory => Some(Error::with_message(
-            ErrorKind::DeviceNotAvailable,
+            ErrorKind::DeviceUnavailable,
             "No suitable audio route for the session category",
         )),
 
@@ -166,7 +166,7 @@ impl SessionEventManager {
                     emit_error(
                         &cb,
                         Error::with_message(
-                            ErrorKind::DeviceNotAvailable,
+                            ErrorKind::DeviceUnavailable,
                             "Audio media services were lost",
                         ),
                     );

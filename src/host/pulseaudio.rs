@@ -85,7 +85,7 @@ impl From<pulseaudio::ClientError> for Error {
             match e {
                 AccessDenied | AuthKey => ErrorKind::PermissionDenied,
                 ConnectionRefused | InvalidServer | ModInitFailed => ErrorKind::HostUnavailable,
-                NoEntity => ErrorKind::DeviceNotAvailable,
+                NoEntity => ErrorKind::DeviceUnavailable,
                 Timeout | Busy => ErrorKind::DeviceBusy,
                 NotSupported | Obsolete | NotImplemented | Version | NoExtension => {
                     ErrorKind::UnsupportedOperation
@@ -134,7 +134,8 @@ impl Host {
         // returns, fall through to the next host with no other option than to leak the thread.
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let name = CString::new(format!("cpal-pulseaudio-{}", std::process::id())).unwrap();
+            let name =
+                CString::new(format!("cpal_pulseaudio_client_{}", std::process::id())).unwrap();
             let _ = tx.send(pulseaudio::Client::from_env(&name));
         });
         let client = rx
@@ -392,7 +393,7 @@ impl DeviceTrait for Device {
             match rx.recv_timeout(dur) {
                 Ok(result) => result,
                 Err(_) => Err(Error::with_message(
-                    ErrorKind::DeviceNotAvailable,
+                    ErrorKind::DeviceUnavailable,
                     "Stream creation timed out",
                 )),
             }
@@ -487,7 +488,7 @@ impl DeviceTrait for Device {
             match rx.recv_timeout(dur) {
                 Ok(result) => result,
                 Err(_) => Err(Error::with_message(
-                    ErrorKind::DeviceNotAvailable,
+                    ErrorKind::DeviceUnavailable,
                     "Stream creation timed out",
                 )),
             }

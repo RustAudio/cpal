@@ -514,7 +514,7 @@ impl DeviceTrait for Device {
                                 if ctx_task.resume().is_err() {
                                     error_callback.lock().unwrap_or_else(|e| e.into_inner())(
                                         Error::with_message(
-                                            ErrorKind::DeviceNotAvailable,
+                                            ErrorKind::DeviceUnavailable,
                                             "Failed to resume audio context",
                                         ),
                                     );
@@ -524,7 +524,7 @@ impl DeviceTrait for Device {
                                 if ctx_task.suspend().is_err() {
                                     error_callback.lock().unwrap_or_else(|e| e.into_inner())(
                                         Error::with_message(
-                                            ErrorKind::DeviceNotAvailable,
+                                            ErrorKind::DeviceUnavailable,
                                             "Failed to suspend audio context",
                                         ),
                                     );
@@ -926,7 +926,7 @@ impl DeviceTrait for Device {
                                 if ctx.resume().is_err() {
                                     error_callback.lock().unwrap_or_else(|e| e.into_inner())(
                                         Error::with_message(
-                                            ErrorKind::DeviceNotAvailable,
+                                            ErrorKind::DeviceUnavailable,
                                             "Failed to resume audio context",
                                         ),
                                     );
@@ -944,7 +944,7 @@ impl DeviceTrait for Device {
                                 if ctx.suspend().is_err() {
                                     error_callback.lock().unwrap_or_else(|e| e.into_inner())(
                                         Error::with_message(
-                                            ErrorKind::DeviceNotAvailable,
+                                            ErrorKind::DeviceUnavailable,
                                             "Failed to suspend audio context",
                                         ),
                                     );
@@ -1301,7 +1301,7 @@ impl DeviceTrait for Device {
                                 if ctx_task.resume().is_err() {
                                     error_callback.lock().unwrap_or_else(|e| e.into_inner())(
                                         Error::with_message(
-                                            ErrorKind::DeviceNotAvailable,
+                                            ErrorKind::DeviceUnavailable,
                                             "Failed to resume audio context",
                                         ),
                                     );
@@ -1311,7 +1311,7 @@ impl DeviceTrait for Device {
                                 if ctx_task.suspend().is_err() {
                                     error_callback.lock().unwrap_or_else(|e| e.into_inner())(
                                         Error::with_message(
-                                            ErrorKind::DeviceNotAvailable,
+                                            ErrorKind::DeviceUnavailable,
                                             "Failed to suspend audio context",
                                         ),
                                     );
@@ -1385,7 +1385,7 @@ impl StreamTrait for Stream {
                     Ok(())
                 }
                 Err(_) => Err(Error::with_message(
-                    ErrorKind::DeviceNotAvailable,
+                    ErrorKind::DeviceUnavailable,
                     "Failed to resume audio context",
                 )),
             }
@@ -1405,7 +1405,7 @@ impl StreamTrait for Stream {
             match self.ctx.suspend() {
                 Ok(_) => Ok(()),
                 Err(_) => Err(Error::with_message(
-                    ErrorKind::DeviceNotAvailable,
+                    ErrorKind::DeviceUnavailable,
                     "Failed to suspend audio context",
                 )),
             }

@@ -150,7 +150,7 @@ impl Device {
             .get()
             .ok_or_else(|| {
                 Error::with_message(
-                    ErrorKind::DeviceNotAvailable,
+                    ErrorKind::DeviceUnavailable,
                     "ASIO driver is not initialized",
                 )
             })?
@@ -508,7 +508,7 @@ impl Device {
             .get()
             .ok_or_else(|| {
                 Error::with_message(
-                    ErrorKind::DeviceNotAvailable,
+                    ErrorKind::DeviceUnavailable,
                     "ASIO driver is not initialized",
                 )
             })?
@@ -1022,7 +1022,7 @@ impl Device {
         let (timer_tx, timer_rx) = mpsc::channel::<Error>();
         let error_cb_for_timer = Arc::clone(&error_callback_shared);
         std::thread::Builder::new()
-            .name("cpal-asio-event-timer".into())
+            .name("cpal_asio_event_timer".into())
             .spawn(move || {
                 let mut pending: Option<Error> = None;
                 loop {
@@ -1307,7 +1307,7 @@ unsafe fn asio_channel_slice_mut<T>(
 fn load_driver_err(e: sys::LoadDriverError) -> Error {
     match e {
         sys::LoadDriverError::LoadDriverFailed | sys::LoadDriverError::DriverAlreadyExists => {
-            Error::with_message(ErrorKind::DeviceNotAvailable, e.to_string())
+            Error::with_message(ErrorKind::DeviceUnavailable, e.to_string())
         }
         sys::LoadDriverError::InitializationFailed(asio_err) => build_stream_err(asio_err),
     }
@@ -1316,7 +1316,7 @@ fn load_driver_err(e: sys::LoadDriverError) -> Error {
 fn build_stream_err(e: sys::AsioError) -> Error {
     match e {
         sys::AsioError::NoDrivers | sys::AsioError::HardwareMalfunction => {
-            Error::with_message(ErrorKind::DeviceNotAvailable, e.to_string())
+            Error::with_message(ErrorKind::DeviceUnavailable, e.to_string())
         }
         sys::AsioError::InvalidInput | sys::AsioError::BadMode => {
             Error::with_message(ErrorKind::InvalidInput, e.to_string())

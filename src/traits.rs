@@ -77,11 +77,11 @@ pub trait HostTrait {
     ///
     /// Some backends reroute a stream built from this device to the new default device when it
     /// changes; capture continues there, and [`ErrorKind::DeviceChanged`] is reported. Other
-    /// backends report [`ErrorKind::DeviceNotAvailable`] instead, and the caller must rebuild the
+    /// backends report [`ErrorKind::DeviceUnavailable`] instead, and the caller must rebuild the
     /// stream.
     ///
     /// [`ErrorKind::DeviceChanged`]: crate::ErrorKind::DeviceChanged
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     fn default_input_device(&self) -> Option<Self::Device>;
 
     /// The default output audio device on the system.
@@ -90,11 +90,11 @@ pub trait HostTrait {
     ///
     /// Some backends reroute a stream built from this device to the new default device when it
     /// changes; playback continues there, and [`ErrorKind::DeviceChanged`] is reported. Other
-    /// backends report [`ErrorKind::DeviceNotAvailable`] instead, and the caller must rebuild the
+    /// backends report [`ErrorKind::DeviceUnavailable`] instead, and the caller must rebuild the
     /// stream.
     ///
     /// [`ErrorKind::DeviceChanged`]: crate::ErrorKind::DeviceChanged
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     fn default_output_device(&self) -> Option<Self::Device>;
 
     /// An iterator yielding all `Device`s currently available to the system that support one or more
@@ -150,9 +150,9 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     fn description(&self) -> Result<DeviceDescription, Error>;
 
     /// The ID of the device.
@@ -162,9 +162,9 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     fn id(&self) -> Result<DeviceId, Error>;
 
     /// True if the device supports audio input, otherwise false
@@ -192,12 +192,12 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::UnsupportedConfig`] if the backend could not determine what the device
     ///   supports.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support input.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error>;
@@ -206,12 +206,12 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::UnsupportedConfig`] if the backend could not determine what the device
     ///   supports.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support output.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error>;
@@ -220,11 +220,11 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::UnsupportedConfig`] if the device has no default input configuration.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support input.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error>;
@@ -233,11 +233,11 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::UnsupportedConfig`] if the device has no default output configuration.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support output.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error>;
@@ -257,12 +257,12 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::UnsupportedConfig`] if no sample rate is supported by both directions.
     /// - [`ErrorKind::UnsupportedOperation`] if the host or device does not support duplex
     ///   streams.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
     fn default_duplex_config(&self) -> Result<DuplexStreamConfig, Error> {
@@ -377,14 +377,14 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// - [`ErrorKind::UnsupportedConfig`] if the sample rate, channel count, buffer size, or
     ///   sample format is not supported by the device.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support input streams.
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::DeviceBusy`] if the device is temporarily in use by another application.
     /// - [`ErrorKind::PermissionDenied`] if the process lacks permission to access the device.
     /// - [`ErrorKind::InvalidInput`] if the configuration parameters are invalid.
     ///
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::DeviceBusy`]: crate::ErrorKind::DeviceBusy
     /// [`ErrorKind::PermissionDenied`]: crate::ErrorKind::PermissionDenied
     /// [`ErrorKind::InvalidInput`]: crate::ErrorKind::InvalidInput
@@ -435,14 +435,14 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// - [`ErrorKind::UnsupportedConfig`] if the sample rate, channel count, buffer size, or
     ///   sample format is not supported by the device.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support output streams.
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::DeviceBusy`] if the device is temporarily in use by another application.
     /// - [`ErrorKind::PermissionDenied`] if the process lacks permission to access the device.
     /// - [`ErrorKind::InvalidInput`] if the configuration parameters are invalid.
     ///
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::DeviceBusy`]: crate::ErrorKind::DeviceBusy
     /// [`ErrorKind::PermissionDenied`]: crate::ErrorKind::PermissionDenied
     /// [`ErrorKind::InvalidInput`]: crate::ErrorKind::InvalidInput
@@ -495,14 +495,14 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// - [`ErrorKind::UnsupportedConfig`] if the sample rate, channel count, buffer size, or
     ///   sample format is not supported by the device.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support input streams.
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::DeviceBusy`] if the device is temporarily in use by another application.
     /// - [`ErrorKind::PermissionDenied`] if the process lacks permission to access the device.
     /// - [`ErrorKind::InvalidInput`] if the configuration parameters are invalid.
     ///
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::DeviceBusy`]: crate::ErrorKind::DeviceBusy
     /// [`ErrorKind::PermissionDenied`]: crate::ErrorKind::PermissionDenied
     /// [`ErrorKind::InvalidInput`]: crate::ErrorKind::InvalidInput
@@ -542,14 +542,14 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// - [`ErrorKind::UnsupportedConfig`] if the sample rate, channel count, buffer size, or
     ///   sample format is not supported by the device.
     /// - [`ErrorKind::UnsupportedOperation`] if the device does not support output streams.
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::DeviceBusy`] if the device is temporarily in use by another application.
     /// - [`ErrorKind::PermissionDenied`] if the process lacks permission to access the device.
     /// - [`ErrorKind::InvalidInput`] if the configuration parameters are invalid.
     ///
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::DeviceBusy`]: crate::ErrorKind::DeviceBusy
     /// [`ErrorKind::PermissionDenied`]: crate::ErrorKind::PermissionDenied
     /// [`ErrorKind::InvalidInput`]: crate::ErrorKind::InvalidInput
@@ -587,7 +587,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///   streams.
     /// - [`ErrorKind::UnsupportedConfig`] if the sample rate, channel counts, buffer size, or
     ///   sample format is not supported by the device.
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::DeviceBusy`] if the device is temporarily in use by another application.
     /// - [`ErrorKind::PermissionDenied`] if the process lacks permission to access the device
     ///   (e.g. microphone access on macOS).
@@ -600,7 +600,7 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
     /// [`ErrorKind::UnsupportedConfig`]: crate::ErrorKind::UnsupportedConfig
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::DeviceBusy`]: crate::ErrorKind::DeviceBusy
     /// [`ErrorKind::PermissionDenied`]: crate::ErrorKind::PermissionDenied
     /// [`ErrorKind::InvalidInput`]: crate::ErrorKind::InvalidInput
@@ -682,11 +682,11 @@ pub trait StreamTrait: Send + Sync {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::StreamInvalidated`] if the stream configuration has changed and the stream
     ///   must be rebuilt.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
     fn start(&self) -> Result<(), Error>;
 
@@ -710,12 +710,12 @@ pub trait StreamTrait: Send + Sync {
     /// # Errors
     ///
     /// - [`ErrorKind::UnsupportedOperation`] if the backend does not support pausing this stream.
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::StreamInvalidated`] if the stream configuration has changed and the stream
     ///   must be rebuilt.
     ///
     /// [`ErrorKind::UnsupportedOperation`]: crate::ErrorKind::UnsupportedOperation
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
     fn pause(&self) -> Result<(), Error>;
 
@@ -746,11 +746,11 @@ pub trait StreamTrait: Send + Sync {
     ///
     /// # Errors
     ///
-    /// - [`ErrorKind::DeviceNotAvailable`] if the device has been disconnected.
+    /// - [`ErrorKind::DeviceUnavailable`] if the device has been disconnected.
     /// - [`ErrorKind::StreamInvalidated`] if the stream configuration has changed and the stream
     ///   must be rebuilt.
     ///
-    /// [`ErrorKind::DeviceNotAvailable`]: crate::ErrorKind::DeviceNotAvailable
+    /// [`ErrorKind::DeviceUnavailable`]: crate::ErrorKind::DeviceUnavailable
     /// [`ErrorKind::StreamInvalidated`]: crate::ErrorKind::StreamInvalidated
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error>;
 

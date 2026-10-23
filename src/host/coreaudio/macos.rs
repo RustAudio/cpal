@@ -220,7 +220,7 @@ pub(super) trait Monitor: Send + Sync {
 ///
 /// When a device disconnects, this manager:
 /// 1. Attempts to pause the stream to stop audio I/O
-/// 2. Calls the error callback with `ErrorKind::DeviceNotAvailable`
+/// 2. Calls the error callback with `ErrorKind::DeviceUnavailable`
 ///
 /// The dedicated thread architecture ensures `Stream` can implement `Send`.
 struct DisconnectManager {
@@ -251,7 +251,7 @@ impl DisconnectManager {
                 device_address(kAudioDevicePropertyDeviceIsAlive),
                 move || {
                     let _ = disconnect_tx_alive.send(MonitorEvent::Lost(Error::with_message(
-                        ErrorKind::DeviceNotAvailable,
+                        ErrorKind::DeviceUnavailable,
                         "Device disconnected",
                     )));
                 },
@@ -312,7 +312,7 @@ impl DisconnectManager {
 
         let mut latch = Latch::new();
         spawn_delivery_thread(
-            "cpal-coreaudio-disconnect",
+            "cpal_coreaudio_disconnect",
             &mut latch,
             disconnect_rx,
             stream_weak,
@@ -339,7 +339,7 @@ impl Monitor for DisconnectManager {
 ///
 /// When the system default output device changes:
 /// - If a new valid default exists, AudioUnit reroutes and `DeviceChanged` is reported.
-/// - If there is no new default, the stream is paused and `DeviceNotAvailable` is reported.
+/// - If there is no new default, the stream is paused and `DeviceUnavailable` is reported.
 struct DefaultOutputMonitor {
     latch: Latch,
     _shutdown_tx: mpsc::Sender<()>,
@@ -435,7 +435,7 @@ impl DefaultOutputMonitor {
 
         let mut latch = Latch::new();
         spawn_delivery_thread(
-            "cpal-coreaudio-default-output",
+            "cpal_coreaudio_default_out",
             &mut latch,
             change_rx,
             stream_weak,
@@ -454,7 +454,7 @@ impl DefaultOutputMonitor {
                             stream,
                             &error_callback,
                             Error::with_message(
-                                ErrorKind::DeviceNotAvailable,
+                                ErrorKind::DeviceUnavailable,
                                 "no default output device",
                             ),
                         );
