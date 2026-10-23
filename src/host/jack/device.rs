@@ -352,8 +352,8 @@ impl DeviceTrait for Device {
             ));
         }
         validate_duplex_config(&config)?;
-        validate_sample_rate(&input_sample_format)?;
-        validate_sample_rate(&output_sample_format)?;
+        validate_sample_format(&input_sample_format)?;
+        validate_sample_format(&output_sample_format)?;
 
         // Keep both `capture` and `playback` monotonic: re-patching cpal's ports to a
         // different hardware port can move either direction's latency, pulling `device`
