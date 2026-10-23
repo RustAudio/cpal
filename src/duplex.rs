@@ -43,6 +43,17 @@ pub struct DuplexStreamConfig {
     pub buffer_size: BufferSize,
 }
 
+#[cfg(all(
+    feature = "jack",
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "macos",
+        target_os = "windows",
+    )
+))]
 /// Applies [`validate_config`] to each direction of a duplex configuration.
 pub(crate) fn validate_duplex_config(config: &DuplexStreamConfig) -> Result<(), Error> {
     let input = StreamConfig {
