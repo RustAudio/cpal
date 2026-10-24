@@ -555,6 +555,7 @@ impl Device {
             DeviceHandle::DefaultInput => Audio::eCapture,
             DeviceHandle::Specific(_) => return Ok(None),
         };
+        com::com_initialized();
         let enumerator = get_enumerator()
             .context("Failed to get device enumerator")?
             .0
@@ -1165,9 +1166,17 @@ static ENUMERATOR: OnceLock<Result<Enumerator, windows::core::Error>> = OnceLock
 /// Shared by [`Device::immdevice`] and the stream-side `get_current_default` helper to
 /// avoid duplicating the `GetDefaultAudioEndpoint` call.
 pub(super) fn current_default_endpoint(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
-    // Ensure COM is initialised on this thread — callers include notification callbacks on
-    // threads that may not have called CoInitialize themselves.
     com::com_initialized();
+    current_default_endpoint_inner(flow)
+}
+
+/// Returns the current default endpoint when called from a worker initialized as MTA.
+pub(super) fn current_default_endpoint_on_mta(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
+    com::com_initialized_mta();
+    current_default_endpoint_inner(flow)
+}
+
+fn current_default_endpoint_inner(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
     // SAFETY: `get_enumerator()` is a thread-safe singleton initialised at first use.
     unsafe {
         get_enumerator()
@@ -1181,12 +1190,10 @@ pub(super) fn current_default_endpoint(flow: Audio::EDataFlow) -> Option<Audio::
 fn get_enumerator() -> Result<&'static Enumerator, windows::core::Error> {
     ENUMERATOR
         .get_or_init(|| {
-            // COM initialization is thread local, but we only need to have COM initialized in the
-            // thread we create the objects in
-            com::com_initialized();
-
             // SAFETY: `MMDeviceEnumerator` is a well-known in-process COM class; the returned
             // interface pointer is only read through the safe `IMMDeviceEnumerator` wrapper.
+            // Callers initialize COM with the apartment appropriate for their thread before
+            // reaching this function.
             unsafe {
                 Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
                     &Audio::MMDeviceEnumerator,
@@ -1276,6 +1283,7 @@ pub struct Devices {
 
 impl Devices {
     pub fn new() -> Result<Self, Error> {
+        com::com_initialized();
         unsafe {
             // can fail because of wrong parameters (should never happen) or out of memory
             let collection = get_enumerator()

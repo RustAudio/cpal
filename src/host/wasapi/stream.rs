@@ -32,7 +32,7 @@ use crate::{
 /// When a replacement *does* exist this returns `Some` and we skip signalling, letting
 /// `OnDefaultDeviceChanged` fire as the sole notifier and avoiding a double wakeup.
 fn get_current_default(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
-    super::device::current_default_endpoint(flow)
+    super::device::current_default_endpoint_on_mta(flow)
 }
 
 /// Fires a Windows auto-reset event when the system default audio device changes.
@@ -84,9 +84,9 @@ impl DefaultDeviceMonitor {
 
 impl Drop for DefaultDeviceMonitor {
     fn drop(&mut self) {
-        // Ensure COM is initialised on this thread before making COM calls. Drop can run on
-        // any thread (e.g. the audio run thread), which may not have called CoInitialize.
-        crate::host::com::com_initialized();
+        // Drop can run on any thread. Use MTA so dropping a stream on a long-lived worker does not
+        // turn that thread into an STA.
+        crate::host::com::com_initialized_mta();
         unsafe {
             // Synchronous: waits for any in-progress IMMNotificationClient callback to finish
             // before returning. Notification callbacks must not invoke the user error callback:
@@ -1114,4 +1114,39 @@ fn output_timestamp(
         callback,
         device: playback,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Audio, get_current_default};
+    use windows::Win32::{
+        Foundation::CO_E_NOTINITIALIZED,
+        System::Com::{APTTYPE, APTTYPE_STA, APTTYPEQUALIFIER, CoGetApartmentType},
+    };
+
+    #[test]
+    fn default_endpoint_query_does_not_turn_worker_thread_into_sta() {
+        std::thread::spawn(|| {
+            let mut apartment_type = APTTYPE(-1);
+            let mut apartment_qualifier = APTTYPEQUALIFIER(0);
+            let before =
+                unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) };
+            assert_eq!(
+                before.unwrap_err().code(),
+                CO_E_NOTINITIALIZED,
+                "test worker should start without COM initialized"
+            );
+
+            let _ = get_current_default(Audio::eRender);
+
+            unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) }
+                .expect("default endpoint query should initialize COM");
+            assert_ne!(
+                apartment_type, APTTYPE_STA,
+                "default endpoint query must not initialize a worker as an STA"
+            );
+        })
+        .join()
+        .expect("worker thread should complete");
+    }
 }

@@ -4,31 +4,18 @@ use std::{io::Error as IoError, marker::PhantomData};
 
 use windows::Win32::{
     Foundation::RPC_E_CHANGED_MODE,
-    System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize},
+    System::Com::{
+        COINIT, COINIT_APARTMENTTHREADED, COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree,
+        CoUninitialize,
+    },
 };
 
 thread_local!(static COM_INITIALIZED: ComInitialized = {
-    unsafe {
-        // Try to initialize COM with STA by default to avoid compatibility issues with the ASIO
-        // backend (where CoInitialize() is called by the ASIO SDK) or winit (where drag and drop
-        // requires STA).
-        // This call can fail with RPC_E_CHANGED_MODE if another library initialized COM with MTA.
-        // That's OK though since COM ensures thread-safety/compatibility through marshalling when
-        // necessary.
-        let result = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        if result.is_ok() || result == RPC_E_CHANGED_MODE {
-            ComInitialized {
-                result,
-                _ptr: PhantomData,
-            }
-        } else {
-            // COM initialization failed in another way, something is really wrong.
-            panic!(
-                "Failed to initialize COM: {}",
-                IoError::from_raw_os_error(result.0)
-            );
-        }
-    }
+    ComInitialized::new(COINIT_APARTMENTTHREADED)
+});
+
+thread_local!(static COM_INITIALIZED_MTA: ComInitialized = {
+    ComInitialized::new(COINIT_MULTITHREADED)
 });
 
 /// RAII object that guards the fact that COM is initialized.
@@ -50,6 +37,28 @@ impl Drop for ComInitialized {
     }
 }
 
+impl ComInitialized {
+    fn new(concurrency_model: COINIT) -> Self {
+        unsafe {
+            // This can fail with RPC_E_CHANGED_MODE if another library initialized COM with a
+            // different model. That's OK: COM is already initialized on this thread.
+            let result = CoInitializeEx(None, concurrency_model);
+            if result.is_ok() || result == RPC_E_CHANGED_MODE {
+                ComInitialized {
+                    result,
+                    _ptr: PhantomData,
+                }
+            } else {
+                // COM initialization failed in another way, something is really wrong.
+                panic!(
+                    "Failed to initialize COM: {}",
+                    IoError::from_raw_os_error(result.0)
+                );
+            }
+        }
+    }
+}
+
 /// RAII wrapper for COM-allocated wide strings freed with `CoTaskMemFree`.
 pub(super) struct ComString(pub windows::core::PWSTR);
 
@@ -61,5 +70,16 @@ impl Drop for ComString {
 
 /// Ensures that COM is initialized in this thread.
 pub fn com_initialized() {
+    // Try to initialize COM as an STA by default to avoid compatibility issues with the ASIO
+    // backend or UI frameworks such as winit. A thread already initialized as MTA keeps that
+    // model when CoInitializeEx returns RPC_E_CHANGED_MODE.
     COM_INITIALIZED.with(|_| {});
+}
+
+/// Ensures COM is initialized with the multithreaded apartment on this thread.
+///
+/// Use this for system-managed worker threads so they do not become STAs, which are incompatible
+/// with Windows thread pools.
+pub fn com_initialized_mta() {
+    COM_INITIALIZED_MTA.with(|_| {});
 }
