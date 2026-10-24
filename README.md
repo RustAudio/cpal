@@ -24,6 +24,7 @@ For higher-level audio playback and capture, consider [Rodio](https://github.com
 | Linux | ALSA | JACK, PipeWire, PulseAudio |
 | macOS | CoreAudio | JACK |
 | tvOS | CoreAudio | - |
+| visionOS | CoreAudio | - |
 | WebAssembly | Web Audio API | Audio Worklet |
 | Windows | WASAPI | ASIO, JACK |
 
@@ -35,23 +36,25 @@ ALSA is needed even when using JACK, PipeWire, or PulseAudio.
 
 The optional `realtime-dbus` feature additionally requires `libdbus-1-dev` (Debian/Ubuntu) or `dbus-devel` (Fedora). See [ALSA Real-Time Priority Promotion](#alsa-real-time-priority-promotion).
 
-## Minimum Supported Rust Version (MSRV)
+## Minimum Supported Versions
 
-The minimum Rust version required depends on which audio backend and features you're using, as each platform has different dependencies:
+The minimum Rust version (MSRV) and minimum operating system / runtime version both depend on which audio backend and features you're using, as each platform has different dependencies:
 
-| Backend | Platforms | MSRV |
-| ------- | --------- | ---- |
-| AAudio | Android | 1.85 |
-| ALSA | Linux, BSD | 1.85 |
-| CoreAudio | macOS, iOS | 1.85 |
-| CoreAudio | tvOS | nightly |
-| JACK | Linux, BSD, macOS, Windows | 1.85 |
-| PipeWire | Linux, BSD | 1.85 |
-| PulseAudio | Linux, BSD | 1.88 |
-| WASAPI / ASIO | Windows | 1.85 |
-| WASM (`wasm32-unknown`) | WebAssembly | 1.85 |
-| WASM (`wasm32-wasip1`) | WebAssembly | 1.85 |
-| WASM (`audioworklet`) | WebAssembly | nightly |
+| Backend | Platforms | MSRV | Minimum OS / runtime |
+| ------- | --------- | ---- | -------------------- |
+| AAudio | Android | 1.85 | Android 8.0 (API 26) |
+| ALSA | Linux, BSD | 1.85 | — |
+| CoreAudio | macOS | 1.85 | macOS 14.2 (loopback recording requires 14.6+) |
+| CoreAudio | iOS | 1.85 | — |
+| CoreAudio | tvOS | nightly | — |
+| CoreAudio | visionOS | 1.85 | — |
+| JACK | Linux, BSD, macOS, Windows | 1.85 | — |
+| PipeWire | Linux, BSD | 1.85 | PipeWire 0.3.53 |
+| PulseAudio | Linux, BSD | 1.88 | — |
+| WASAPI / ASIO | Windows | 1.85 | Windows 10 |
+| WASM (`wasm32-unknown-unknown`) | WebAssembly | 1.85 | — |
+| WASM (`wasm32-unknown-emscripten`) | WebAssembly | 1.85 | Emscripten 6.0.3, wasm-bindgen 0.2.127 |
+| WASM (`audioworklet`) | WebAssembly | nightly | — |
 
 The `audioworklet` backend additionally requires `-Zbuild-std` with atomics support enabled.
 
@@ -60,16 +63,26 @@ The `audioworklet` backend additionally requires `-Zbuild-std` with atomics supp
 | Feature | Platform | Description |
 | ------- | -------- | ----------- |
 | `asio` | Windows | ASIO backend for low-latency audio, bypassing the Windows audio stack. Requires ASIO drivers and LLVM/Clang. See the [ASIO setup guide](#compiling-for-asio). |
-| `audioworklet` | WebAssembly (`wasm32-unknown-unknown`) | Audio Worklet backend for lower-latency web audio than the default Web Audio API, running audio on a dedicated thread. Requires atomics support (`RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`) and `Cross-Origin` headers for `SharedArrayBuffer`. See the `audioworklet-beep` example. |
+| `audioworklet` | WebAssembly (`wasm32-unknown-unknown`) | Audio Worklet backend for lower-latency web audio than the default Web Audio API, running audio on a dedicated thread. Requires atomics support (`RUSTFLAGS="-C target-feature=+atomics,+bulk-memory,+mutable-globals"`) and `Cross-Origin` headers for `SharedArrayBuffer`. See the `audioworklet` example. |
 | `custom` | All | User-defined backend implementations for audio systems not natively supported by CPAL. See `examples/custom.rs`. |
 | `jack` | Linux, BSD, macOS, Windows | JACK Audio Connection Kit backend for pro-audio routing and inter-application connectivity. Requires `libjack-jackd2-dev` (Debian/Ubuntu) or `jack-devel` (Fedora). |
 | `pipewire` | Linux, BSD | PipeWire media server backend. Requires `libpipewire-0.3-dev` (Debian/Ubuntu) or `pipewire-devel` (Fedora). |
 | `pulseaudio` | Linux, BSD | PulseAudio sound server backend. Requires `libpulse-dev` (Debian/Ubuntu) or `pulseaudio-libs-devel` (Fedora). |
-| `realtime` | Linux, BSD, Windows, Android | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. On Linux/BSD, requires `rtprio` granted in `limits.conf` (e.g. `@audio - rtprio 95`) unless `realtime-dbus` is also enabled. |
-| `realtime-dbus` | Linux, BSD | Uses `rtkit` via D-Bus for RT scheduling on Linux/BSD desktop systems, removing the need for manual `limits.conf` setup. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux/BSD. |
-| `wasm-bindgen` | WebAssembly (`wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `wasm-beep` example. |
+| `realtime` | Android, Linux, Windows | Raises the audio callback thread to real-time or high-priority scheduling for lower latency. On Linux, requires `CAP_SYS_NICE`, root, or an `rtprio` limit granted via `limits.conf` or systemd, unless `realtime-dbus` is also enabled. |
+| `realtime-dbus` | Linux | Uses `rtkit` via D-Bus for RT scheduling on Linux desktop systems. Implies `realtime` on all platforms. Requires `libdbus-1-dev` on Linux. |
+| `wasm-bindgen` | WebAssembly (`wasm32-unknown-emscripten`, `wasm32-unknown-unknown`) | Web Audio API backend for browser-based audio; required for any WebAssembly audio support. See the `webaudio` example. |
 
 See the [beep example](examples/beep.rs) for selecting the backend at runtime.
+
+## Compiling for Android
+
+Package and build with [`cargo-apk`](https://github.com/rust-mobile/cargo-apk); see `examples/android` for a working `Cargo.toml` and entry point.
+
+CPAL embedded via JNI, `flutter_rust_bridge`, or another harness outside `cargo-apk` needs the AAudio backend's `JavaVM`/`Activity` context set manually. Set it before any CPAL call, from`JNI_OnLoad` or equivalent, to prevent a panic:
+
+```rust
+ndk_context::initialize_android_context(vm_ptr, activity_ptr);
+```
 
 ## Compiling for ASIO
 
@@ -177,19 +190,21 @@ config.buffer_size = cpal::BufferSize::Fixed(1024);
 
 Query `device.default_output_config()?.buffer_size()` for valid ranges. Smaller buffers reduce latency but increase CPU load and the risk of glitches.
 
+### PipeWire Audio Glitches
+
+If a stream's sample rate does not match PipeWire's clock rate, PipeWire resamples it. On the ALSA, JACK, and PulseAudio compatibility layers it provides, that can cause audible glitches or underruns, especially at small buffer sizes, without an xrun being reported.
+
+The native `pipewire` cpal feature is less susceptible to it, but if you must use a PipeWire bridge, then match the stream's sample rate to PipeWire's clock rate, or remove the mismatched rate from `default.clock.allowed-rates`. Larger, power-of-two buffer sizes tend to help as well.
+
 ### ALSA Real-Time Priority Promotion
 
 RT promotion is only attempted for a whitelist of PCM types: direct hardware PCMs (`hw:`) and pure format-conversion plugins (linear, A-law, mu-law, ADPCM, float, IEC 958).
 
 `RealtimeDenied` is emitted on the error callback only when promotion is attempted but fails, which happens when the process lacks the resource limits to acquire `SCHED_FIFO`. While RT priority is desirable for low latency, the stream will continue to play at the default scheduling priority.
 
-With the `realtime-dbus` feature, `rtkit` arranges the necessary limits over D-Bus on typical desktop systems. With the plain `realtime` feature, you must ensure that `rtprio` is granted yourself. Add to `/etc/security/limits.d/audio.conf` and ensure the user is member of the `audio` group:
+On Linux, `realtime` alone promotes via `SCHED_FIFO` directly, requiring `CAP_SYS_NICE`, root, or an `rtprio` limit granted in `limits.conf` (e.g. `@audio - rtprio 95`) or systemd's `LimitRTPRIO`. Use `realtime-dbus` instead to have `rtkit` arrange this over D-Bus, without manual configuration.
 
-```text
-@audio - rtprio 95
-```
-
-then add the user to the `audio` group (`usermod -aG audio "$USER"`) and re-login. The same group may anyway be needed to grant access to ALSA device files via `udev` on systems that do not arrange this automatically via `logind`.
+Independently of RT scheduling, some systems need the user added to the `audio` group for ALSA device access via `udev` (`usermod -aG audio "$USER"`, then re-login).
 
 ### Build Errors
 
@@ -197,6 +212,14 @@ If you are unable to build the library:
 
 - Verify you have installed the required development libraries, as documented above
 - **ASIO on Windows:** Verify `CPAL_ASIO_DIR` and `LIBCLANG_PATH` are set and LLVM is installed
+
+## Duplex Devices
+
+cpal doesn't compose devices itself; it needs a device that already claims both capture and playback.
+
+On ALSA, that needs no extra setup if capture and playback are on the same `hw:`/`plughw:` device (most built-in and USB audio). If they are on separate cards, combine them into one named PCM with ALSA's `asym` plugin in `~/.asoundrc` or `/etc/asound.conf`, then address that name as the device.
+
+On JACK, any client can register both input and output ports, so `default_duplex_device` needs no additional server-side setup beyond a running `jackd`.
 
 ## Examples
 

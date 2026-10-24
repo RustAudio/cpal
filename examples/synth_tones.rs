@@ -7,14 +7,14 @@ extern crate clap;
 extern crate cpal;
 
 use cpal::{
+    CallbackInfo, Device, Error, ErrorKind, FromSample, Host, I24, Sample, SampleFormat,
+    SizedSample, Stream, StreamConfig, SupportedStreamConfig, U24,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, Error, ErrorKind, FromSample, Host, OutputCallbackInfo, Sample, SampleFormat,
-    SizedSample, Stream, StreamConfig, SupportedStreamConfig, I24, U24,
 };
 
 fn main() -> anyhow::Result<()> {
     let stream = stream_setup_for()?;
-    stream.play()?;
+    stream.start()?;
     std::thread::sleep(std::time::Duration::from_millis(4000));
     Ok(())
 }
@@ -140,7 +140,7 @@ where
         frequency_hz: 440.0,
     };
     let err_fn = |err: Error| match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
             eprintln!("{err}")
         }
         _ => eprintln!("Stream error: {err}"),
@@ -151,7 +151,7 @@ where
 
     let stream = device.build_output_stream(
         config,
-        move |output: &mut [T], _: &OutputCallbackInfo| {
+        move |output: &mut [T], _: &CallbackInfo| {
             // for 0-1s play sine, 1-2s play square, 2-3s play saw, 3-4s play triangle_wave
             let time_since_start = std::time::Instant::now()
                 .duration_since(time_at_start)

@@ -69,10 +69,11 @@
 //! use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
-//! # let config = device.default_output_config().unwrap().into();
+//! # let supported_config = device.default_output_config().unwrap();
+//! let config = supported_config.into();
 //! let stream = device.build_output_stream(
 //!     config,
-//!     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+//!     move |data: &mut [f32], _: &cpal::CallbackInfo| {
 //!         // react to stream events and read or write stream data here.
 //!     },
 //!     move |err| {
@@ -83,8 +84,8 @@
 //! );
 //! ```
 //!
-//! Streams are returned in a paused state. Once the stream has been started with
-//! [`Stream::play`](traits::StreamTrait::play), the selected audio device will periodically call
+//! Streams are not running when returned. Once started with
+//! [`Stream::start`](traits::StreamTrait::start), the selected audio device will periodically call
 //! the data callback that was passed to the function. For input streams, the callback receives
 //! `&`[`Data`] containing captured audio samples. For output streams, the callback receives
 //! `&mut`[`Data`] to be filled with audio samples for playback.
@@ -98,6 +99,12 @@
 //! > please share your issue and use-case with the CPAL team on the GitHub issue tracker for
 //! > consideration.*
 //!
+//! The data callback is real-time code. You must not allocate, lock, block, or do I/O in it, and
+//! you must not call back into CPAL from it. Reentrancy isn't supported and backends differ in how
+//! they fail, up to deadlocking the callback thread. To get data in and out, hand it across a
+//! lock-free ring buffer (the `feedback` example uses `ringbuf`) or share simple state through
+//! atomics.
+//!
 //! In this example, we simply fill the given output buffer with silence.
 //!
 //! ```no_run
@@ -106,7 +113,7 @@
 //! # let host = cpal::default_host();
 //! # let device = host.default_output_device().unwrap();
 //! # let supported_config = device.default_output_config().unwrap();
-//! let err_fn = |err| eprintln!("an error occurred on the output audio stream: {}", err);
+//! let err_fn = |err| eprintln!("an error occurred on the output audio stream: {err}");
 //! let sample_format = supported_config.sample_format();
 //! let config = supported_config.into();
 //! let stream = match sample_format {
@@ -116,15 +123,15 @@
 //!     sample_format => panic!("Unsupported sample format '{sample_format}'")
 //! }.unwrap();
 //!
-//! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::OutputCallbackInfo) {
+//! fn write_silence<T: Sample>(data: &mut [T], _: &cpal::CallbackInfo) {
 //!     for sample in data.iter_mut() {
 //!         *sample = Sample::EQUILIBRIUM;
 //!     }
 //! }
 //! ```
 //!
-//! Streams are always returned in a paused state, so we must call
-//! [`Stream::play`](traits::StreamTrait::play) to start running the data callback.
+//! Streams are not running when returned; call
+//! [`Stream::start`](traits::StreamTrait::start) to begin.
 //!
 //! ```no_run
 //! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -133,14 +140,21 @@
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::CallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
-//! stream.play().unwrap();
+//! stream.start().unwrap();
 //! ```
 //!
-//! Some devices support pausing the audio stream. This can be useful for saving energy in moments
-//! of silence.
+//! A running stream can be halted in two ways:
+//!
+//! 1. [`pause`](traits::StreamTrait::pause) stops the data callback as soon as possible without
+//!    waiting for any buffered audio to finish.
+//! 2. [`stop`](traits::StreamTrait::stop) drains: it lets audio that has already been buffered
+//!    finish playing, blocking up to the given timeout, before halting.
+//!
+//! Both leave the stream resumable with [`start`](traits::StreamTrait::start); dropping the stream
+//! halts it immediately without draining.
 //!
 //! ```no_run
 //! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -149,10 +163,28 @@
 //! # let supported_config = device.default_output_config().unwrap();
 //! # let sample_format = supported_config.sample_format();
 //! # let config = supported_config.into();
-//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {};
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::CallbackInfo| {};
 //! # let err_fn = move |_err| {};
 //! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
+//! stream.start().unwrap();
+//! // Halt immediately without waiting for buffered audio to drain.
 //! stream.pause().unwrap();
+//! ```
+//!
+//! ```no_run
+//! # use std::time::Duration;
+//! # use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+//! # let host = cpal::default_host();
+//! # let device = host.default_output_device().unwrap();
+//! # let supported_config = device.default_output_config().unwrap();
+//! # let sample_format = supported_config.sample_format();
+//! # let config = supported_config.into();
+//! # let data_fn = move |_data: &mut cpal::Data, _: &cpal::CallbackInfo| {};
+//! # let err_fn = move |_err| {};
+//! # let stream = device.build_output_stream_raw(config, sample_format, data_fn, err_fn, None).unwrap();
+//! stream.start().unwrap();
+//! // End gracefully, letting buffered audio play out (up to 1 second).
+//! stream.stop(Some(Duration::from_secs(1))).unwrap();
 //! ```
 //!
 //! [`default_input_device()`]: traits::HostTrait::default_input_device
@@ -164,11 +196,23 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", target_os = "unknown"),
+    feature = "wasm-bindgen"
+))]
 extern crate js_sys;
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", target_os = "unknown"),
+    feature = "wasm-bindgen"
+))]
 extern crate wasm_bindgen;
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", target_os = "unknown"),
+    feature = "wasm-bindgen"
+))]
 extern crate web_sys;
 
 pub use device_description::{
@@ -176,14 +220,19 @@ pub use device_description::{
 };
 pub use error::*;
 pub use platform::{
-    available_hosts, default_host, host_from_id, Device, Devices, Host, HostId, Stream,
-    SupportedInputConfigs, SupportedOutputConfigs, ALL_HOSTS,
+    ALL_HOSTS, Device, Devices, Host, HostId, Stream, SupportedInputConfigs,
+    SupportedOutputConfigs, available_hosts, default_host, host_from_id,
 };
-pub use sample_format::{FromSample, Sample, SampleFormat, SizedSample, I24, U24};
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+pub use sample_format::{FromSample, I24, Sample, SampleFormat, SizedSample, U24};
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", target_os = "unknown"),
+    feature = "wasm-bindgen"
+))]
 use wasm_bindgen::prelude::*;
 
 pub mod device_description;
+mod duplex;
 mod error;
 mod host;
 pub mod platform;
@@ -235,7 +284,7 @@ pub type FrameCount = u32;
 ///
 /// // Serialize to string (e.g., for storage in config file)
 /// let id_string = device_id.to_string();
-/// println!("Device ID: {}", id_string); // e.g., "wasapi:device_identifier"
+/// println!("Device ID: {id_string}"); // e.g., "wasapi:device_identifier"
 ///
 /// // Deserialize from string
 /// match DeviceId::from_str(&id_string) {
@@ -245,7 +294,7 @@ pub type FrameCount = u32;
 ///             println!("Found device: {:?}", device.id());
 ///         }
 ///     }
-///     Err(e) => eprintln!("Failed to parse device ID: {}", e),
+///     Err(e) => eprintln!("Failed to parse device ID: {e}"),
 /// }
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -351,7 +400,7 @@ impl std::str::FromStr for DeviceId {
 /// // Check supported buffer size range
 /// match config.buffer_size() {
 ///     SupportedBufferSize::Range { min, max } => {
-///         println!("Buffer size range: {} - {}", min, max);
+///         println!("Buffer size range: {min} - {max}");
 ///         // Request a small buffer for low latency
 ///         let mut stream_config = config.config();
 ///         stream_config.buffer_size = BufferSize::Fixed(256);
@@ -375,14 +424,22 @@ pub enum BufferSize {
     Fixed(FrameCount),
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", target_os = "unknown"),
+    feature = "wasm-bindgen"
+))]
 impl wasm_bindgen::describe::WasmDescribe for BufferSize {
     fn describe() {
         <Option<FrameCount> as wasm_bindgen::describe::WasmDescribe>::describe();
     }
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", target_os = "unknown"),
+    feature = "wasm-bindgen"
+))]
 impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
     type Abi = <Option<FrameCount> as wasm_bindgen::convert::IntoWasmAbi>::Abi;
 
@@ -395,12 +452,16 @@ impl wasm_bindgen::convert::IntoWasmAbi for BufferSize {
     }
 }
 
-#[cfg(all(target_arch = "wasm32", feature = "wasm-bindgen"))]
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", target_os = "unknown"),
+    feature = "wasm-bindgen"
+))]
 impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
     type Abi = <Option<FrameCount> as wasm_bindgen::convert::FromWasmAbi>::Abi;
 
     unsafe fn from_abi(js: Self::Abi) -> Self {
-        match Option::<FrameCount>::from_abi(js) {
+        match unsafe { Option::<FrameCount>::from_abi(js) } {
             None => Self::Default,
             Some(fc) => Self::Fixed(fc),
         }
@@ -412,7 +473,14 @@ impl wasm_bindgen::convert::FromWasmAbi for BufferSize {
 /// The sample format is omitted in favour of using a sample type.
 ///
 /// See also [`BufferSize`] for details on buffer size behavior and latency considerations.
-#[cfg_attr(all(target_arch = "wasm32", feature = "wasm-bindgen"), wasm_bindgen)]
+#[cfg_attr(
+    all(
+        target_arch = "wasm32",
+        any(target_os = "emscripten", target_os = "unknown"),
+        feature = "wasm-bindgen"
+    ),
+    wasm_bindgen
+)]
 #[derive(Clone, Debug, Eq, PartialEq, Copy)]
 pub struct StreamConfig {
     pub channels: ChannelCount,
@@ -489,10 +557,8 @@ pub struct Data {
     sample_format: SampleFormat,
 }
 
-pub use timestamp::{
-    InputCallbackInfo, InputStreamTimestamp, OutputCallbackInfo, OutputStreamTimestamp,
-    StreamInstant,
-};
+pub use duplex::{DuplexCallbackInfo, DuplexStreamConfig};
+pub use timestamp::{CallbackInfo, StreamInstant, StreamTimestamp};
 
 impl SupportedStreamConfig {
     pub fn new(
@@ -536,7 +602,7 @@ impl SupportedStreamConfig {
 
 // Note: Data does not implement `is_empty()` because it always contains a valid audio buffer
 // by design. The buffer may contain silence, but it is never structurally empty.
-#[allow(clippy::len_without_is_empty)]
+#[expect(clippy::len_without_is_empty)]
 impl Data {
     /// Constructor for host implementations to use.
     ///
@@ -952,7 +1018,9 @@ mod tests {
         // Expected order from lowest to highest priority:
         assert_eq!(
             sorted_formats,
-            vec![DsdU8, DsdU16, DsdU32, U8, I8, U64, I64, U16, I16, U24, I24, U32, I32, F64, F32,]
+            vec![
+                DsdU8, DsdU16, DsdU32, U8, I8, U64, I64, U16, I16, U24, I24, U32, I32, F64, F32,
+            ]
         );
     }
 
@@ -1045,17 +1113,21 @@ mod tests {
 
     #[test]
     fn validate_stream_config_accepts_valid_configs() {
-        assert!(validate_stream_config(&StreamConfig {
-            channels: 2,
-            sample_rate: 44100,
-            buffer_size: BufferSize::Default,
-        })
-        .is_ok());
-        assert!(validate_stream_config(&StreamConfig {
-            channels: 1,
-            sample_rate: 1,
-            buffer_size: BufferSize::Fixed(1),
-        })
-        .is_ok());
+        assert!(
+            validate_stream_config(&StreamConfig {
+                channels: 2,
+                sample_rate: 44100,
+                buffer_size: BufferSize::Default,
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_stream_config(&StreamConfig {
+                channels: 1,
+                sample_rate: 1,
+                buffer_size: BufferSize::Fixed(1),
+            })
+            .is_ok()
+        );
     }
 }

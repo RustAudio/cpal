@@ -13,9 +13,9 @@
 
 use clap::Parser;
 use cpal::{
+    CallbackInfo, Device, Error, ErrorKind, FromSample, HostId, I24, Sample, SampleFormat,
+    SizedSample, StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, Error, ErrorKind, FromSample, HostId, OutputCallbackInfo, Sample, SampleFormat,
-    SizedSample, StreamConfig, I24,
 };
 
 #[derive(Parser, Debug)]
@@ -135,7 +135,7 @@ where
     };
 
     let err_fn = |err: Error| match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => {
             eprintln!("{err}")
         }
         _ => eprintln!("Stream error: {err}"),
@@ -143,13 +143,21 @@ where
 
     let stream = device.build_output_stream(
         config,
-        move |data: &mut [T], _: &OutputCallbackInfo| write_data(data, channels, &mut next_value),
+        move |data: &mut [T], info: &CallbackInfo| {
+            if info.xrun() {
+                eprintln!("output underrun");
+            }
+            write_data(data, channels, &mut next_value)
+        },
         err_fn,
         None,
     )?;
-    stream.play()?;
+    stream.start()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
+
+    // Let buffered audio finish playing (up to 200 ms) before halting, instead of cutting it off.
+    stream.stop(Some(std::time::Duration::from_millis(200)))?;
 
     Ok(())
 }

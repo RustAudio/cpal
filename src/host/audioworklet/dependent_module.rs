@@ -13,14 +13,14 @@
 //
 // See this issue for a further explanation of what this file does: https://github.com/rustwasm/wasm-bindgen/issues/3019
 
-use js_sys::{wasm_bindgen, Array, JsString};
+use js_sys::{Array, JsString, wasm_bindgen};
 use wasm_bindgen::prelude::*;
 use web_sys::{Blob, BlobPropertyBag, Url};
 
 // This is a not-so-clean approach to get the current bindgen ES module URL
 // in Rust. This will fail at run time on bindgen targets not using ES modules.
 #[wasm_bindgen]
-extern "C" {
+unsafe extern "C" {
     #[wasm_bindgen]
     type ImportMeta;
 

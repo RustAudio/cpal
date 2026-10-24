@@ -1,7 +1,7 @@
 //! Manages loopback recording (recording system audio output)
 
 use std::{
-    ffi::{c_void, CStr},
+    ffi::{CStr, c_void},
     mem::MaybeUninit,
     ptr::NonNull,
     sync::atomic::{AtomicU32, Ordering},
@@ -9,26 +9,24 @@ use std::{
 
 static AGGREGATE_INSTANCE_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-use objc2::{rc::Retained, AnyThread};
+use objc2::{AnyThread, rc::Retained};
 use objc2_core_audio::{
-    kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
-    kAudioAggregateDeviceTapListKey, kAudioAggregateDeviceUIDKey, kAudioDevicePropertyDeviceUID,
-    kAudioEndPointDeviceIsPrivateKey, kAudioObjectPropertyElementMain,
-    kAudioObjectPropertyScopeGlobal, kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey,
     AudioHardwareCreateAggregateDevice, AudioHardwareCreateProcessTap,
     AudioHardwareDestroyAggregateDevice, AudioHardwareDestroyProcessTap,
     AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress, CATapDescription,
-    CATapMuteBehavior,
+    CATapMuteBehavior, kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
+    kAudioAggregateDeviceTapListKey, kAudioAggregateDeviceUIDKey, kAudioDevicePropertyDeviceUID,
+    kAudioEndPointDeviceIsPrivateKey, kAudioObjectPropertyElementMain,
+    kAudioObjectPropertyScopeGlobal, kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey,
 };
 use objc2_core_foundation::{
-    kCFAllocatorDefault, kCFTypeArrayCallBacks, kCFTypeDictionaryKeyCallBacks,
-    kCFTypeDictionaryValueCallBacks, CFArray, CFDictionary, CFMutableDictionary, CFRetained,
-    CFString, CFStringCreateWithCString,
+    CFArray, CFDictionary, CFMutableDictionary, CFRetained, CFString, kCFAllocatorDefault,
+    kCFTypeArrayCallBacks, kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks,
 };
 use objc2_foundation::{NSArray, NSNumber, NSString};
 
 use super::device::Device;
-use crate::{host::coreaudio::check_os_status, Error, ErrorKind};
+use crate::{Error, ErrorKind, host::coreaudio::check_os_status};
 type CFStringRef = *mut std::os::raw::c_void;
 
 impl Device {
@@ -153,7 +151,7 @@ impl Drop for LoopbackDevice {
 
 fn to_cfstring(cstr: &'static CStr) -> CFRetained<CFString> {
     unsafe {
-        CFStringCreateWithCString(
+        CFString::with_c_string(
             kCFAllocatorDefault,
             cstr.as_ptr(),
             0x08000100, /* UTF8 */
@@ -218,7 +216,7 @@ pub fn create_audio_aggregate_device_properties(
         )
         .unwrap()
     };
-    let aggregate_dev_properties = unsafe {
+    unsafe {
         let dict = CFMutableDictionary::new(
             kCFAllocatorDefault,
             5,
@@ -254,7 +252,5 @@ pub fn create_audio_aggregate_device_properties(
         );
 
         CFRetained::cast_unchecked::<CFDictionary>(dict)
-    };
-
-    aggregate_dev_properties
+    }
 }

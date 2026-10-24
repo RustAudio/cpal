@@ -4,9 +4,9 @@ extern crate anyhow;
 extern crate cpal;
 
 use cpal::{
+    CallbackInfo, Device, Error, ErrorKind, FromSample, I24, Sample, SampleFormat, SizedSample,
+    StreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, Error, ErrorKind, FromSample, OutputCallbackInfo, Sample, SampleFormat, SizedSample,
-    StreamConfig, I24,
 };
 
 #[cfg_attr(target_os = "android", ndk_glue::main(backtrace = "full"))]
@@ -53,19 +53,17 @@ where
     };
 
     let err_fn = |err: Error| match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => eprintln!("{err}"),
+        ErrorKind::DeviceChanged | ErrorKind::RealtimeDenied => eprintln!("{err}"),
         _ => eprintln!("Stream error: {err}"),
     };
 
     let stream = device.build_output_stream(
         config,
-        move |data: &mut [T], _: &OutputCallbackInfo| {
-            write_data(data, channels, &mut next_value)
-        },
+        move |data: &mut [T], _: &CallbackInfo| write_data(data, channels, &mut next_value),
         err_fn,
         None,
     )?;
-    stream.play()?;
+    stream.start()?;
 
     std::thread::sleep(std::time::Duration::from_millis(1000));
 

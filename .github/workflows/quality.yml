@@ -2,14 +2,14 @@ name: Code Quality
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
     paths-ignore:
       - "**.md"
       - "docs/**"
       - "LICENSE*"
       - ".gitignore"
   pull_request:
-    branches: [master]
+    branches: [master, develop]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -43,7 +43,13 @@ jobs:
 
           # Windows - WASAPI backend
           - target: x86_64-pc-windows-msvc
-            name: Windows
+            name: Windows-x64
+            features: --all-features
+            os: windows-latest
+
+          # Windows 32-bit - WASAPI backend
+          - target: i686-pc-windows-msvc
+            name: Windows-x86
             features: --all-features
             os: windows-latest
 
@@ -56,7 +62,7 @@ jobs:
           # Android - Oboe backend
           - target: armv7-linux-androideabi
             name: Android
-            features: ""
+            features: --features realtime
             os: ubuntu-latest
 
           # iOS - CoreAudio (iOS) backend
@@ -71,16 +77,20 @@ jobs:
             features: --features wasm-bindgen
             os: ubuntu-latest
 
-          # WASM - WASI
-          - target: wasm32-wasip1
-            name: WASI
-            features: ""
+          # WASM - Emscripten (WebAudio host)
+          - target: wasm32-unknown-emscripten
+            name: WASM-emscripten
+            features: --features wasm-bindgen
             os: ubuntu-latest
 
     name: clippy-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+
+      - name: Refresh APT package lists
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
 
       - name: Cache Linux audio packages
         if: runner.os == 'Linux'
@@ -126,6 +136,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Refresh APT package lists
+        run: sudo apt-get update
+
       - name: Cache Linux audio packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
@@ -165,6 +178,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+
+      - name: Refresh APT package lists
+        if: runner.os == 'Linux'
+        run: sudo apt-get update
 
       - name: Cache Linux audio packages
         if: runner.os == 'Linux'

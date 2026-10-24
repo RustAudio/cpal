@@ -84,6 +84,6 @@ unsafe extern "C-unwind" fn property_listener_handler_shim(
     callback: *mut ::std::os::raw::c_void,
 ) -> OSStatus {
     let wrapper = callback as *mut PropertyListenerCallbackWrapper;
-    (*wrapper).0();
+    unsafe { (*wrapper).0() };
     0
 }

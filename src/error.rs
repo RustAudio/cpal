@@ -14,6 +14,12 @@ pub enum ErrorKind {
 
     /// The active audio route changed and the stream was automatically rerouted.
     /// The stream remains active and no rebuild is required.
+    ///
+    /// Only fires for a stream built from the default device, on backends that support following
+    /// it. A stream built from a specific device does not follow a replacement; if that device
+    /// disappears, it reports [`DeviceNotAvailable`] instead.
+    ///
+    /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
     DeviceChanged,
 
     /// The requested audio device is not available.
@@ -68,9 +74,6 @@ pub enum ErrorKind {
     /// not implemented by the backend.
     UnsupportedOperation,
 
-    /// A buffer underrun or overrun occurred, causing a potential audio glitch.
-    Xrun,
-
     /// The underlying platform audio API returned an error that CPAL cannot map to a more
     /// specific error kind.
     BackendError,
@@ -118,7 +121,6 @@ impl Display for ErrorKind {
                 "The requested stream configuration is not supported by the device.",
             ),
             Self::UnsupportedOperation => f.write_str("The requested operation is not supported."),
-            Self::Xrun => f.write_str("A buffer underrun or overrun occurred."),
             Self::BackendError => f.write_str(
                 "The audio backend returned an unclassified error.",
             ),
@@ -204,10 +206,10 @@ impl From<audio_thread_priority::AudioThreadPriorityError> for Error {
 }
 
 /// Extension trait for attaching a context message to a [`Result`] whose error converts into
-/// [`cpal::Error`].
+/// [`Error`].
 #[allow(dead_code)]
 pub(crate) trait ResultExt<T> {
-    /// Converts the error via [`Into<cpal::Error>`] and prepends `msg`, yielding
+    /// Converts the error via [`Into<Error>`](Into) and prepends `msg`, yielding
     /// `"<msg>: <original error>"` as the message.
     fn context(self, msg: impl Display) -> Result<T, Error>;
 }

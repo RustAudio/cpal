@@ -11,8 +11,8 @@ use std::{
     os::raw::{c_char, c_double, c_void},
     ptr::null_mut,
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, Weak,
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -31,10 +31,8 @@ use self::asio_import as ai;
 /// There should only be one instance of this type at any point in time.
 #[derive(Debug, Default)]
 pub struct Asio {
-    // Keeps track of whether or not a driver is already loaded.
-    //
-    // This is necessary as ASIO only supports one `Driver` at a time.
-    loaded_driver: Mutex<Weak<DriverInner>>,
+    // Guards driver load and teardown. ASIO only supports one driver at a time.
+    loaded_driver: Arc<Mutex<Weak<DriverInner>>>,
 }
 
 /// A handle to a single ASIO driver.
@@ -63,6 +61,8 @@ pub struct Driver {
 #[derive(Debug)]
 struct DriverInner {
     state: Mutex<DriverState>,
+    // Input/output buffer state, shared across every `Driver` handle for this driver.
+    streams: Arc<Mutex<AsioStreams>>,
     // The unique name associated with this driver.
     name: String,
     // Track whether or not the driver has been destroyed.
@@ -72,6 +72,9 @@ struct DriverInner {
     // In the case that the driver has been manually destroyed this flag will be set to `true`
     // indicating to the `drop` implementation that there is nothing to be done.
     destroyed: bool,
+    // Shared with the owning `Asio`; locked during teardown so a concurrent `load_driver`
+    // can't start `ASIOInit` before this driver's `ASIOExit` finishes.
+    loaded_driver: Arc<Mutex<Weak<DriverInner>>>,
 }
 
 /// All possible states of an ASIO `Driver` instance.
@@ -131,6 +134,7 @@ struct BufferCallback(Box<dyn FnMut(&CallbackInfo) + Send>);
 /// There is only ever max one input and one output.
 ///
 /// Only one is required.
+#[derive(Debug)]
 pub struct AsioStreams {
     pub input: Option<AsioStream>,
     pub output: Option<AsioStream>,
@@ -139,6 +143,7 @@ pub struct AsioStreams {
 /// A stream to ASIO.
 ///
 /// Contains the buffers.
+#[derive(Debug)]
 pub struct AsioStream {
     /// A Double buffer per channel
     pub buffer_infos: Vec<AsioBufferInfo>,
@@ -445,12 +450,16 @@ impl Asio {
 
         // Check whether or not a driver is already loaded.
         if let Some(inner) = loaded.upgrade() {
-            let driver = Driver { inner };
-            if driver.name() == driver_name {
-                return Ok(driver);
+            let result = if inner.name == driver_name {
+                Ok(Driver { inner })
             } else {
-                return Err(LoadDriverError::DriverAlreadyExists);
-            }
+                Err(LoadDriverError::DriverAlreadyExists)
+            };
+
+            // Release before `result` goes out of scope: if it holds the last handle,
+            // `DriverInner::drop` takes this same lock.
+            drop(loaded);
+            return result;
         }
 
         // Make owned CString to send to load driver
@@ -471,12 +480,18 @@ impl Asio {
                         CURRENT_SAMPLE_RATE.store(rate.to_bits(), Ordering::Release);
                     }
                     let state = Mutex::new(DriverState::Initialized);
+                    let streams = Arc::new(Mutex::new(AsioStreams {
+                        input: None,
+                        output: None,
+                    }));
                     let name = driver_name.to_string();
                     let destroyed = false;
                     let inner = Arc::new(DriverInner {
                         name,
                         state,
+                        streams,
                         destroyed,
+                        loaded_driver: self.loaded_driver.clone(),
                     });
                     *loaded = Arc::downgrade(&inner);
                     let driver = Driver { inner };
@@ -499,6 +514,11 @@ impl Driver {
     /// The name used to uniquely identify this driver.
     pub fn name(&self) -> &str {
         &self.inner.name
+    }
+
+    /// The shared input/output buffer state for this driver.
+    pub fn streams(&self) -> Arc<Mutex<AsioStreams>> {
+        self.inner.streams.clone()
     }
 
     /// Returns the number of input and output channels available on the driver.
@@ -887,7 +907,16 @@ impl Driver {
     /// Remove the callback with the given ID.
     pub fn remove_callback(&self, rem_id: BufferCallbackId) {
         let mut bc = BUFFER_CALLBACK.lock().unwrap();
-        bc.retain(|&(id, _)| id != rem_id);
+        // `remove` (not `swap_remove`) to preserve the insertion order that
+        // `add_callback` relies on for generating the next ID.
+        let removed = bc
+            .iter()
+            .position(|&(id, _)| id == rem_id)
+            .map(|pos| bc.remove(pos));
+        // the lock must be dropped first, as the removed callback could
+        // be owning another stream, which would result in a deadlock
+        drop(bc);
+        drop(removed);
     }
 
     /// Consumes and destroys the `Driver`, stopping the streams if they are running and releasing
@@ -941,7 +970,16 @@ impl Driver {
     /// Remove the event callback with the given ID.
     pub fn remove_event_callback(&self, rem_id: DriverEventCallbackId) {
         let mut dcb = DRIVER_EVENT_CALLBACKS.lock().unwrap();
-        dcb.retain(|&(id, _)| id != rem_id);
+        // `remove` (not `swap_remove`) to preserve the insertion order that
+        // `add_event_callback` relies on for generating the next ID.
+        let removed = dcb
+            .iter()
+            .position(|&(id, _)| id == rem_id)
+            .map(|pos| dcb.remove(pos));
+        // the lock must be dropped first, as the removed callback could
+        // be owning another stream, which would result in a deadlock
+        drop(dcb);
+        drop(removed);
     }
 
     /// Opens the ASIO driver's control panel window.
@@ -1006,20 +1044,32 @@ impl DriverInner {
     }
 
     fn destroy_inner(&mut self) -> Result<(), AsioError> {
-        {
+        let result = {
+            // Held so a concurrent `load_driver` can't start ASIOInit before this
+            // driver's ASIOExit finishes.
+            let _loaded_driver_guard = self
+                .loaded_driver
+                .lock()
+                .expect("failed to acquire loaded driver lock");
+
             let mut state = self.lock_state();
-            state.destroy()?;
+            state.destroy()
+        };
 
-            // Clear any existing stream callbacks.
-            if let Ok(mut bcs) = BUFFER_CALLBACK.lock() {
-                bcs.clear();
-            }
-        }
+        // Clear any existing stream callbacks. Take the callbacks out and drop the
+        // lock before dropping them, as a callback could be owning another stream,
+        // which would result in a deadlock. Kept outside the guard above: a callback can
+        // take that lock too.
+        let cleared = BUFFER_CALLBACK
+            .lock()
+            .ok()
+            .map(|mut bcs| std::mem::take(&mut *bcs));
+        drop(cleared);
 
-        // Signal that the driver has been destroyed.
-        self.destroyed = true;
+        // Signal that the driver has been destroyed. Left unset on failure so `Drop` retries.
+        self.destroyed = result.is_ok();
 
-        Ok(())
+        result
     }
 }
 

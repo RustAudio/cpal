@@ -1,9 +1,9 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     thread::JoinHandle,
     time::Instant,
@@ -19,25 +19,29 @@ use pipewire::{
     registry::{Listener as RegistryListener, RegistryRc},
     spa::{
         param::{
+            ParamType,
             audio::{AudioFormat, AudioInfoRaw},
             format::{MediaSubtype, MediaType},
-            format_utils, ParamType,
+            format_utils,
         },
-        pod::{serialize::PodSerializer, Object, Pod, Value},
+        pod::{Object, Pod, Value, serialize::PodSerializer},
+        sys::{SPA_IO_Clock, spa_io_clock},
         utils::{Direction, SpaTypes},
     },
     stream::{StreamFlags, StreamListener, StreamRc, StreamState, Time},
     types::ObjectType,
 };
 
+#[cfg(all(target_os = "linux", feature = "realtime"))]
+use super::rt_promote::RtPromoter;
 use crate::{
+    CallbackInfo, Data, Error, ErrorKind, FrameCount, SampleFormat, StreamConfig, StreamInstant,
+    StreamTimestamp,
     host::{
-        emit_error, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
-        try_emit_error, ErrorCallbackArc,
+        ErrorCallbackArc, Notify, emit_error, equilibrium::fill_equilibrium, frames_to_duration,
+        latch::Latch, try_emit_error,
     },
     traits::StreamTrait,
-    Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, SampleFormat, StreamConfig, StreamInstant,
 };
 
 /// Counts the number of live [`PwInitGuard`] instances across all threads.
@@ -74,24 +78,32 @@ impl Drop for PwInitGuard {
 
 pub(super) enum StreamCommand {
     Toggle(bool),
+    Drain,
     Stop,
 }
 
 pub struct Stream {
     handle: Option<JoinHandle<()>>,
     controller: pw::channel::Sender<StreamCommand>,
-    last_quantum: Arc<AtomicU64>,
+    last_quantum: Arc<AtomicU32>,
     start: Instant,
     latch: Latch,
+    is_output: bool,
+    draining: Arc<AtomicBool>,
+    drained: Option<Arc<Notify>>,
 }
 
 impl Stream {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         handle: JoinHandle<()>,
         controller: pw::channel::Sender<StreamCommand>,
-        last_quantum: Arc<AtomicU64>,
+        last_quantum: Arc<AtomicU32>,
         start: Instant,
         latch: Latch,
+        is_output: bool,
+        draining: Arc<AtomicBool>,
+        drained: Option<Arc<Notify>>,
     ) -> Self {
         Self {
             handle: Some(handle),
@@ -99,6 +111,9 @@ impl Stream {
             last_quantum,
             start,
             latch,
+            is_output,
+            draining,
+            drained,
         }
     }
 
@@ -124,7 +139,8 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
+        self.draining.store(false, Ordering::Relaxed);
         self.controller
             .send(StreamCommand::Toggle(true))
             .map_err(|_| {
@@ -136,6 +152,56 @@ impl StreamTrait for Stream {
         Ok(())
     }
     fn pause(&self) -> Result<(), Error> {
+        self.controller
+            .send(StreamCommand::Toggle(false))
+            .map_err(|_| {
+                Error::with_message(
+                    ErrorKind::StreamInvalidated,
+                    "stream command channel closed",
+                )
+            })?;
+        Ok(())
+    }
+
+    fn stop(&self, timeout: Option<std::time::Duration>) -> Result<(), Error> {
+        self.draining.store(true, Ordering::Relaxed);
+        let do_drain = self.is_output && timeout != Some(std::time::Duration::ZERO);
+        if do_drain {
+            if let Some(drained) = &self.drained {
+                let (mutex, _) = drained.as_ref();
+                *mutex.lock().unwrap_or_else(|e| e.into_inner()) = false;
+            }
+            self.controller.send(StreamCommand::Drain).map_err(|_| {
+                Error::with_message(
+                    ErrorKind::StreamInvalidated,
+                    "stream command channel closed",
+                )
+            })?;
+            if let Some(drained) = &self.drained {
+                let (mutex, cvar) = drained.as_ref();
+                let guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
+                match timeout {
+                    None => {
+                        let _guard = cvar.wait_while(guard, |done| !*done).map_err(|_| {
+                            Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                "Drain condvar poisoned",
+                            )
+                        })?;
+                    }
+                    Some(t) => {
+                        let _guard =
+                            cvar.wait_timeout_while(guard, t, |done| !*done)
+                                .map_err(|_| {
+                                    Error::with_message(
+                                        ErrorKind::StreamInvalidated,
+                                        "Drain condvar poisoned",
+                                    )
+                                })?;
+                    }
+                }
+            }
+        }
         self.controller
             .send(StreamCommand::Toggle(false))
             .map_err(|_| {
@@ -188,13 +254,13 @@ impl From<SampleFormat> for AudioFormat {
             SampleFormat::U16 => Self::U16BE,
 
             #[cfg(target_endian = "little")]
-            SampleFormat::I24 => Self::S24LE,
+            SampleFormat::I24 => Self::S24_32LE,
             #[cfg(target_endian = "big")]
-            SampleFormat::I24 => Self::S24BE,
+            SampleFormat::I24 => Self::S24_32BE,
             #[cfg(target_endian = "little")]
-            SampleFormat::U24 => Self::U24LE,
+            SampleFormat::U24 => Self::U24_32LE,
             #[cfg(target_endian = "big")]
-            SampleFormat::U24 => Self::U24BE,
+            SampleFormat::U24 => Self::U24_32BE,
             #[cfg(target_endian = "little")]
             SampleFormat::I32 => Self::S32LE,
             #[cfg(target_endian = "big")]
@@ -223,22 +289,48 @@ pub struct UserData<D> {
     error_callback: ErrorCallbackArc,
     sample_format: SampleFormat,
     format: AudioInfoRaw,
-    last_quantum: Arc<AtomicU64>,
+    last_quantum: Arc<AtomicU32>,
     start: Instant,
-    is_default_device: Arc<AtomicBool>,
+    draining: Arc<AtomicBool>,
+    is_default_device: bool,
     has_connected: bool,
     invalidated: Arc<AtomicBool>,
     pending_device_changed: Arc<AtomicBool>,
+    spa_io_clock: *const spa_io_clock,
+    xrun_recovering: bool,
+    #[cfg(feature = "realtime")]
+    rt_promoted_frames: FrameCount,
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    rt_promoter: Option<RtPromoter>,
 }
 
 impl<D> UserData<D> {
+    #[cfg(feature = "realtime")]
+    fn promote_realtime(&mut self, frames: FrameCount) {
+        // Set regardless of success, so a failed promotion isn't retried until the quantum grows.
+        self.rt_promoted_frames = frames;
+
+        #[cfg(target_os = "linux")]
+        if let Some(promoter) = &self.rt_promoter {
+            promoter.request(frames);
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        // Currently a no-op outside Linux; kept in case audio_thread_priority adds a real backend.
+        if let Err(e) =
+            audio_thread_priority::promote_current_thread_to_real_time(frames, self.format.rate())
+        {
+            let _ = try_emit_error(&self.error_callback, Error::from(e));
+        }
+    }
+
     fn state_changed(&mut self, new: StreamState) {
         match new {
             StreamState::Streaming => self.has_connected = true,
             StreamState::Unconnected => {
                 // Let the metadata monitor fire for default-device streams
                 if self.has_connected
-                    && !self.is_default_device.load(Ordering::Relaxed)
+                    && !self.is_default_device
                     && !self.invalidated.swap(true, Ordering::Relaxed)
                 {
                     emit_error(
@@ -258,6 +350,20 @@ impl<D> UserData<D> {
             StreamState::Paused | StreamState::Connecting => {}
         }
     }
+
+    fn check_xrun(&mut self) -> bool {
+        if self.spa_io_clock.is_null() {
+            return false;
+        }
+        // spa/node/io.h; not present in bindgen output on all libspa versions.
+        const SPA_IO_CLOCK_FLAG_XRUN_RECOVER: u32 = 1 << 1;
+        // io_changed and process run on the same thread.
+        let flags = unsafe { (*self.spa_io_clock).flags };
+        let recovering = flags & SPA_IO_CLOCK_FLAG_XRUN_RECOVER != 0;
+        let xrun = recovering && !self.xrun_recovering;
+        self.xrun_recovering = recovering;
+        xrun
+    }
 }
 
 /// Returns a hardware timestamp for the current graph cycle, or `None` if
@@ -273,57 +379,95 @@ fn pw_stream_time(stream: &pw::stream::Stream) -> Option<Time> {
 
 impl<D> UserData<D>
 where
-    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+    D: FnMut(&Data, &CallbackInfo) + Send + 'static,
 {
-    fn publish_data_in(&mut self, stream: &pw::stream::Stream, frames: usize, data: &Data) {
-        self.last_quantum.store(frames as u64, Ordering::Relaxed);
-        let (callback, capture) = match pw_stream_time(stream) {
-            Some(t) => {
-                let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
-                (
-                    StreamInstant::from_nanos(t.now() as u64),
-                    StreamInstant::from_nanos((t.now() - delay_ns.max(0)) as u64),
-                )
-            }
-            None => {
-                let cb = monotonic_stream_instant()
-                    .unwrap_or_else(|| stream_instant_from_start(self.start));
-                let capture = cb
-                    .checked_sub(frames_to_duration(frames as FrameCount, self.format.rate()))
-                    .unwrap_or(StreamInstant::ZERO);
-                (cb, capture)
-            }
-        };
-        let timestamp = InputStreamTimestamp { callback, capture };
-        let info = InputCallbackInfo { timestamp };
-        (self.data_callback)(data, &info);
+    fn publish_data_in(
+        &mut self,
+        stream: &pw::stream::Stream,
+        frames: usize,
+        data: &Data,
+        xrun: bool,
+    ) {
+        self.last_quantum.store(frames as u32, Ordering::Relaxed);
+
+        #[cfg(feature = "realtime")]
+        if frames as u32 > self.rt_promoted_frames {
+            self.promote_realtime(frames as FrameCount);
+        }
+
+        if !self.draining.load(Ordering::Relaxed) {
+            let (callback, capture) = match pw_stream_time(stream) {
+                Some(t) => {
+                    // `pw_stream_time` guarantees `now > 0` and `denom != 0`.
+                    let now = t.now() as u64;
+                    let delay_ns =
+                        (t.delay() * 1_000_000_000 / t.rate().denom as i64).max(0) as u64;
+                    (
+                        StreamInstant::from_nanos(now),
+                        StreamInstant::from_nanos(now.saturating_sub(delay_ns)),
+                    )
+                }
+                None => {
+                    let cb = monotonic_stream_instant()
+                        .unwrap_or_else(|| stream_instant_from_start(self.start));
+                    let capture = cb
+                        .checked_sub(frames_to_duration(frames as FrameCount, self.format.rate()))
+                        .unwrap_or(StreamInstant::ZERO);
+                    (cb, capture)
+                }
+            };
+            let timestamp = StreamTimestamp {
+                callback,
+                device: capture,
+            };
+            (self.data_callback)(data, &CallbackInfo { timestamp, xrun });
+        }
     }
 }
 
 impl<D> UserData<D>
 where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+    D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
 {
-    fn publish_data_out(&mut self, stream: &pw::stream::Stream, frames: usize, data: &mut Data) {
-        self.last_quantum.store(frames as u64, Ordering::Relaxed);
-        let (callback, playback) = match pw_stream_time(stream) {
-            Some(t) => {
-                let delay_ns = t.delay() * 1_000_000_000i64 / t.rate().denom as i64;
-                (
-                    StreamInstant::from_nanos(t.now() as u64),
-                    StreamInstant::from_nanos((t.now() + delay_ns.max(0)) as u64),
-                )
-            }
-            None => {
-                let cb = monotonic_stream_instant()
-                    .unwrap_or_else(|| stream_instant_from_start(self.start));
-                let pl = cb + frames_to_duration(frames as FrameCount, self.format.rate());
-                (cb, pl)
-            }
-        };
-        let timestamp = OutputStreamTimestamp { callback, playback };
-        let info = OutputCallbackInfo { timestamp };
-        (self.data_callback)(data, &info);
+    fn publish_data_out(
+        &mut self,
+        stream: &pw::stream::Stream,
+        frames: usize,
+        data: &mut Data,
+        xrun: bool,
+    ) {
+        self.last_quantum.store(frames as u32, Ordering::Relaxed);
+
+        #[cfg(feature = "realtime")]
+        if frames as u32 > self.rt_promoted_frames {
+            self.promote_realtime(frames as FrameCount);
+        }
+
+        if !self.draining.load(Ordering::Relaxed) {
+            let (callback, playback) = match pw_stream_time(stream) {
+                Some(t) => {
+                    // `pw_stream_time` guarantees `now > 0` and `denom != 0`.
+                    let now = t.now() as u64;
+                    let delay_ns =
+                        (t.delay() * 1_000_000_000 / t.rate().denom as i64).max(0) as u64;
+                    (
+                        StreamInstant::from_nanos(now),
+                        StreamInstant::from_nanos(now.saturating_add(delay_ns)),
+                    )
+                }
+                None => {
+                    let cb = monotonic_stream_instant()
+                        .unwrap_or_else(|| stream_instant_from_start(self.start));
+                    let pl = cb + frames_to_duration(frames as FrameCount, self.format.rate());
+                    (cb, pl)
+                }
+            };
+            let timestamp = StreamTimestamp {
+                callback,
+                device: playback,
+            };
+            (self.data_callback)(data, &CallbackInfo { timestamp, xrun });
+        }
     }
 }
 
@@ -337,7 +481,6 @@ pub struct StreamData<D> {
     pub error_callback: ErrorCallbackArc,
     pub pending_device_changed: Arc<AtomicBool>,
     pub invalidated: Arc<AtomicBool>,
-    pub is_default_device: Arc<AtomicBool>,
 }
 
 /// Fallback timestamp using elapsed time since stream creation.
@@ -378,114 +521,147 @@ struct MetadataObjects {
     _metadata: Metadata,
 }
 
-pub struct DefaultDeviceMonitor {
-    _registry: RegistryRc,
-    _registry_listener: RegistryListener,
-    _meta_objects: Rc<RefCell<Option<MetadataObjects>>>,
-}
+/// Subscribes to the `"default"` metadata object and fires `error_callback` with
+/// [`ErrorKind::DeviceChanged`] whenever `key` changes.
+///
+/// The watch lasts as long as the returned listener is held.
+pub(super) fn watch_default_device(
+    registry: &RegistryRc,
+    key: &'static str,
+    error_callback: ErrorCallbackArc,
+    invalidated: Arc<AtomicBool>,
+    pending_device_changed: Arc<AtomicBool>,
+) -> RegistryListener {
+    // Both of these stay alive through the closure that captures them.
+    let meta_objects: Rc<RefCell<Option<MetadataObjects>>> = Rc::new(RefCell::new(None));
+    let registry_ref = registry.clone();
 
-impl DefaultDeviceMonitor {
-    /// Subscribe to the `"default"` metadata object and fire `error_callback` with
-    /// [`ErrorKind::DeviceChanged`] whenever its key changes.
-    pub(super) fn new(
-        registry: RegistryRc,
-        key: &'static str,
-        error_callback: ErrorCallbackArc,
-        invalidated: Arc<AtomicBool>,
-        pending_device_changed: Arc<AtomicBool>,
-    ) -> Self {
-        let meta_objects: Rc<RefCell<Option<MetadataObjects>>> = Rc::new(RefCell::new(None));
-        let meta_objects_ref = meta_objects.clone();
-        let registry_ref = registry.clone();
-
-        let registry_listener = registry
-            .add_listener_local()
-            .global(move |global| {
-                if global.type_ != ObjectType::Metadata {
+    registry
+        .add_listener_local()
+        .global(move |global| {
+            if global.type_ != ObjectType::Metadata {
+                return;
+            }
+            if !global.props.is_some_and(|props| {
+                props
+                    .get(super::utils::METADATA_NAME)
+                    .is_some_and(|v| v == super::utils::default::NAME)
+            }) {
+                return;
+            }
+            let metadata: Metadata = match registry_ref.bind(global) {
+                Ok(m) => m,
+                Err(e) => {
+                    emit_error(
+                        &error_callback,
+                        Error::with_message(
+                            ErrorKind::BackendError,
+                            format!("Failed to bind metadata object; device change notifications may be incomplete: {e}"),
+                        ),
+                    );
                     return;
                 }
-                if !global.props.is_some_and(|props| {
-                    props
-                        .get(super::utils::METADATA_NAME)
-                        .is_some_and(|v| v == super::utils::default::NAME)
-                }) {
-                    return;
-                }
-                let metadata: Metadata = match registry_ref.bind(global) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        emit_error(
-                            &error_callback,
-                            Error::with_message(
-                                ErrorKind::BackendError,
-                                format!("PipeWire: failed to bind metadata object; device change notifications may be incomplete: {e}"),
-                            ),
-                        );
-                        return;
-                    }
-                };
-                let error_callback_cb = error_callback.clone();
-                let invalidated_cb = invalidated.clone();
-                let pending_device_changed_cb = pending_device_changed.clone();
+            };
+            let error_callback_cb = error_callback.clone();
+            let invalidated_cb = invalidated.clone();
+            let pending_device_changed_cb = pending_device_changed.clone();
 
-                let last_value: RefCell<Option<Option<String>>> = RefCell::new(None);
-                let listener = metadata
-                    .add_listener_local()
-                    .property(move |_subject, prop_key, _type, value| {
-                        if prop_key == Some(key) {
-                            let prev = last_value.borrow_mut().replace(value.map(str::to_owned));
-                            if let Some(old) = prev {
-                                if old.as_deref() != value {
-                                    if value.is_some() {
-                                        if try_emit_error(
-                                            &error_callback_cb,
-                                            Error::with_message(
-                                                ErrorKind::DeviceChanged,
-                                                "default device changed",
-                                            ),
-                                        )
-                                        .is_err()
-                                        {
-                                            pending_device_changed_cb
-                                                .store(true, Ordering::Relaxed);
-                                        }
-                                    } else if !invalidated_cb.swap(true, Ordering::Relaxed) {
-                                        emit_error(
-                                            &error_callback_cb,
-                                            Error::with_message(
-                                                ErrorKind::DeviceNotAvailable,
-                                                "default device removed",
-                                            ),
-                                        );
+            let last_value: RefCell<Option<Option<String>>> = RefCell::new(None);
+            let listener = metadata
+                .add_listener_local()
+                .property(move |_subject, prop_key, _type, value| {
+                    if prop_key == Some(key) {
+                        let prev = last_value.borrow_mut().replace(value.map(str::to_owned));
+                        if let Some(old) = prev {
+                            if old.as_deref() != value {
+                                if value.is_some() {
+                                    if try_emit_error(
+                                        &error_callback_cb,
+                                        Error::with_message(
+                                            ErrorKind::DeviceChanged,
+                                            "default device changed",
+                                        ),
+                                    )
+                                    .is_err()
+                                    {
+                                        pending_device_changed_cb
+                                            .store(true, Ordering::Relaxed);
                                     }
+                                } else if !invalidated_cb.swap(true, Ordering::Relaxed) {
+                                    emit_error(
+                                        &error_callback_cb,
+                                        Error::with_message(
+                                            ErrorKind::DeviceNotAvailable,
+                                            "default device removed",
+                                        ),
+                                    );
                                 }
                             }
                         }
-                        0
-                    })
-                    .register();
-                *meta_objects_ref.borrow_mut() = Some(MetadataObjects {
-                    _listener: listener,
-                    _metadata: metadata,
-                });
-            })
-            .register();
+                    }
+                    0
+                })
+                .register();
+            *meta_objects.borrow_mut() = Some(MetadataObjects {
+                _listener: listener,
+                _metadata: metadata,
+            });
+        })
+        .register()
+}
 
-        DefaultDeviceMonitor {
-            _registry: registry,
-            _registry_listener: registry_listener,
-            _meta_objects: meta_objects,
-        }
-    }
+/// Watches the registry for the node going away, and fires `error_callback` with
+/// [`ErrorKind::DeviceNotAvailable`] when it does.
+///
+/// The watch lasts as long as the returned listener is held.
+pub(super) fn watch_target_node(
+    registry: &RegistryRc,
+    object_serial: u32,
+    error_callback: ErrorCallbackArc,
+    invalidated: Arc<AtomicBool>,
+) -> RegistryListener {
+    // Removals are reported by global id, while a device is pinned by serial, so learn the
+    // mapping from the announcement of the node itself.
+    let node_id = Rc::new(Cell::new(None));
+    let node_id_global = node_id.clone();
+
+    registry
+        .add_listener_local()
+        .global(move |global| {
+            if global.type_ != ObjectType::Node {
+                return;
+            }
+            let is_target = global.props.is_some_and(|props| {
+                props
+                    .get(*pw::keys::OBJECT_SERIAL)
+                    .and_then(|serial| serial.parse::<u32>().ok())
+                    == Some(object_serial)
+            });
+            if is_target {
+                node_id_global.set(Some(global.id));
+            }
+        })
+        .global_remove(move |id| {
+            if node_id.get() == Some(id) && !invalidated.swap(true, Ordering::Relaxed) {
+                emit_error(
+                    &error_callback,
+                    Error::with_message(ErrorKind::DeviceNotAvailable, "Device disconnected"),
+                );
+            }
+        })
+        .register()
 }
 
 pub struct ConnectParams {
     pub config: StreamConfig,
     pub properties: PropertiesBox,
     pub sample_format: SampleFormat,
-    pub last_quantum: Arc<AtomicU64>,
+    pub last_quantum: Arc<AtomicU32>,
     pub start: Instant,
     pub connect_automatically: bool,
+    pub draining: Arc<AtomicBool>,
+    pub drained: Option<Arc<Notify>>,
+    pub is_default_device: bool,
 }
 
 pub fn connect_output<D, E>(
@@ -494,7 +670,7 @@ pub fn connect_output<D, E>(
     error_callback: E,
 ) -> Result<StreamData<D>, pw::Error>
 where
-    D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+    D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
     let ConnectParams {
@@ -504,6 +680,9 @@ where
         last_quantum,
         start,
         connect_automatically,
+        draining,
+        drained,
+        is_default_device,
     } = params;
 
     let mainloop = MainLoopRc::new(None)?;
@@ -514,7 +693,6 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -535,6 +713,8 @@ where
     };
 
     let error_callback_out = error_callback.clone();
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback.clone(), config.sample_rate);
     let data = UserData {
         data_callback,
         error_callback,
@@ -542,10 +722,17 @@ where
         format: Default::default(),
         last_quantum,
         start,
+        draining,
         invalidated: invalidated.clone(),
-        is_default_device: is_default_device.clone(),
+        is_default_device,
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
+        spa_io_clock: std::ptr::null(),
+        xrun_recovering: false,
+        #[cfg(feature = "realtime")]
+        rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
@@ -605,7 +792,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: failed to stop stream: {e}"),
+                                    format!("Failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -617,7 +804,7 @@ where
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::StreamInvalidated,
-                                format!("PipeWire: failed to parse negotiated audio format: {e}"),
+                                format!("Failed to parse negotiated audio format: {e}"),
                             ),
                         );
                         if let Err(e) = stream.set_active(false) {
@@ -625,7 +812,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: failed to stop stream: {e}"),
+                                    format!("Failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -635,6 +822,11 @@ where
         })
         .state_changed(|_stream, user_data, _old, new| {
             user_data.state_changed(new);
+        })
+        .io_changed(|_stream, user_data, id, area, _size| {
+            if id == SPA_IO_Clock {
+                user_data.spa_io_clock = area as *const spa_io_clock;
+            }
         })
         .process(|stream, user_data| {
             if user_data.pending_device_changed.load(Ordering::Relaxed)
@@ -646,6 +838,7 @@ where
             {
                 user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
+            let xrun = user_data.check_xrun();
 
             let n_channels = user_data.format.channels();
             if n_channels == 0 {
@@ -653,8 +846,12 @@ where
             }
 
             if let Some(mut buffer) = stream.dequeue_buffer() {
-                // Read the requested frame count before mutably borrowing datas_mut().
-                let requested = buffer.requested() as usize;
+                // Read the requested frame count before mutably borrowing datas_mut(); fall back
+                // to the last negotiated quantum when a cycle outside the driver's schedule reports 0.
+                let requested = match buffer.requested() as usize {
+                    0 => user_data.last_quantum.load(Ordering::Relaxed) as usize,
+                    requested => requested,
+                };
                 let datas = buffer.datas_mut();
                 if datas.is_empty() {
                     return;
@@ -681,11 +878,18 @@ where
                 let data = active.as_mut_ptr() as *mut ();
                 let mut data =
                     unsafe { Data::from_parts(data, n_samples, user_data.sample_format) };
-                user_data.publish_data_out(stream, frames, &mut data);
+                user_data.publish_data_out(stream, frames, &mut data, xrun);
                 let chunk = buf_data.chunk_mut();
                 *chunk.offset_mut() = 0;
                 *chunk.stride_mut() = stride as i32;
                 *chunk.size_mut() = (frames * stride) as u32;
+            }
+        })
+        .drained(move |_stream, _user_data| {
+            if let Some(drained) = &drained {
+                let (mutex, cvar) = drained.as_ref();
+                *mutex.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                cvar.notify_one();
             }
         })
         .register()?;
@@ -709,10 +913,14 @@ where
 
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
-    // The worker thread is promoted to RT after signalling the main thread (see device.rs).
-    let mut flags = StreamFlags::MAP_BUFFERS;
+    // That thread promotes itself to RT from the process callback, once when the negotiated
+    // quantum is known and again whenever PipeWire renegotiates it.
+    let mut flags = StreamFlags::MAP_BUFFERS | StreamFlags::INACTIVE;
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
+    }
+    if !is_default_device {
+        flags |= StreamFlags::DONT_RECONNECT;
     }
 
     stream.connect(Direction::Output, None, flags, &mut params)?;
@@ -727,7 +935,6 @@ where
         error_callback: error_callback_out,
         pending_device_changed,
         invalidated,
-        is_default_device,
     })
 }
 
@@ -737,7 +944,7 @@ pub fn connect_input<D, E>(
     error_callback: E,
 ) -> Result<StreamData<D>, pw::Error>
 where
-    D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+    D: FnMut(&Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
 {
     let ConnectParams {
@@ -747,6 +954,9 @@ where
         last_quantum,
         start,
         connect_automatically,
+        draining,
+        drained: _,
+        is_default_device,
     } = params;
 
     let mainloop = MainLoopRc::new(None)?;
@@ -757,7 +967,6 @@ where
     let invalidated = Arc::new(AtomicBool::new(false));
 
     let pending_device_changed = Arc::new(AtomicBool::new(false));
-    let is_default_device = Arc::new(AtomicBool::new(false));
 
     let core_monitor = {
         let invalidated_core = invalidated.clone();
@@ -778,6 +987,8 @@ where
     };
 
     let error_callback_out = error_callback.clone();
+    #[cfg(all(target_os = "linux", feature = "realtime"))]
+    let rt_promoter = RtPromoter::spawn(error_callback.clone(), config.sample_rate);
     let data = UserData {
         data_callback,
         error_callback,
@@ -785,10 +996,17 @@ where
         format: Default::default(),
         last_quantum,
         start,
+        draining,
         invalidated: invalidated.clone(),
-        is_default_device: is_default_device.clone(),
+        is_default_device,
         has_connected: false,
         pending_device_changed: pending_device_changed.clone(),
+        spa_io_clock: std::ptr::null(),
+        xrun_recovering: false,
+        #[cfg(feature = "realtime")]
+        rt_promoted_frames: 0,
+        #[cfg(all(target_os = "linux", feature = "realtime"))]
+        rt_promoter,
     };
 
     let channels = config.channels as _;
@@ -849,7 +1067,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: failed to stop stream: {e}"),
+                                    format!("Failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -861,7 +1079,7 @@ where
                             &user_data.error_callback,
                             Error::with_message(
                                 ErrorKind::StreamInvalidated,
-                                format!("PipeWire: failed to parse negotiated audio format: {e}"),
+                                format!("Failed to parse negotiated audio format: {e}"),
                             ),
                         );
                         if let Err(e) = stream.set_active(false) {
@@ -869,7 +1087,7 @@ where
                                 &user_data.error_callback,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: failed to stop stream: {e}"),
+                                    format!("Failed to stop stream: {e}"),
                                 ),
                             );
                         }
@@ -879,6 +1097,11 @@ where
         })
         .state_changed(|_stream, user_data, _old, new| {
             user_data.state_changed(new);
+        })
+        .io_changed(|_stream, user_data, id, area, _size| {
+            if id == SPA_IO_Clock {
+                user_data.spa_io_clock = area as *const spa_io_clock;
+            }
         })
         .process(|stream, user_data| {
             if user_data.pending_device_changed.load(Ordering::Relaxed)
@@ -890,6 +1113,7 @@ where
             {
                 user_data.pending_device_changed.store(false, Ordering::Relaxed);
             }
+            let xrun = user_data.check_xrun();
 
             let n_channels = user_data.format.channels();
             if n_channels == 0 {
@@ -902,16 +1126,23 @@ where
                     return;
                 }
                 let data = &mut datas[0];
-                let n_samples = data.chunk().size() / user_data.sample_format.sample_size() as u32;
-                let frames = n_samples / n_channels;
+                let stride = user_data.sample_format.sample_size() * n_channels as usize;
+                let offset = data.chunk().offset() as usize;
+                let size = data.chunk().size() as usize;
 
                 let Some(samples) = data.data() else {
                     return;
                 };
-                let data = samples.as_mut_ptr() as *mut ();
-                let data =
-                    unsafe { Data::from_parts(data, n_samples as usize, user_data.sample_format) };
-                user_data.publish_data_in(stream, frames as usize, &data);
+                // offset/size semantics: spa/buffer/buffer.h.
+                let maxsize = samples.len();
+                let offset = offset % maxsize;
+                let frames = size.min(maxsize - offset) / stride;
+                let valid = &mut samples[offset..offset + frames * stride];
+
+                let ptr = valid.as_mut_ptr() as *mut ();
+                let n_samples = frames * n_channels as usize;
+                let data = unsafe { Data::from_parts(ptr, n_samples, user_data.sample_format) };
+                user_data.publish_data_in(stream, frames, &data, xrun);
             }
         })
         .register()?;
@@ -935,10 +1166,14 @@ where
 
     // RT_PROCESS is intentionally absent: with add_local_listener the process callback always
     // runs on this mainloop thread, not the separate data-loop thread RT_PROCESS creates.
-    // The worker thread is promoted to RT after signalling the main thread (see device.rs).
-    let mut flags = StreamFlags::MAP_BUFFERS;
+    // That thread promotes itself to RT from the process callback, once when the negotiated
+    // quantum is known and again whenever PipeWire renegotiates it.
+    let mut flags = StreamFlags::MAP_BUFFERS | StreamFlags::INACTIVE;
     if connect_automatically {
         flags |= StreamFlags::AUTOCONNECT;
+    }
+    if !is_default_device {
+        flags |= StreamFlags::DONT_RECONNECT;
     }
 
     stream.connect(Direction::Input, None, flags, &mut params)?;
@@ -953,6 +1188,5 @@ where
         error_callback: error_callback_out,
         pending_device_changed,
         invalidated,
-        is_default_device,
     })
 }

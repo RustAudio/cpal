@@ -49,7 +49,10 @@ impl fmt::Display for LoadDriverError {
                 write!(f, "{err}")
             }
             LoadDriverError::DriverAlreadyExists => {
-                write!(f, "ASIO only supports loading one driver at a time")
+                write!(
+                    f,
+                    "ASIO supports only one driver at a time and a different one is already loaded"
+                )
             }
         }
     }

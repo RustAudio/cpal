@@ -4,8 +4,9 @@ use std::{
     hash::{Hash, Hasher},
     rc::Rc,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc, Arc,
+        Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        mpsc,
     },
     thread,
     time::Duration,
@@ -26,27 +27,26 @@ use pipewire::{
 
 use super::stream::Stream;
 use crate::{
+    BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, DeviceType, Error, ErrorKind, FrameCount, HostId, InterfaceType,
+    SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
     host::{
-        emit_error,
+        Notify, emit_error,
         latch::Latch,
         pipewire::{
             stream::{
-                DefaultDeviceMonitor, PwInitGuard, StreamCommand, StreamData, SUPPORTED_FORMATS,
+                PwInitGuard, SUPPORTED_FORMATS, StreamCommand, StreamData, watch_default_device,
+                watch_target_node,
             },
-            utils::{audio, clock, default, node, DEVICE_ICON_NAME, METADATA_NAME},
+            utils::{DEVICE_ICON_NAME, METADATA_NAME, audio, clock, default},
         },
     },
     iter::{SupportedInputConfigs, SupportedOutputConfigs},
     traits::DeviceTrait,
-    BufferSize, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, DeviceType, Error, ErrorKind, FrameCount, HostId, InputCallbackInfo, InterfaceType,
-    OutputCallbackInfo, SampleFormat, SampleRate, StreamConfig, SupportedBufferSize,
-    SupportedStreamConfig, SupportedStreamConfigRange,
 };
 
 pub type Devices = std::vec::IntoIter<Device>;
-
-const INIT_TIMEOUT: Duration = Duration::from_secs(2);
 
 // This enum record whether it is created by human or just default device
 #[derive(Clone, Debug, Default, Copy)]
@@ -71,7 +71,6 @@ enum Role {
 #[derive(Clone, Debug, Default)]
 pub struct Device {
     node_name: String,
-    nick_name: String,
     description: String,
     direction: DeviceDirection,
     channels: ChannelCount,
@@ -98,7 +97,6 @@ impl Device {
     fn sink_default() -> Self {
         Self {
             node_name: "sink_default".to_owned(),
-            nick_name: "sink_default".to_owned(),
             description: "default_sink".to_owned(),
             direction: DeviceDirection::Duplex,
             channels: 2,
@@ -110,7 +108,6 @@ impl Device {
     fn input_default() -> Self {
         Self {
             node_name: "input_default".to_owned(),
-            nick_name: "input_default".to_owned(),
             description: "default_input".to_owned(),
             direction: DeviceDirection::Input,
             channels: 2,
@@ -122,7 +119,6 @@ impl Device {
     fn output_default() -> Self {
         Self {
             node_name: "output_default".to_owned(),
-            nick_name: "output_default".to_owned(),
             description: "default_output".to_owned(),
             direction: DeviceDirection::Output,
             channels: 2,
@@ -177,10 +173,18 @@ impl Device {
 
         // Group input and output nodes so PipeWire schedules them in the same quantum,
         // preventing phase drift between simultaneous input/output streams.
-        properties.insert("node.group", format!("cpal-{}", std::process::id()));
+        properties.insert(
+            *pw::keys::NODE_GROUP,
+            format!("cpal-{}", std::process::id()),
+        );
+
+        properties.insert(*pw::keys::NODE_RATE, format!("1/{}", config.sample_rate));
 
         if let BufferSize::Fixed(buffer_size) = config.buffer_size {
-            properties.insert(*pw::keys::NODE_FORCE_QUANTUM, buffer_size.to_string());
+            properties.insert(
+                *pw::keys::NODE_LATENCY,
+                format!("{buffer_size}/{rate}", rate = config.sample_rate),
+            );
         }
         properties
     }
@@ -217,7 +221,7 @@ impl DeviceTrait for Device {
     }
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        let mut builder = DeviceDescriptionBuilder::new(&self.nick_name)
+        let mut builder = DeviceDescriptionBuilder::new(&self.description)
             .direction(self.direction)
             .device_type(self.device_type())
             .interface_type(self.interface_type);
@@ -226,9 +230,6 @@ impl DeviceTrait for Device {
         }
         if let Some(driver) = self.driver.as_ref() {
             builder = builder.driver(driver);
-        }
-        if !self.description.is_empty() && self.description != self.nick_name {
-            builder = builder.add_extended_line(&self.description);
         }
         Ok(builder.build())
     }
@@ -348,7 +349,7 @@ impl DeviceTrait for Device {
         timeout: Option<std::time::Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -371,13 +372,17 @@ impl DeviceTrait for Device {
         let mut latch = Latch::new();
         let waiter = latch.waiter();
         let device = self.clone();
-        let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
-            BufferSize::Fixed(n) => n as u64,
-            BufferSize::Default => self.quantum as u64,
+            BufferSize::Fixed(n) => n,
+            BufferSize::Default => self.quantum,
         };
-        let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
+        let last_quantum = Arc::new(AtomicU32::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
+        let draining = Arc::new(AtomicBool::new(false));
+        let draining_clone = draining.clone();
+        // Keep `capture` monotonic: pw_time delay() grows when another client joins
+        // needing a larger buffer, which can pull `capture` backward.
+        let data_callback = crate::host::monotonic_input_callback(data_callback);
         let start = std::time::Instant::now();
         let handle = thread::Builder::new()
             .name("pw_in".to_owned())
@@ -393,6 +398,12 @@ impl DeviceTrait for Device {
                         last_quantum: last_quantum_clone,
                         start,
                         connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
+                        draining: draining_clone,
+                        drained: None,
+                        is_default_device: matches!(
+                            device.class(),
+                            Class::DefaultSink | Class::DefaultInput | Class::DefaultOutput
+                        ),
                     },
                     data_callback,
                     error_callback,
@@ -417,30 +428,34 @@ impl DeviceTrait for Device {
                     error_callback,
                     pending_device_changed,
                     invalidated,
-                    is_default_device,
                 } = stream_data;
 
-                let default_monitor = if let Some(key) = device.default_metadata_key() {
-                    match core.get_registry_rc() {
-                        Ok(registry) => Some(DefaultDeviceMonitor::new(
-                            registry,
-                            key,
-                            error_callback.clone(),
-                            invalidated,
-                            pending_device_changed,
-                        )),
-                        Err(e) => {
-                            let _ = init_tx.send(Err(Error::with_message(
-                                ErrorKind::BackendError,
-                                format!("PipeWire: could not acquire registry: {e}"),
-                            )));
-                            return;
-                        }
+                let invalidated_cmd = invalidated.clone();
+                let registry = match core.get_registry_rc() {
+                    Ok(registry) => registry,
+                    Err(e) => {
+                        let _ = init_tx.send(Err(Error::with_message(
+                            ErrorKind::BackendError,
+                            format!("Could not acquire registry: {e}"),
+                        )));
+                        return;
                     }
-                } else {
-                    None
                 };
-                is_default_device.store(default_monitor.is_some(), Ordering::Relaxed);
+                let device_listener = match device.default_metadata_key() {
+                    Some(key) => watch_default_device(
+                        &registry,
+                        key,
+                        error_callback.clone(),
+                        invalidated,
+                        pending_device_changed,
+                    ),
+                    None => watch_target_node(
+                        &registry,
+                        device.object_serial,
+                        error_callback.clone(),
+                        invalidated,
+                    ),
+                };
                 let stream_clone = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
                 let error_callback_cmd = error_callback.clone();
@@ -451,18 +466,21 @@ impl DeviceTrait for Device {
                                 &error_callback_cmd,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: set_active({state}) failed: {e}"),
+                                    format!("Failed to set stream active ({state}): {e}"),
                                 ),
                             );
                         }
                     }
+                    StreamCommand::Drain => {}
                     StreamCommand::Stop => {
+                        // Flag an intentional stop to prevent the stream reporting a disconnected event.
+                        invalidated_cmd.store(true, Ordering::Relaxed);
                         if let Err(e) = stream_clone.disconnect() {
                             emit_error(
                                 &error_callback_cmd,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: stream disconnect failed: {e}"),
+                                    format!("Stream disconnect failed: {e}"),
                                 ),
                             );
                         }
@@ -479,18 +497,11 @@ impl DeviceTrait for Device {
                     return;
                 }
 
-                #[cfg(feature = "realtime")]
-                if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
-                    device.quantum,
-                    device.rate,
-                ) {
-                    emit_error(&error_callback, Error::from(e));
-                }
-
                 mainloop.run();
 
                 drop(listener);
-                drop(default_monitor);
+                drop(device_listener);
+                drop(registry);
                 drop(core_monitor);
                 drop(core);
                 drop(context);
@@ -502,12 +513,7 @@ impl DeviceTrait for Device {
                 )
             })?;
 
-        let init_result = init_rx.recv_timeout(wait_timeout).unwrap_or_else(|_| {
-            Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "PipeWire timed out",
-            ))
-        });
+        let init_result = recv_init(&init_rx, timeout);
 
         if let Err(e) = init_result {
             drop(latch);
@@ -515,7 +521,16 @@ impl DeviceTrait for Device {
         }
 
         latch.add_thread(handle.thread().clone());
-        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, latch);
+        let stream = Stream::new(
+            handle,
+            pw_play_tx,
+            last_quantum,
+            start,
+            latch,
+            false,
+            draining,
+            None,
+        );
         stream.signal_ready();
         Ok(stream)
     }
@@ -529,7 +544,7 @@ impl DeviceTrait for Device {
         timeout: Option<std::time::Duration>,
     ) -> Result<Self::Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
         crate::validate_stream_config(&config)?;
@@ -552,13 +567,20 @@ impl DeviceTrait for Device {
         let mut latch = Latch::new();
         let waiter = latch.waiter();
         let device = self.clone();
-        let wait_timeout = timeout.unwrap_or(Duration::from_secs(2));
         let initial_quantum = match config.buffer_size {
-            BufferSize::Fixed(n) => n as u64,
-            BufferSize::Default => self.quantum as u64,
+            BufferSize::Fixed(n) => n,
+            BufferSize::Default => self.quantum,
         };
-        let last_quantum = Arc::new(AtomicU64::new(initial_quantum));
+        let last_quantum = Arc::new(AtomicU32::new(initial_quantum));
         let last_quantum_clone = last_quantum.clone();
+        let draining = Arc::new(AtomicBool::new(false));
+        let draining_clone = draining.clone();
+        let drained: Arc<Notify> = Arc::new(Notify::default());
+        let drained_clone = drained.clone();
+        let drained_cmd = drained.clone();
+        // Keep `playback` monotonic: pw_time delay() shrinks when other clients that needed
+        // a larger buffer leave the graph, which can pull `playback` backward.
+        let data_callback = crate::host::monotonic_output_callback(data_callback);
         let start = std::time::Instant::now();
         let handle = thread::Builder::new()
             .name("pw_out".to_owned())
@@ -574,6 +596,12 @@ impl DeviceTrait for Device {
                         last_quantum: last_quantum_clone,
                         start,
                         connect_automatically: device.connect_automatically.load(Ordering::Relaxed),
+                        draining: draining_clone,
+                        drained: Some(drained_clone),
+                        is_default_device: matches!(
+                            device.class(),
+                            Class::DefaultSink | Class::DefaultInput | Class::DefaultOutput
+                        ),
                     },
                     data_callback,
                     error_callback,
@@ -598,30 +626,34 @@ impl DeviceTrait for Device {
                     error_callback,
                     pending_device_changed,
                     invalidated,
-                    is_default_device,
                 } = stream_data;
 
-                let default_monitor = if let Some(key) = device.default_metadata_key() {
-                    match core.get_registry_rc() {
-                        Ok(registry) => Some(DefaultDeviceMonitor::new(
-                            registry,
-                            key,
-                            error_callback.clone(),
-                            invalidated,
-                            pending_device_changed,
-                        )),
-                        Err(e) => {
-                            let _ = init_tx.send(Err(Error::with_message(
-                                ErrorKind::BackendError,
-                                format!("PipeWire: could not acquire registry: {e}"),
-                            )));
-                            return;
-                        }
+                let invalidated_cmd = invalidated.clone();
+                let registry = match core.get_registry_rc() {
+                    Ok(registry) => registry,
+                    Err(e) => {
+                        let _ = init_tx.send(Err(Error::with_message(
+                            ErrorKind::BackendError,
+                            format!("Could not acquire registry: {e}"),
+                        )));
+                        return;
                     }
-                } else {
-                    None
                 };
-                is_default_device.store(default_monitor.is_some(), Ordering::Relaxed);
+                let device_listener = match device.default_metadata_key() {
+                    Some(key) => watch_default_device(
+                        &registry,
+                        key,
+                        error_callback.clone(),
+                        invalidated,
+                        pending_device_changed,
+                    ),
+                    None => watch_target_node(
+                        &registry,
+                        device.object_serial,
+                        error_callback.clone(),
+                        invalidated,
+                    ),
+                };
                 let stream_clone = stream.clone();
                 let mainloop_rc1 = mainloop.clone();
                 let error_callback_cmd = error_callback.clone();
@@ -632,18 +664,34 @@ impl DeviceTrait for Device {
                                 &error_callback_cmd,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: set_active({state}) failed: {e}"),
+                                    format!("Failed to set stream active ({state}): {e}"),
                                 ),
                             );
                         }
                     }
+                    StreamCommand::Drain => {
+                        if let Err(e) = stream_clone.flush(true) {
+                            emit_error(
+                                &error_callback_cmd,
+                                Error::with_message(
+                                    ErrorKind::StreamInvalidated,
+                                    format!("Stream flush failed: {e}"),
+                                ),
+                            );
+                            let (mutex, cvar) = drained_cmd.as_ref();
+                            *mutex.lock().unwrap_or_else(|g| g.into_inner()) = true;
+                            cvar.notify_one();
+                        }
+                    }
                     StreamCommand::Stop => {
+                        // Flag an intentional stop to prevent the stream reporting a disconnected event.
+                        invalidated_cmd.store(true, Ordering::Relaxed);
                         if let Err(e) = stream_clone.disconnect() {
                             emit_error(
                                 &error_callback_cmd,
                                 Error::with_message(
                                     ErrorKind::StreamInvalidated,
-                                    format!("PipeWire: stream disconnect failed: {e}"),
+                                    format!("Stream disconnect failed: {e}"),
                                 ),
                             );
                         }
@@ -660,17 +708,10 @@ impl DeviceTrait for Device {
                     return;
                 }
 
-                #[cfg(feature = "realtime")]
-                if let Err(e) = audio_thread_priority::promote_current_thread_to_real_time(
-                    device.quantum,
-                    device.rate,
-                ) {
-                    emit_error(&error_callback, Error::from(e));
-                }
-
                 mainloop.run();
                 drop(listener);
-                drop(default_monitor);
+                drop(device_listener);
+                drop(registry);
                 drop(core_monitor);
                 drop(core);
                 drop(context);
@@ -682,12 +723,7 @@ impl DeviceTrait for Device {
                 )
             })?;
 
-        let init_result = init_rx.recv_timeout(wait_timeout).unwrap_or_else(|_| {
-            Err(Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                "PipeWire timed out",
-            ))
-        });
+        let init_result = recv_init(&init_rx, timeout);
 
         if let Err(e) = init_result {
             drop(latch);
@@ -695,10 +731,45 @@ impl DeviceTrait for Device {
         }
 
         latch.add_thread(handle.thread().clone());
-        let stream = Stream::new(handle, pw_play_tx, last_quantum, start, latch);
+        let stream = Stream::new(
+            handle,
+            pw_play_tx,
+            last_quantum,
+            start,
+            latch,
+            true,
+            draining,
+            Some(drained),
+        );
         stream.signal_ready();
         Ok(stream)
     }
+}
+
+/// Waits for the worker thread to report whether the stream came up.
+///
+/// Honors `build_*_stream`'s timeout contract: `None` waits indefinitely.
+fn recv_init(
+    init_rx: &mpsc::Receiver<Result<(), Error>>,
+    timeout: Option<Duration>,
+) -> Result<(), Error> {
+    let received = match timeout {
+        None => init_rx
+            .recv()
+            .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+        Some(timeout) => init_rx.recv_timeout(timeout),
+    };
+    received.unwrap_or_else(|err| {
+        Err(match err {
+            mpsc::RecvTimeoutError::Timeout => {
+                Error::with_message(ErrorKind::DeviceNotAvailable, "PipeWire timed out")
+            }
+            mpsc::RecvTimeoutError::Disconnected => Error::with_message(
+                ErrorKind::BackendError,
+                "PipeWire worker stopped before reporting the stream state",
+            ),
+        })
+    })
 }
 
 #[derive(Clone, Default)]
@@ -749,6 +820,9 @@ fn remote_props() -> Option<PropertiesBox> {
     props.insert(*pw::keys::REMOTE_NAME, socket.to_string_lossy().as_ref());
     Some(props)
 }
+
+// Enumeration does not take a configurable timeout.
+const ENUMERATION_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device>> {
     let _pw = PwInitGuard::new();
@@ -878,6 +952,9 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                         audio::SINK
                             | audio::SOURCE
                             | audio::DUPLEX
+                            | audio::SINK_INTERNAL
+                            | audio::SOURCE_INTERNAL
+                            | audio::DUPLEX_INTERNAL
                             | audio::STREAM_INPUT
                             | audio::STREAM_OUTPUT
                     ) {
@@ -905,9 +982,9 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                                 return;
                             };
                             let role = match media_class {
-                                audio::SINK => Role::Sink,
-                                audio::SOURCE => Role::Source,
-                                audio::DUPLEX => Role::Duplex,
+                                audio::SINK | audio::SINK_INTERNAL => Role::Sink,
+                                audio::SOURCE | audio::SOURCE_INTERNAL => Role::Source,
+                                audio::DUPLEX | audio::DUPLEX_INTERNAL => Role::Duplex,
                                 audio::STREAM_OUTPUT => Role::StreamOutput,
                                 audio::STREAM_INPUT => Role::StreamInput,
                                 _ => {
@@ -941,10 +1018,6 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                                 .get(*pw::keys::NODE_DESCRIPTION)
                                 .unwrap_or("unknown")
                                 .to_owned();
-                            let nick_name = props
-                                .get(*pw::keys::NODE_NICK)
-                                .unwrap_or(description.as_str())
-                                .to_owned();
                             let channels = props
                                 .get(*pw::keys::AUDIO_CHANNELS)
                                 .and_then(|channels| channels.parse().ok())
@@ -955,7 +1028,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
 
                             let interface_type = match props.get(*pw::keys::DEVICE_API) {
                                 Some("bluez5") => InterfaceType::Bluetooth,
-                                _ => match props.get("device.bus") {
+                                _ => match props.get(*pw::keys::DEVICE_BUS) {
                                     Some("pci") => InterfaceType::Pci,
                                     Some("usb") => InterfaceType::Usb,
                                     Some("firewire") => InterfaceType::FireWire,
@@ -974,7 +1047,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                             // "node.rate" = "1/<sample_rate>" — set by the driver, authoritative
                             // for the hardware clock rate.
                             let node_rate: Option<SampleRate> = props
-                                .get(node::RATE)
+                                .get(*pw::keys::NODE_RATE)
                                 .and_then(parse_fraction)
                                 .filter(|(_, den)| *den > 0)
                                 .map(|(_, den)| den);
@@ -985,7 +1058,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
                                 Option<FrameCount>,
                                 Option<SampleRate>,
                             ) = props
-                                .get(node::LATENCY)
+                                .get(*pw::keys::NODE_LATENCY)
                                 .and_then(parse_fraction)
                                 .filter(|(num, den)| *num > 0 && *den > 0)
                                 .unzip();
@@ -996,7 +1069,6 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
 
                             let device = Device {
                                 node_name,
-                                nick_name,
                                 description,
                                 direction,
                                 role,
@@ -1039,7 +1111,7 @@ pub fn init_devices(connect_automatically: Arc<AtomicBool>) -> Option<Vec<Device
         loop_quit.quit();
     });
     thread::spawn(move || {
-        if cancel_rx.recv_timeout(INIT_TIMEOUT).is_err() {
+        if cancel_rx.recv_timeout(ENUMERATION_TIMEOUT).is_err() {
             let _ = timeout_tx.send(());
         }
     });
@@ -1103,7 +1175,7 @@ fn parse_allow_rates(list: &str) -> Option<Vec<SampleRate>> {
 
 #[cfg(test)]
 mod test {
-    use super::{parse_allow_rates, parse_fraction, Class, Device};
+    use super::{Class, Device, parse_allow_rates, parse_fraction};
     use crate::host::pipewire::utils::default;
 
     #[test]

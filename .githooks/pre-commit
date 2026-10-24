@@ -1,0 +1,12 @@
+#!/bin/sh
+# Install once per clone with:  git config core.hooksPath .githooks
+# Skip for a single commit with: git commit --no-verify
+
+set -e
+
+if ! git diff --cached --name-only --diff-filter=ACMR | grep -Eq '\.rs$|Cargo\.(toml|lock)$'; then
+    exit 0
+fi
+
+cargo fmt --all -- --check
+cargo clippy --all -- -D warnings

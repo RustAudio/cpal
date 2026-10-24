@@ -1,12 +1,13 @@
 [package]
 name = "cpal"
-version = "0.18.0"
+version = "0.19.0"
 description = "Low-level cross-platform audio I/O library."
 repository = "https://github.com/RustAudio/cpal"
 documentation = "https://docs.rs/cpal"
 license = "Apache-2.0"
-keywords = ["audio", "sound"]
-edition = "2021"
+keywords = ["audio", "sound", "playback", "recording", "cross-platform"]
+categories = ["multimedia::audio"]
+edition = "2024"
 rust-version = "1.85"
 
 [badges]
@@ -17,37 +18,37 @@ default = []
 
 # Real-time audio thread scheduling
 # Applies platform-specific real-time scheduling and performance modes to audio threads.
-# Requires: (Linux/BSD) `rtprio` granted in `limits.conf` (e.g. `@audio - rtprio 95`)
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD, Windows, Android
+# Requires: (Linux) `CAP_SYS_NICE`, root, or `rtprio` granted via `limits.conf` or systemd
+# Platform: Android, Linux, Windows (see `realtime-dbus` for rtkit on Linux)
 realtime = ["dep:audio_thread_priority", "dep:alsa-sys"]
 
-# D-Bus/rtkit support on top of `realtime` for RT scheduling on Linux/BSD desktop systems
+# Enables `realtime` and adds D-Bus/rtkit support, for RT scheduling on Linux desktop systems
 # Requires: D-Bus development libraries (libdbus-1-dev or equivalent)
-# Platform: Linux, DragonFly BSD, FreeBSD, NetBSD (D-Bus/rtkit is a no-op elsewhere;
-#           `realtime` still applies on Windows and Android)
+# Platform: Linux
 realtime-dbus = ["realtime", "audio_thread_priority/with_dbus"]
 
 # ASIO backend for Windows
 # Provides low-latency audio I/O by bypassing the Windows audio stack
 # Requires: ASIO drivers and LLVM/Clang for build-time bindings
 # See README for detailed setup instructions
-asio = [
-    "dep:asio-sys",
-    "dep:num-traits",
-]
+asio = ["dep:asio-sys", "dep:num-traits"]
 
 # Audio Worklet backend for WebAssembly
 # Provides lower-latency web audio processing compared to default Web Audio API
 # Requires: Build with atomics support and Cross-Origin headers for SharedArrayBuffer
 # Platform: WebAssembly (wasm32-unknown-unknown)
 audioworklet = [
-    "wasm-bindgen",
-    "web-sys/Blob",
-    "web-sys/BlobPropertyBag",
-    "web-sys/Url",
-    "web-sys/AudioWorklet",
-    "web-sys/AudioWorkletNode",
-    "web-sys/AudioWorkletNodeOptions",
+  "dep:futures-channel",
+  "dep:futures-util",
+  "wasm-bindgen",
+  "web-sys/Blob",
+  "web-sys/BlobPropertyBag",
+  "web-sys/Url",
+  "web-sys/AudioWorklet",
+  "web-sys/AudioWorkletNode",
+  "web-sys/AudioWorkletNodeOptions",
+  "web-sys/ChannelCountMode",
+  "web-sys/Event",
 ]
 
 # Support for user-defined custom hosts, devices, and streams
@@ -72,14 +73,34 @@ pipewire = ["dep:pipewire"]
 # Provides audio I/O support on Linux and some BSDs using the PulseAudio sound server
 # Requires: PulseAudio server and client libraries installed on the system
 # Platform: Linux, DragonFly BSD, FreeBSD, NetBSD
-pulseaudio = ["dep:pulseaudio", "dep:futures"]
+pulseaudio = [
+  "dep:pulseaudio",
+  "dep:futures-executor",
+  "dep:futures-util",
+  "dep:portable-atomic",
+]
 
 # WebAssembly backend using wasm-bindgen
 # Enables the Web Audio API backend for browser-based audio
 # Required for any WebAssembly audio support
 # Platform: WebAssembly (wasm32-unknown-unknown)
 # Note: This is typically enabled automatically when targeting wasm32
-wasm-bindgen = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures"]
+wasm-bindgen = [
+  "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
+  "dep:futures-channel",
+  "dep:futures-util",
+  "web-sys/Navigator",
+  "web-sys/MediaDevices",
+  "web-sys/MediaStream",
+  "web-sys/MediaStreamConstraints",
+  "web-sys/MediaStreamTrack",
+  "web-sys/MediaStreamAudioSourceNode",
+  "web-sys/ScriptProcessorNode",
+  "web-sys/AudioProcessingEvent",
+  "web-sys/GainNode",
+  "web-sys/AudioParam",
+]
 
 [dependencies]
 dasp_sample = "0.11"
@@ -88,15 +109,12 @@ dasp_sample = "0.11"
 anyhow = "1.0"
 hound = "3.5"
 ringbuf = "0.4"
-clap = { version = ">=4.6, <5", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 
-# Support a range of versions in order to avoid duplication of this crate. Make sure to test all
-# versions when bumping to a new release, and only increase the minimum when absolutely necessary.
-# windows 0.61 removed the `implement` feature flag, so #[windows::core::implement] works
-# unconditionally from 0.61 onward. Keep the upper bound in sync with the CI matrix below.
+# `windows` and `windows-core` must be the same minor version.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-core = { version = ">=0.61, <=0.62" }
-windows = { version = ">=0.61, <=0.62", features = [
+windows-core = "0.62"
+windows = { version = "0.62", features = [
     "Win32_Media",
     "Win32_Media_Audio",
     "Win32_Foundation",
@@ -111,89 +129,100 @@ windows = { version = ">=0.61, <=0.62", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
-audio_thread_priority = { version = "0.35", optional = true, default-features = false }
-asio-sys = { version = "0.3.0", path = "asio-sys", optional = true }
+audio_thread_priority = { version = "0.36", optional = true, default-features = false }
+asio-sys = { version = "0.5.0", path = "asio-sys", optional = true }
 num-traits = { version = "0.2", optional = true }
-jack = { version = "0.13", optional = true }
+jack = { version = "0.13.5", optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
-alsa = "0.11"
-alsa-sys = { version = "0.4", optional = true }
+alsa = "0.12.1"
+alsa-sys = { version = "0.6.1", optional = true }
 libc = "0.2"
-audio_thread_priority = { version = "0.35", optional = true, default-features = false }
-jack = { version = "0.13", optional = true }
+audio_thread_priority = { version = "0.36", optional = true, default-features = false }
+jack = { version = "0.13.5", optional = true }
 pulseaudio = { version = "0.3", optional = true }
-futures = { version = "0.3", optional = true }
+futures-executor = { version = "0.3", optional = true }
+futures-util = { version = "0.3", default-features = false, optional = true, features = [
+  "alloc",
+] }
 pipewire = { version = "0.10", optional = true, features = ["v0_3_53"] }
+
+[target.'cfg(all(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"), not(target_has_atomic = "64")))'.dependencies]
+# 64-bit atomics on targets without native support (e.g. mips, powerpc, riscv32).
+portable-atomic = { version = "1", optional = true }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 mach2 = "0.6"
 coreaudio-rs = { version = "0.14.2", default-features = false, features = [
-    "core_audio",
-    "audio_toolbox",
+  "core_audio",
+  "audio_toolbox",
 ] }
 objc2-core-audio = { version = "0.3", default-features = false, features = [
-    "std",
-    "AudioHardware",
-    "AudioHardwareDeprecated",
-    "objc2",
-    "objc2-foundation",
+  "std",
+  "AudioHardware",
+  "AudioHardwareDeprecated",
+  "objc2",
+  "objc2-foundation",
 ] }
 objc2-audio-toolbox = { version = "0.3", default-features = false, features = [
-    "std",
-    "AUComponent",
-    "AudioUnitProperties",
+  "std",
+  "AUComponent",
+  "AudioUnitProperties",
 ] }
 objc2-core-audio-types = { version = "0.3", default-features = false, features = [
-    "std",
-    "CoreAudioBaseTypes",
+  "std",
+  "CoreAudioBaseTypes",
 ] }
-objc2-core-foundation = { version = "0.3" }
+objc2-core-foundation = { version = "0.3.1" }
 objc2-foundation = { version = "0.3", default-features = false, features = [
-    "std",
-    "NSArray",
-    "NSString",
-    "NSValue",
+  "std",
+  "NSArray",
+  "NSString",
+  "NSValue",
 ] }
 objc2 = { version = "0.6" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-jack = { version = "0.13", optional = true }
+jack = { version = "0.13.5", optional = true }
 
-[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "tvos", target_os = "visionos"))'.dependencies]
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
-    "block2",
-    "NSDictionary",
-    "NSNotification",
-    "NSOperation",
+  "block2",
+  "NSDictionary",
+  "NSNotification",
+  "NSOperation",
 ] }
 objc2-avf-audio = { version = "0.3", default-features = false, features = [
-    "std",
-    "AVAudioSession",
-    "AVAudioSessionTypes",
+  "std",
+  "AVAudioSession",
+  "AVAudioSessionTypes",
 ] }
 
-[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-wasm-bindgen = { version = "0.2", optional = true }
+[target.'cfg(all(target_arch = "wasm32", any(target_os = "emscripten", target_os = "unknown")))'.dependencies]
+wasm-bindgen = { version = "0.2.127", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
+futures-channel = { version = "0.3", optional = true }
+futures-util = { version = "0.3", default-features = false, optional = true, features = [
+  "alloc",
+] }
 js-sys = { version = "0.3" }
 web-sys = { version = "0.3", features = [
-    "AudioContext",
-    "AudioContextOptions",
-    "AudioBuffer",
-    "AudioBufferSourceNode",
-    "AudioNode",
-    "AudioDestinationNode",
-    "Window",
-    "AudioContextState",
+  "AudioContext",
+  "AudioContextOptions",
+  "AudioBuffer",
+  "AudioBufferSourceNode",
+  "AudioNode",
+  "AudioDestinationNode",
+  "Window",
+  "AudioContextState",
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-audio_thread_priority = { version = "0.35", optional = true, default-features = false }
+audio_thread_priority = { version = "0.36", optional = true, default-features = false }
 ndk = { version = "0.9", default-features = false, features = [
-    "audio",
-    "api-level-26",
+  "audio",
+  "api-level-26",
 ] }
 ndk-context = "0.1"
 jni = "0.22"
@@ -208,6 +237,9 @@ name = "beep"
 name = "enumerate"
 
 [[example]]
+name = "duplex"
+
+[[example]]
 name = "feedback"
 
 [[example]]
@@ -216,18 +248,32 @@ name = "record_wav"
 [[example]]
 name = "synth_tones"
 
+[[example]]
+name = "custom"
+required-features = ["custom"]
+
 [package.metadata.docs.rs]
-all-features = true
+# The docs.rs build environment does not have all the dependencies for all features
+features = [
+    "asio",
+    "audioworklet",
+    "custom",
+    "jack",
+    "pulseaudio",
+    "realtime",
+    "realtime-dbus",
+    "wasm-bindgen",
+]
 rustdoc-args = ["--cfg", "docsrs"]
 targets = [
-    "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
-    "x86_64-apple-darwin",
-    "aarch64-apple-darwin",
-    "aarch64-apple-ios",
-    "wasm32-unknown-unknown",
-    "aarch64-linux-android",
-    "x86_64-unknown-freebsd",
-    "x86_64-unknown-netbsd",
-    "x86_64-unknown-dragonfly",
+  "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "aarch64-apple-ios",
+  "wasm32-unknown-unknown",
+  "aarch64-linux-android",
+  "x86_64-unknown-freebsd",
+  "x86_64-unknown-netbsd",
+  "x86_64-unknown-dragonfly",
 ]

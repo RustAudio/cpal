@@ -1,11 +1,11 @@
 use std::{
     mem,
     ops::ControlFlow,
-    ptr,
+    ptr, slice,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{channel, Receiver, SendError, Sender},
         Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::{Receiver, Sender, channel},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -18,14 +18,10 @@ use windows::Win32::{
 };
 
 use crate::{
-    host::{
-        emit_error, equilibrium::fill_equilibrium, frames_to_duration, latch::Latch,
-        ErrorCallbackArc,
-    },
+    CallbackInfo, Data, Error, ErrorKind, FrameCount, ResultExt, SampleFormat, SampleRate,
+    StreamConfig, StreamInstant, StreamTimestamp,
+    host::{ErrorCallbackArc, emit_error, equilibrium::fill_equilibrium, latch::Latch},
     traits::StreamTrait,
-    Data, Error, ErrorKind, FrameCount, InputCallbackInfo, InputStreamTimestamp,
-    OutputCallbackInfo, OutputStreamTimestamp, ResultExt, SampleFormat, SampleRate, StreamConfig,
-    StreamInstant,
 };
 
 /// Returns the current default audio endpoint for `flow`, or `None` if none exists.
@@ -39,12 +35,12 @@ fn get_current_default(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
     super::device::current_default_endpoint(flow)
 }
 
-/// Fires a Windows auto-reset event when the system default audio device changes, allowing
-/// the stream run loop to deliver `ErrorKind::DeviceChanged` to the caller.
+/// Fires a Windows auto-reset event when the system default audio device changes.
 pub(crate) struct DefaultDeviceMonitor {
     enumerator: Audio::IMMDeviceEnumerator,
     client: Audio::IMMNotificationClient,
     event: Foundation::HANDLE,
+    pub(crate) flow: Audio::EDataFlow,
     pub(crate) pending_device_changed: Arc<AtomicBool>,
 }
 
@@ -80,6 +76,7 @@ impl DefaultDeviceMonitor {
             enumerator,
             client,
             event,
+            flow,
             pending_device_changed,
         })
     }
@@ -211,37 +208,34 @@ pub struct Stream {
     // QueryPerformanceFrequency result, cached at construction (constant for the system lifetime).
     qpc_frequency: u64,
 
-    // Present for default-device streams; fires `ErrorKind::DeviceChanged` when the system
-    // default changes. Dropped after the run thread joins, ensuring the HANDLE is not
-    // waited on when it is closed.
+    // Present for default-device streams. Dropped after the run thread joins, ensuring the
+    // HANDLE is not waited on when it is closed.
     _default_device_monitor: Option<DefaultDeviceMonitor>,
 
     // Latch that ensures no callbacks fire before the caller receives the `Stream` handle.
     latch: Latch,
+
+    // Raised by `stop()` and `pause()` so the audio loop skips the user callback.
+    skip_callback: Arc<AtomicBool>,
+
+    // Latency + buffer fill in microseconds, updated each output callback; zero for input.
+    fill_usec: Arc<AtomicU64>,
 }
 
-// SAFETY: Windows Event HANDLEs are safe to send between threads - they are designed for
-// synchronization. All fields of Stream are Send:
-// - JoinHandle<()> is Send
-// - Sender<Command> is Send
-// - Foundation::HANDLE is Send (Windows synchronization primitive)
-// - Latch is Send
-// See: https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa
+// SAFETY: All fields of Stream are Send:
+// - Option<JoinHandle<()>>, Sender<Command>, u32, u64, Latch,
+//   Arc<AtomicBool>, Arc<AtomicU64>: all trivially Send
+// - Foundation::HANDLE: Windows event HANDLEs are safe to send between threads
+//   (see https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa)
+// - Option<DefaultDeviceMonitor>: has its own unsafe impl Send
 unsafe impl Send for Stream {}
 
-// SAFETY: Windows Event HANDLEs are safe to access from multiple threads simultaneously.
-// All synchronization operations (SetEvent, WaitForSingleObject) are thread-safe.
-// All fields of Stream are Sync:
-// - JoinHandle<()> is Sync
-// - Sender<Command> is Sync (uses internal synchronization)
-// - Foundation::HANDLE for event objects supports concurrent access
-// - Latch is Sync
-// The audio thread owns all COM objects, so no cross-thread COM access occurs.
+// SAFETY: All fields of Stream are Sync:
+// - Option<JoinHandle<()>>, Sender<Command>, u32, u64, Latch,
+//   Arc<AtomicBool>, Arc<AtomicU64>: all trivially Sync
+// - Foundation::HANDLE: SetEvent/WaitForSingleObject are thread-safe
+// - Option<DefaultDeviceMonitor>: has its own unsafe impl Sync
 unsafe impl Sync for Stream {}
-
-// Compile-time assertion that Stream is Send and Sync
-crate::assert_stream_send!(Stream);
-crate::assert_stream_sync!(Stream);
 
 struct RunContext {
     // Streams that have been created in this event loop.
@@ -253,9 +247,11 @@ struct RunContext {
 
     commands: Receiver<Command>,
 
-    // Set by a device-change notification callback when SetEvent fails. The audio loop delivers
-    // DeviceChanged on its next iteration.
+    // Set by a device-change notification callback when SetEvent fails.
     pending_device_changed: Option<Arc<AtomicBool>>,
+
+    // Set when this stream tracks the default device, rather than a pinned one.
+    default_device_flow: Option<Audio::EDataFlow>,
 
     // Owned here so the worker thread closes it on exit in a self-join case.
     pending_scheduled_event: Foundation::HANDLE,
@@ -275,6 +271,7 @@ unsafe impl Send for RunContext {}
 pub enum Command {
     PlayStream,
     PauseStream,
+    StopStream,
     Terminate,
 }
 
@@ -287,14 +284,25 @@ pub enum AudioClientFlow {
     },
 }
 
+/// Play/pause state of a [`StreamInner`]. `Priming` only ever applies to Render streams: set by
+/// a cold-start `PlayStream`, it defers `Start()` until the run loop lands a real fill in the
+/// buffer, so playback begins with actual audio instead of a silence-padded first period.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum PlaybackState {
+    #[default]
+    Stopped,
+    Priming,
+    Playing,
+}
+
 pub struct StreamInner {
     pub audio_client: Audio::IAudioClient,
     pub audio_clock: Audio::IAudioClock,
     pub client_flow: AudioClientFlow,
     // Event that is signalled by WASAPI whenever audio data must be written.
     pub event: Foundation::HANDLE,
-    // True if the stream is currently playing. False if paused.
-    pub playing: bool,
+    // Current playback state of the stream.
+    pub playback_state: PlaybackState,
     // Number of frames of audio data in the underlying buffer allocated by WASAPI.
     pub max_frames_in_buffer: FrameCount,
     // Callback size in frames.
@@ -307,6 +315,10 @@ pub struct StreamInner {
     pub sample_format: SampleFormat,
     // Hardware pipeline latency.
     pub stream_latency: Duration,
+    // Raised by `stop()` and `pause()` so the audio loop skips the user callback.
+    pub skip_callback: Arc<AtomicBool>,
+    // Updated each output callback: latency + current buffer fill in microseconds.
+    pub fill_usec: Arc<AtomicU64>,
 }
 
 impl Stream {
@@ -317,7 +329,7 @@ impl Stream {
         default_device_monitor: Option<DefaultDeviceMonitor>,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&Data, &InputCallbackInfo) + Send + 'static,
+        D: FnMut(&Data, &CallbackInfo) + Send + 'static,
     {
         let pending_scheduled_event = unsafe {
             Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
@@ -326,6 +338,8 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
+        let skip_callback = stream_inner.skip_callback.clone();
+        let fill_usec = stream_inner.fill_usec.clone();
         let mut qpc_frequency: i64 = 0;
         unsafe {
             Performance::QueryPerformanceFrequency(&mut qpc_frequency)
@@ -341,11 +355,13 @@ impl Stream {
         let pending_device_changed = default_device_monitor
             .as_ref()
             .map(|m| m.pending_device_changed.clone());
+        let default_device_flow = default_device_monitor.as_ref().map(|m| m.flow);
         let run_context = RunContext {
             handles,
             stream: stream_inner,
             commands: rx,
             pending_device_changed,
+            default_device_flow,
             pending_scheduled_event,
         };
 
@@ -376,6 +392,8 @@ impl Stream {
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
             latch,
+            skip_callback,
+            fill_usec,
         };
         Ok(stream)
     }
@@ -387,7 +405,7 @@ impl Stream {
         default_device_monitor: Option<DefaultDeviceMonitor>,
     ) -> Result<Stream, Error>
     where
-        D: FnMut(&mut Data, &OutputCallbackInfo) + Send + 'static,
+        D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     {
         let pending_scheduled_event = unsafe {
             Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))
@@ -396,6 +414,8 @@ impl Stream {
         let (tx, rx) = channel();
 
         let period_frames = stream_inner.period_frames;
+        let skip_callback = stream_inner.skip_callback.clone();
+        let fill_usec = stream_inner.fill_usec.clone();
         let mut qpc_frequency: i64 = 0;
         unsafe {
             Performance::QueryPerformanceFrequency(&mut qpc_frequency)
@@ -411,11 +431,13 @@ impl Stream {
         let pending_device_changed = default_device_monitor
             .as_ref()
             .map(|m| m.pending_device_changed.clone());
+        let default_device_flow = default_device_monitor.as_ref().map(|m| m.flow);
         let run_context = RunContext {
             handles,
             stream: stream_inner,
             commands: rx,
             pending_device_changed,
+            default_device_flow,
             pending_scheduled_event,
         };
 
@@ -446,6 +468,8 @@ impl Stream {
             qpc_frequency: qpc_frequency as u64,
             _default_device_monitor: default_device_monitor,
             latch,
+            skip_callback,
+            fill_usec,
         };
         Ok(stream)
     }
@@ -455,10 +479,17 @@ impl Stream {
         self.latch.release();
     }
 
-    fn push_command(&self, command: Command) -> Result<(), SendError<Command>> {
-        self.commands.send(command)?;
+    fn push_command(&self, command: Command) -> Result<(), Error> {
+        let invalidated = || {
+            Error::with_message(
+                ErrorKind::StreamInvalidated,
+                "Stream command channel closed",
+            )
+        };
+        self.commands.send(command).map_err(|_| invalidated())?;
         unsafe {
-            Threading::SetEvent(self.pending_scheduled_event).unwrap();
+            // The worker thread may have already closed this handle on exit.
+            Threading::SetEvent(self.pending_scheduled_event).map_err(|_| invalidated())?;
         }
         Ok(())
     }
@@ -483,7 +514,9 @@ impl Drop for Stream {
 }
 
 impl StreamTrait for Stream {
-    fn play(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), Error> {
+        // Clear any pending drain so the audio loop resumes calling the user callback.
+        self.skip_callback.store(false, Ordering::Relaxed);
         self.push_command(Command::PlayStream).map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
@@ -494,7 +527,22 @@ impl StreamTrait for Stream {
     }
 
     fn pause(&self) -> Result<(), Error> {
-        self.push_command(Command::PauseStream).map_err(|_| {
+        self.skip_callback.store(true, Ordering::Relaxed);
+        self.push_command(Command::PauseStream)
+    }
+
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+        self.skip_callback.store(true, Ordering::Relaxed);
+
+        if timeout != Some(Duration::ZERO) {
+            let fill = Duration::from_micros(self.fill_usec.load(Ordering::Relaxed));
+            let wait = timeout.map_or(fill, |t| fill.min(t));
+            if !wait.is_zero() {
+                std::thread::sleep(wait);
+            }
+        }
+
+        self.push_command(Command::StopStream).map_err(|_| {
             Error::with_message(
                 ErrorKind::StreamInvalidated,
                 "Stream command channel closed",
@@ -540,23 +588,47 @@ fn process_commands(run_context: &mut RunContext) -> Result<bool, Error> {
     for command in run_context.commands.try_iter() {
         match command {
             Command::PlayStream => unsafe {
-                if !run_context.stream.playing {
-                    run_context
-                        .stream
-                        .audio_client
-                        .Start()
-                        .context("Failed to start audio client")?;
-                    run_context.stream.playing = true;
+                if run_context.stream.playback_state == PlaybackState::Stopped {
+                    // PlayStream also fires on resume from pause, where the buffer wasn't reset
+                    // and may already hold real, unplayed data.
+                    let cold_start = match run_context.stream.client_flow {
+                        AudioClientFlow::Render { .. } => {
+                            get_available_frames(&run_context.stream)? > 0
+                        }
+                        AudioClientFlow::Capture { .. } => false,
+                    };
+                    if cold_start {
+                        // Defer Start() until the run loop lands a real fill in the buffer, so
+                        // playback begins with actual audio.
+                        run_context.stream.playback_state = PlaybackState::Priming;
+                    } else {
+                        run_context
+                            .stream
+                            .audio_client
+                            .Start()
+                            .context("Failed to start audio client")?;
+                        run_context.stream.playback_state = PlaybackState::Playing;
+                    }
                 }
             },
-            Command::PauseStream => unsafe {
-                if run_context.stream.playing {
+            Command::PauseStream | Command::StopStream => unsafe {
+                if run_context.stream.playback_state == PlaybackState::Playing {
                     run_context
                         .stream
                         .audio_client
                         .Stop()
                         .context("Failed to stop audio client")?;
-                    run_context.stream.playing = false;
+                }
+                // Also cancels a deferred prefill that hasn't run yet, e.g. pause called right
+                // after play, before the run loop got a chance to act on it.
+                run_context.stream.playback_state = PlaybackState::Stopped;
+                if matches!(command, Command::StopStream) {
+                    // Reset discards the render buffer so a future Start() plays no stale frames.
+                    run_context
+                        .stream
+                        .audio_client
+                        .Reset()
+                        .context("Failed to reset audio client")?;
                 }
             },
             Command::Terminate => {
@@ -610,16 +682,25 @@ fn get_available_frames(stream: &StreamInner) -> Result<FrameCount, Error> {
 
 fn run_input(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
+    data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
     error_callback: &ErrorCallbackArc,
 ) {
     #[cfg(feature = "realtime")]
-    if let Err(err) = boost_current_thread_priority(
+    let _rt_priority = boost_current_thread_priority(
         run_ctxt.stream.period_frames,
         run_ctxt.stream.config.sample_rate,
-    ) {
-        emit_error(error_callback, err);
-    }
+    )
+    .map_err(|err| emit_error(error_callback, err))
+    .unwrap_or_default();
+
+    let stream = &run_ctxt.stream;
+    let scratch_len = if stream.sample_format == SampleFormat::I24 {
+        stream.max_frames_in_buffer as usize * stream.bytes_per_frame as usize / size_of::<i32>()
+    } else {
+        // The scratch buffer won't be used in this case.
+        0 // Vec::with_capacity(0) does not allocate.
+    };
+    let mut scratch_buffer = vec![0; scratch_len].into_boxed_slice();
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -631,7 +712,12 @@ fn run_input(
             AudioClientFlow::Capture { ref capture_client } => capture_client.clone(),
             _ => unreachable!(),
         };
-        if let Err(err) = process_input(&run_ctxt.stream, capture_client, data_callback) {
+        if let Err(err) = process_input(
+            &run_ctxt.stream,
+            capture_client,
+            data_callback,
+            &mut scratch_buffer,
+        ) {
             emit_error(error_callback, err);
             break;
         }
@@ -640,16 +726,38 @@ fn run_input(
 
 fn run_output(
     mut run_ctxt: RunContext,
-    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
+    data_callback: &mut dyn FnMut(&mut Data, &CallbackInfo),
     error_callback: &ErrorCallbackArc,
 ) {
     #[cfg(feature = "realtime")]
-    if let Err(err) = boost_current_thread_priority(
+    let _rt_priority = boost_current_thread_priority(
         run_ctxt.stream.period_frames,
         run_ctxt.stream.config.sample_rate,
-    ) {
-        emit_error(error_callback, err);
-    }
+    )
+    .map_err(|err| emit_error(error_callback, err))
+    .unwrap_or_default();
+
+    // The clock frequency is constant for the stream's lifetime.
+    let clock_frequency = match unsafe { run_ctxt.stream.audio_clock.GetFrequency() }
+        .context("Failed to get audio clock frequency")
+    {
+        Ok(0) => {
+            emit_error(
+                error_callback,
+                Error::with_message(
+                    ErrorKind::BackendError,
+                    "IAudioClock::GetFrequency returned zero",
+                ),
+            );
+            return;
+        }
+        Ok(frequency) => frequency,
+        Err(err) => {
+            emit_error(error_callback, err);
+            return;
+        }
+    };
+    let mut frames_written: u64 = 0;
 
     loop {
         match process_commands_and_await_signal(&mut run_ctxt, error_callback) {
@@ -661,9 +769,45 @@ fn run_output(
             AudioClientFlow::Render { ref render_client } => render_client.clone(),
             _ => unreachable!(),
         };
-        if let Err(err) = process_output(&run_ctxt.stream, render_client, data_callback) {
+        if let Err(err) = process_output(
+            &run_ctxt.stream,
+            render_client,
+            data_callback,
+            clock_frequency,
+            &mut frames_written,
+        ) {
             emit_error(error_callback, err);
             break;
+        }
+        if run_ctxt.stream.playback_state == PlaybackState::Priming {
+            if run_ctxt.stream.skip_callback.load(Ordering::Relaxed) {
+                // process_output submitted nothing this cycle; stay stopped.
+                run_ctxt.stream.playback_state = PlaybackState::Stopped;
+            } else {
+                // The buffer above just received a real fill; start now so playback begins with it.
+                let start_result = unsafe { run_ctxt.stream.audio_client.Start() }
+                    .context("Failed to start audio client");
+                if let Err(err) = start_result {
+                    emit_error(error_callback, err);
+                    break;
+                }
+                run_ctxt.stream.playback_state = PlaybackState::Playing;
+            }
+        }
+    }
+}
+
+/// Holds the MMCSS registration made by `audio_thread_priority` and reverts it on drop.
+#[cfg(feature = "realtime")]
+#[derive(Default)]
+struct RtPriority(Option<audio_thread_priority::RtPriorityHandle>);
+
+#[cfg(feature = "realtime")]
+impl Drop for RtPriority {
+    fn drop(&mut self) {
+        if let Some(handle) = self.0.take() {
+            // Nothing useful to do if reverting fails while the thread is exiting.
+            let _ = audio_thread_priority::demote_current_thread_from_real_time(handle);
         }
     }
 }
@@ -673,14 +817,22 @@ fn run_output(
 fn boost_current_thread_priority(
     period_frames: FrameCount,
     sample_rate: SampleRate,
-) -> Result<(), Error> {
+) -> Result<RtPriority, Error> {
     match audio_thread_priority::promote_current_thread_to_real_time(period_frames, sample_rate) {
-        Ok(_) => Ok(()),
+        Ok(handle) => Ok(RtPriority(Some(handle))),
         Err(_) => unsafe {
             let thread_handle = Threading::GetCurrentThread();
             Threading::SetThreadPriority(thread_handle, Threading::THREAD_PRIORITY_TIME_CRITICAL)
+                .map(|()| RtPriority::default())
                 .context("Failed to promote audio thread to real-time priority")
         },
+    }
+}
+
+fn default_device_change_error(flow: Option<Audio::EDataFlow>) -> Error {
+    match flow.and_then(get_current_default) {
+        None => ErrorKind::DeviceNotAvailable.into(),
+        Some(_) => ErrorKind::DeviceChanged.into(),
     }
 }
 
@@ -698,11 +850,17 @@ fn process_commands_and_await_signal(
         }
     };
 
+    if run_context.stream.playback_state == PlaybackState::Priming {
+        // The stream hasn't started yet, so its event never fires. Write the priming fill now
+        // instead of waiting on it.
+        return ControlFlow::Continue(true);
+    }
+
     if let Some(ref flag) = run_context.pending_device_changed {
         if flag.swap(false, Ordering::Relaxed) {
             emit_error(
                 error_callback,
-                Error::with_message(ErrorKind::DeviceChanged, "Default audio device changed"),
+                default_device_change_error(run_context.default_device_flow),
             );
         }
     }
@@ -723,7 +881,7 @@ fn process_commands_and_await_signal(
     if handle_idx >= 2 {
         emit_error(
             error_callback,
-            Error::with_message(ErrorKind::DeviceChanged, "Default audio device changed"),
+            default_device_change_error(run_context.default_device_flow),
         );
         return ControlFlow::Continue(false);
     }
@@ -734,7 +892,8 @@ fn process_commands_and_await_signal(
 fn process_input(
     stream: &StreamInner,
     capture_client: Audio::IAudioCaptureClient,
-    data_callback: &mut dyn FnMut(&Data, &InputCallbackInfo),
+    data_callback: &mut dyn FnMut(&Data, &CallbackInfo),
+    scratch_buffer: &mut [i32],
 ) -> Result<(), Error> {
     unsafe {
         // Get the available data in the shared buffer.
@@ -747,11 +906,12 @@ fn process_input(
                 Err(err) => return Err(Error::from(err)),
             };
             let mut qpc_position: u64 = 0;
+            let mut device_position: u64 = 0;
             let result = capture_client.GetBuffer(
                 &mut buffer,
                 &mut frames_available,
                 flags.as_mut_ptr(),
-                None,
+                Some(&mut device_position),
                 Some(&mut qpc_position),
             );
 
@@ -762,17 +922,40 @@ fn process_input(
                 Ok(_) => (),
             }
 
-            debug_assert!(!buffer.is_null());
+            let flags = flags.assume_init();
+            // The discontinuity flag is undefined on the first GetBuffer after Start,
+            // where device_position is still 0.
+            let xrun = device_position != 0
+                && flags & Audio::AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0;
 
-            let data = buffer as *mut ();
-            let len = frames_available as usize * stream.bytes_per_frame as usize
-                / stream.sample_format.sample_size();
+            debug_assert!(!buffer.is_null());
+            let byte_count = frames_available as usize * stream.bytes_per_frame as usize;
+            let data = if stream.sample_format == SampleFormat::I24 {
+                // WASAPI stores i24 in the upper bits
+                let source_data =
+                    slice::from_raw_parts(buffer.cast(), byte_count / size_of::<i32>());
+                // use a scratch buffer since the capture buffer isn't meant to be written
+                let dst = &mut scratch_buffer[..source_data.len()];
+                dst.copy_from_slice(source_data);
+                for sample in dst.iter_mut() {
+                    // On signed integers, >> is an arithmetic shift,
+                    // which ensures the correct upper bits get shifted in
+                    *sample >>= 8;
+                }
+
+                dst.as_mut_ptr().cast()
+            } else {
+                buffer.cast()
+            };
+
+            let len = byte_count / stream.sample_format.sample_size();
             let data = Data::from_parts(data, len, stream.sample_format);
 
-            // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
-            let timestamp = input_timestamp(stream, qpc_position)?;
-            let info = InputCallbackInfo { timestamp };
-            data_callback(&data, &info);
+            if !stream.skip_callback.load(Ordering::Relaxed) {
+                // The `qpc_position` is in 100 nanosecond units. Convert it to nanoseconds.
+                let timestamp = input_timestamp(stream, qpc_position)?;
+                data_callback(&data, &CallbackInfo { timestamp, xrun });
+            }
 
             // Release the buffer.
             capture_client
@@ -786,7 +969,9 @@ fn process_input(
 fn process_output(
     stream: &StreamInner,
     render_client: Audio::IAudioRenderClient,
-    data_callback: &mut dyn FnMut(&mut Data, &OutputCallbackInfo),
+    data_callback: &mut dyn FnMut(&mut Data, &CallbackInfo),
+    clock_frequency: u64,
+    frames_written: &mut u64,
 ) -> Result<(), Error> {
     // The number of frames available for writing.
     let frames_available = match get_available_frames(stream)? {
@@ -794,10 +979,26 @@ fn process_output(
         n => n,
     };
 
+    let padding = stream.max_frames_in_buffer - frames_available;
+    let fill_usec = (padding as u64)
+        .saturating_mul(1_000_000)
+        .saturating_div(stream.config.sample_rate as u64)
+        .saturating_add(
+            stream
+                .stream_latency
+                .as_micros()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        );
+    stream.fill_usec.store(fill_usec, Ordering::Relaxed);
+
+    if stream.skip_callback.load(Ordering::Relaxed) {
+        // Skip the period instead of queuing silence a future resume would replay.
+        return Ok(());
+    }
+
     unsafe {
-        let buffer = render_client
-            .GetBuffer(frames_available)
-            .map_err(Error::from)?;
+        let buffer = render_client.GetBuffer(frames_available)?;
 
         debug_assert!(!buffer.is_null());
 
@@ -809,23 +1010,40 @@ fn process_output(
         let len = byte_count / stream.sample_format.sample_size();
         let mut data = Data::from_parts(data, len, stream.sample_format);
         let sample_rate = stream.config.sample_rate;
-        let timestamp = output_timestamp(stream, frames_available, sample_rate)?;
-        let info = OutputCallbackInfo { timestamp };
-        data_callback(&mut data, &info);
+        let timestamp = output_timestamp(stream, sample_rate, clock_frequency, *frames_written)?;
+        // WASAPI exposes no render-side xrun signal.
+        data_callback(
+            &mut data,
+            &CallbackInfo {
+                timestamp,
+                xrun: false,
+            },
+        );
 
-        render_client
-            .ReleaseBuffer(frames_available, 0)
-            .map_err(Error::from)?;
+        if stream.sample_format == SampleFormat::I24 {
+            // WASAPI stores i24 in the upper bits
+            #[expect(
+                clippy::cast_ptr_alignment,
+                reason = "WASAPI guarantees the buffer to be aligned to a frame boundary"
+            )]
+            let buffer_slice_i32 = slice::from_raw_parts_mut(buffer.cast::<i32>(), len);
+            for sample in buffer_slice_i32 {
+                *sample <<= 8;
+            }
+        }
+
+        render_client.ReleaseBuffer(frames_available, 0)?;
+
+        *frames_written += frames_available as u64;
     }
 
     Ok(())
 }
 
-/// Use the stream's `IAudioClock` to produce the current stream instant.
-///
-/// Uses the QPC position produced via the `GetPosition` method.
+/// Reads the stream's `IAudioClock` in a single `GetPosition` call, returning the callback
+/// [`StreamInstant`] together with the device position from that same snapshot.
 #[inline]
-fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
+fn clock_position(stream: &StreamInner) -> Result<(StreamInstant, u64), Error> {
     let mut position: u64 = 0;
     let mut qpc_position: u64 = 0;
     unsafe {
@@ -840,7 +1058,7 @@ fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
         (nanos / 1_000_000_000) as u64,
         (nanos % 1_000_000_000) as u32,
     );
-    Ok(instant)
+    Ok((instant, position))
 }
 
 /// Produce the input stream timestamp.
@@ -852,33 +1070,48 @@ fn stream_instant(stream: &StreamInner) -> Result<StreamInstant, Error> {
 fn input_timestamp(
     stream: &StreamInner,
     buffer_qpc_position: u64,
-) -> Result<InputStreamTimestamp, Error> {
+) -> Result<StreamTimestamp, Error> {
     // The `qpc_position` is in 100-nanosecond units.
     let nanos = buffer_qpc_position as u128 * 100;
     let capture = StreamInstant::new(
         (nanos / 1_000_000_000) as u64,
         (nanos % 1_000_000_000) as u32,
     );
-    let callback = stream_instant(stream)?;
-    Ok(InputStreamTimestamp { capture, callback })
+    let (callback, _position) = clock_position(stream)?;
+    Ok(StreamTimestamp {
+        device: capture,
+        callback,
+    })
 }
 
 /// Produce the output stream timestamp.
 ///
-/// `frames_available` is the number of frames available for writing as reported by subtracting the
-/// result of `GetCurrentPadding` from the maximum buffer size.
-///
 /// `sample_rate` is the rate at which audio frames are processed by the device.
+///
+/// `clock_frequency` is the device clock's constant tick rate, used to convert the reported clock
+/// position into a played-out duration.
+///
+/// `frames_written` is the running total of frames submitted to the render buffer so far, used to
+/// derive how much audio is buffered ahead of the device position.
 #[inline]
 fn output_timestamp(
     stream: &StreamInner,
-    frames_available: FrameCount,
     sample_rate: SampleRate,
-) -> Result<OutputStreamTimestamp, Error> {
-    let callback = stream_instant(stream)?;
-    // `padding` is the number of frames already queued in the endpoint buffer ahead of the
-    // frames we are about to write. Those frames must drain before ours are heard.
-    let padding = stream.max_frames_in_buffer - frames_available;
-    let playback = callback + (frames_to_duration(padding, sample_rate) + stream.stream_latency);
-    Ok(OutputStreamTimestamp { callback, playback })
+    clock_frequency: u64,
+    frames_written: u64,
+) -> Result<StreamTimestamp, Error> {
+    let (callback, position) = clock_position(stream)?;
+    // `buffered` is the amount of audio we've already submitted that has not yet been consumed by
+    // the device at this instant; it determines when the next written frame will be heard.
+    let consumed_nanos = position as u128 * 1_000_000_000 / clock_frequency as u128;
+    let written_nanos = frames_written as u128 * 1_000_000_000 / sample_rate as u128;
+    let buffered_nanos =
+        u64::try_from(written_nanos.saturating_sub(consumed_nanos)).unwrap_or(u64::MAX);
+    let buffered = Duration::from_nanos(buffered_nanos);
+
+    let playback = callback + (buffered + stream.stream_latency);
+    Ok(StreamTimestamp {
+        callback,
+        device: playback,
+    })
 }

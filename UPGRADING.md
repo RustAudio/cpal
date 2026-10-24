@@ -1,39 +1,198 @@
+# Upgrading from v0.18 to v0.19
+
+This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes and improvements.
+
+## Breaking Changes Checklist
+
+- [ ] If you implement a custom host, ensure your `Device` and `Stream` types are `Send + Sync`.
+- [ ] Remove any calls to the deprecated `assert_stream_send!` and `assert_stream_sync!` macros.
+- [ ] Rename `StreamTrait::play` calls to `start` (the old name still works but is deprecated).
+- [ ] If you implement a custom host, add a `StreamTrait::stop` implementation.
+- [ ] Replace `InputCallbackInfo`/`OutputCallbackInfo` with `CallbackInfo`.
+- [ ] Replace `InputStreamTimestamp`/`OutputStreamTimestamp` with `StreamTimestamp`; `capture`/`playback` is now `device`.
+- [ ] Remove `ErrorKind::Xrun` match arms; read `CallbackInfo::xrun()` instead.
+- [ ] Update `SampleFormat` method calls to use `self` instead of `&self`; methods are now `const`.
+- [ ] If you relied on the `Null` host existing, implement a `CustomHost` or cfg gate your code.
+
+## 1. `DeviceTrait` and `StreamTrait` require `Send + Sync`
+
+**What changed:** `DeviceTrait` and `StreamTrait` now declare `Send + Sync` as supertrait bounds.
+
+This only affects authors of `custom` host implementations. Users of built-in hosts are unaffected.
+
+**Impact:** Remove any `assert_stream_send!` and `assert_stream_sync!` calls from your custom host; they are now deprecated. If your `Device` or `Stream` type contains raw pointers or other non-`Send`/non-`Sync` internals (e.g. COM handles, JS objects), audit that concurrent access is actually safe, then add `unsafe impl Send` and `unsafe impl Sync`.
+
+## 2. `StreamTrait::play` renamed to `start`, and a new `stop` method
+
+**What changed:** `StreamTrait::play` is renamed to [`start`]. The old `play` remains as a deprecated default method that forwards to `start`, so existing code keeps compiling with a deprecation warning. A new [`stop`] method performs a *draining* stop.
+
+`start`, `pause`, and `stop` now form the transport controls:
+
+- `start` begins or resumes the stream (the rename reflects that it applies to capture streams too, not just playback).
+- `pause` halts the data callback as soon as possible without waiting for buffered audio to finish.
+- `stop(timeout)` drains: on output streams it lets buffered audio finish playing, blocking the calling thread until the buffer empties or `timeout` elapses, then halts. `None` waits until drained; `Some(Duration::ZERO)` halts immediately without draining. All three leave the stream resumable; dropping the stream still halts immediately without draining.
+
+**Impact (built-in host users):** Replace `stream.play()` with `stream.start()`. Optionally adopt `stream.stop(timeout)` where you want playback to end cleanly rather than be cut off.
+
+**Impact (custom host authors):** Rename your `StreamTrait::play` implementation to `start`. Add a `stop` implementation; if your host has no audio buffered outside the data callback, it can simply call `self.pause()`.
+
+Draining is best-effort and varies by backend: most built-in output backends respect the drain window. The exceptions are WebAudio, AudioWorklet, and ASIO, where `stop` halts immediately and `timeout` is ignored. On capture streams, `stop` also halts immediately.
+
+[`start`]: https://docs.rs/cpal/latest/cpal/traits/trait.StreamTrait.html#tymethod.start
+[`stop`]: https://docs.rs/cpal/latest/cpal/traits/trait.StreamTrait.html#tymethod.stop
+
+## 3. `InputCallbackInfo`/`OutputCallbackInfo` and timestamp types merged
+
+**What changed:** `InputCallbackInfo` and `OutputCallbackInfo` are replaced by a single [`CallbackInfo`]. `InputStreamTimestamp` and `OutputStreamTimestamp` are replaced by a single [`StreamTimestamp`]; its `capture`/`playback` field is renamed `device`.
+
+```rust
+// Before (v0.18)
+let data_fn = move |data: &mut [f32], info: &OutputCallbackInfo| {
+    let playback = info.timestamp().playback;
+    // ...
+};
+
+// After (v0.19)
+let data_fn = move |data: &mut [f32], info: &CallbackInfo| {
+    let playback = info.timestamp().device;
+    // ...
+};
+```
+
+**Impact:** Update data callback signatures to `&CallbackInfo`, and `.playback`/`.capture` reads to `.device`. The type system still stops you from wiring an output closure to an input stream: `build_output_stream` requires `&mut Data`, `build_input_stream` requires `&Data`.
+
+**Why:** The two structs were identical in shape, distinguished only by name.
+
+[`CallbackInfo`]: https://docs.rs/cpal/latest/cpal/struct.CallbackInfo.html
+[`StreamTimestamp`]: https://docs.rs/cpal/latest/cpal/struct.StreamTimestamp.html
+
+## 4. Buffer over/underrun reported via `CallbackInfo::xrun()`, not `ErrorKind::Xrun`
+
+**What changed:** `ErrorKind::Xrun` is removed. Buffer overruns and underruns are now reported through the data callback's info struct instead of `error_callback`, via [`CallbackInfo::xrun()`].
+
+```rust
+// Before (v0.18): delivered asynchronously through error_callback
+let err_fn = |err: Error| match err.kind() {
+    ErrorKind::Xrun => eprintln!("xrun"),
+    _ => eprintln!("Stream error: {err}"),
+};
+
+// After (v0.19): delivered with the data callback, tied to the affected block of samples
+let data_fn = move |data: &mut [f32], info: &CallbackInfo| {
+    if info.xrun() {
+        eprintln!("underrun");
+    }
+    // ...
+};
+```
+
+**Impact:** Remove `ErrorKind::Xrun` from `error_callback` match arms. Read `info.xrun()` in the data callback instead.
+
+**Why:** `error_callback` has no ordering guarantee relative to the data callback. On several hosts the xrun notification arrives through a separate system-level callback entirely. An engine that needs to know exactly which block of samples was affected by a glitch, e.g. to skip forward and stay in sync with something else running in real time, needs that information delivered alongside the data itself.
+
+Ordering of `xrun()` relative to the glitch it reports varies by host; see [`CallbackInfo`]'s docs for the per-host table. WASAPI render and iOS have no xrun signal at all, so `xrun()` is always `false` there.
+
+[`CallbackInfo::xrun()`]: https://docs.rs/cpal/latest/cpal/struct.CallbackInfo.html#method.xrun
+
+## 5. `SampleFormat` methods made `const`, and take `self`
+
+**What changed:** `SampleFormat` methods are now constant, and don't take a reference anymore.
+
+```rust
+// Before (v0.18):
+let i16_is_int: bool = SampleFormat::I16.is_int();
+
+let mut formats = vec![SampleFormat::I16, SampleFormat::F32];
+formats.retain(SampleFormat::is_int);
+
+// After (v0.19): constant, and not referenced
+const I16_IS_INT: bool = SampleFormat::I16.is_int();
+
+let mut formats = vec![SampleFormat::I16, SampleFormat::F32];
+formats.retain(|f| f.is_int());
+```
+
+**Impact:** `SampleFormat` can now be used in a `const` environment.
+
+**Why:** `SampleFormat` is a simple enum, there was no reason why it shouldn't be const-friendly, and since every method was both `inline` and it implements `Copy`, there is no performance downside to it taking `self`, but simply more legible than dereferencing.
+
+[`SampleFormat`]: https://docs.rs/cpal/latest/cpal/enum.SampleFormat.html
+
+## 6. `NullHost` removed.
+
+**What changed:** `NullHost` has been entirely removed
+
+```rust
+// Target = thumbv7em-none-eabihf
+
+// Before (v0.18): `NullHost` returned
+let host = cpal::default_host();
+
+// After (v0.19): Doesn't exist
+let host = cpal::default_host();
+// error[E0425]: cannot find function `default_host` in crate `cpal`
+```
+
+**Impact:** `default_host()` on unsupported targets no longer exists
+
+**Why:** `NullHost` was a relic that only existed to keep unsupported targets compiling. If a no-op host is genuinely needed, a `CustomHost` can be implemented and used instead. `default_host()` is now removed on unsupported targets, so that code depending on cpal still builds there as long as it never calls `default_host()` (e.g., because it explicitly uses a `CustomHost`).
+
+[`CustomHost`]: https://docs.rs/cpal/latest/cpal/platform/struct.CustomHost.html
+---
+
 # Upgrading from v0.17 to v0.18
 
 This guide covers breaking changes requiring code updates. See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes and improvements.
 
 ## Breaking Changes Checklist
 
-- [ ] Replace per-operation error type matches with `e.kind()` on `ErrorKind`
-- [ ] Replace `HostUnavailable` error type with `ErrorKind::HostUnavailable` on `Error`
-- [ ] Change `build_*_stream` call sites to pass `StreamConfig` by value (drop the `&`)
-- [ ] For custom hosts, change `DeviceTrait` implementations to accept `StreamConfig` by value.
+**Behavioral breaks:**
+
+- [ ] **ALSA, CoreAudio, JACK**: Add an explicit `stream.play()` call after `build_*_stream()` if
+  you were relying on these backends to auto-start streams.
+- [ ] If you relied on the default config returning 44.1 kHz, pin the sample rate explicitly.
+- [ ] If you relied on a specific integer format when `F32` is unavailable, pin the sample format
+  explicitly; `I32` and `I24` are now ranked above `I16`.
+
+**Compile errors:**
+
+- [ ] Replace matches on `BuildStreamError`, `StreamError`, `DevicesError`,
+  `DefaultStreamConfigError`, etc. with `e.kind()` on the unified `cpal::Error`.
+- [ ] Change `build_*_stream` call sites to pass `StreamConfig` by value (drop the `&`).
+- [ ] Replace any remaining `device.name()` calls with `device.description()` or `device.id()`.
 - [ ] Remove `instant.duration_since(e)` unwraps; it now returns `Duration` (saturating).
 - [ ] Change `instant.add(d)` to `instant.checked_add(d)` (or use `instant + d`).
 - [ ] Change `instant.sub(d)` to `instant.checked_sub(d)` (or use `instant - d`).
 - [ ] Update `StreamInstant::new(secs, nanos)` call sites: `secs` is now `u64`.
 - [ ] Update `StreamInstant::from_nanos(nanos)` call sites: `nanos` is now `u64`.
 - [ ] Update `duration_since` call sites to pass by value (drop the `&`).
-- [ ] If you relied on the default config returning 44.1 kHz, pin the sample rate explicitly.
-- [ ] If you relied on the default config returning `F32`, pin the sample format explicitly.
-- [ ] Rename the `audio_thread_priority` feature to `realtime-dbus` in `Cargo.toml`.
-- [ ] **ALSA, CoreAudio, JACK**: Add an explicit `stream.play()` call after `build_*_stream()` if
-  you were relying on these backends to auto-start streams.
+- [ ] Replace `DeviceId(host, string)` tuple construction with `DeviceId::new(host, id)`
+- [ ] Replace `device_id.0` / `device_id.1` field access with `device_id.host()` / `device_id.id()`.
+- [ ] Update `DeviceDescription::extended()` call sites to iterate `&str` instead of `&[String]`.
+- [ ] **ALSA**: Replace `Device::default()` with `host.default_output_device()` or
+  `host.default_input_device()`.
+- [ ] **ALSA**: Replace `cpal::platform::AlsaHost` imports with
+  `cpal::host_from_id(cpal::HostId::Alsa)?`; the type is no longer re-exported.
 - [ ] **JACK**: Handle or discard the new `Result` from `Stream::connect_to_system_outputs()` and
   `Stream::connect_to_system_inputs()`.
-- [ ] Migrate `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
-- [ ] Raise your `windows` dependency to `>= 0.61` if you pin it below that.
-- [ ] Replace `DeviceId(host, string)` tuple construction with `DeviceId::new(host, id)`
-- [ ] Replace `device_id.0` / `device_id.1` field access with `device_id.host()` / `device_id.id()`
-- [ ] Update `DeviceDescription::extended()` call sites to iterate `&str` instead of `&[String]`
-- [ ] If you implement a custom host, update `DeviceDescriptionBuilder` setter arguments from
-  `impl Into<String>` to `impl AsRef<str>`
-- [ ] Replace any remaining `device.name()` calls with `device.description()` or `device.id()`
-- [ ] **ALSA**: Replace `Device::default()` with `host.default_output_device()` or
-  `host.default_input_device()`
 - [ ] **WASAPI**: Update `Device::immdevice()` call sites to handle `Option<Audio::IMMDevice>`
-  instead of `&Audio::IMMDevice`
-- [ ] **ALSA**: Update any direct imports of `cpal::platform::AlsaHost`
+  instead of `&Audio::IMMDevice`.
+
+**Build configuration changes:**
+
+- [ ] Rename the `audio_thread_priority` feature to `realtime-dbus`.
+- [ ] **WASM**: Migrate from `wasm32-unknown-emscripten` to `wasm32-unknown-unknown` if possible.
+
+**Custom host implementations:**
+
+- [ ] Change `DeviceTrait` to accept `StreamConfig` by value in `build_input_stream_raw` and
+  `build_output_stream_raw`.
+- [ ] Derive or implement `PartialEq`, `Eq`, `Hash`, `Debug`, and `Display` on your `Device`
+  type — these are now required supertraits of `DeviceTrait`.
+- [ ] Add `buffer_size() -> Result<FrameCount, Error>` and `now() -> StreamInstant` to your
+  `StreamTrait` implementation — both are required methods with no default.
+- [ ] Update `DeviceDescriptionBuilder` setter arguments from `impl Into<String>` to
+  `impl AsRef<str>`.
 
 ## 1. Unified `Error` and `ErrorKind` type
 
@@ -49,18 +208,20 @@ match device.default_output_config() {
 }
 
 // After (v0.18): all operations return cpal::Error; match on e.kind()
-match device.default_output_config() {
-    Ok(config) => config,
-    Err(e) => match e.kind() {
-        cpal::ErrorKind::DeviceNotAvailable => panic!("device gone"),
-        cpal::ErrorKind::UnsupportedConfig => panic!("unsupported"),
-        cpal::ErrorKind::DeviceBusy => {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            // retry
-        }
-        _ => panic!("{e}"),
-    },
-}
+// DeviceBusy is retryable; wrap in a loop to retry:
+let config = loop {
+    match device.default_output_config() {
+        Ok(config) => break config,
+        Err(e) => match e.kind() {
+            cpal::ErrorKind::DeviceNotAvailable => panic!("device gone"),
+            cpal::ErrorKind::UnsupportedConfig => panic!("unsupported"),
+            cpal::ErrorKind::DeviceBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            _ => panic!("{e}"),
+        },
+    }
+};
 ```
 
 The `ErrorKind` variants and their equivalents from v0.17:
@@ -167,7 +328,7 @@ StreamInstant::new(0_u64, 0);
 
 ## 4. Default sample rate changed to 48 kHz
 
-**What changed:** `default_input_config()` and `default_output_config()` now prefer 48 kHz over 44.1 kHz on backends that apply a heuristic. The new selection order is 48 kHz, then 44.1 kHz, then the device maximum.
+**What changed:** `default_input_config()` and `default_output_config()` now prefer 48 kHz, then 44.1 kHz, then the device maximum.
 
 If your pipeline requires 44.1 kHz, request it explicitly:
 
@@ -182,41 +343,39 @@ let config = device
 
 ## 5. Default sample format selection changed
 
-**What changed:** `default_input_config()` and `default_output_config()` now use a fully-ranked format ordering across all `SampleFormat` variants.
+**What changed:** `default_input_config()` and `default_output_config()` now select formats in a defined order covering all `SampleFormat` variants. `F32` is still preferred first. Previously only `F32`, `I16`, and `U16` had defined priority; everything else was selected by enumeration order. `I32` and `I24` now take priority over `I16`, so hardware that previously fell back to `I16` when `F32` was unavailable may now return `I32` or `I24`.
 
-Previously only `F32`, `I16`, and `U16` were explicitly ranked; all other formats compared as equal. On hosts that expose higher-precision formats, the default config may now return a different format than before. Likely candidates are `I32` or `I24`.
-
-If your code assumes the default format is `F32`, request the format explicitly:
+If you depend on a specific format, request it explicitly:
 
 ```rust
-// Request F32 explicitly instead of relying on the default
-let configs = device
+let config = device
     .supported_output_configs()?
-    .filter(|r| r.sample_format() == SampleFormat::F32);
+    .filter(|r| r.sample_format() == SampleFormat::F32)
+    .find_map(|r| r.try_with_standard_sample_rate())
+    .expect("device does not support F32 at a standard sample rate");
 ```
 
-**Why:** The previous heuristic only explicitly ranked three formats, making selection unpredictable for any other format the device reported. The new ordering is complete and consistent: F32 first, then F64, integers by bit-depth descending with signed above unsigned at each width (I64 is deprioritised below I16 as an accumulator type), and DSD last.
+**Why:** The new order is `F32` > `F64` > integers by bit-depth descending > DSD.
 
 ## 6. `audio_thread_priority` feature renamed to `realtime-dbus`
 
-**What changed:** The `audio_thread_priority` feature has been renamed to `realtime-dbus`. A new `realtime` feature was also added, providing the same scheduling promotion without a D-Bus build dependency (suitable for headless or embedded targets).
+**What changed:** The `audio_thread_priority` feature has been renamed to `realtime-dbus`. A new `realtime` feature was also added, without a D-Bus build dependency. It's functional on Windows and Android; on Linux it's currently a no-op, so use `realtime-dbus` there.
 
 ```toml
 # Before (v0.17)
 cpal = { version = "0.17", features = ["audio_thread_priority"] }
 
 # After (v0.18): rename the feature
+# Android/Windows plus Linux with D-Bus
 cpal = { version = "0.18", features = ["realtime-dbus"] }
 
-# For systems without D-Bus (embedded, headless, containers):
+# Android/Windows only (no D-Bus dependency)
 cpal = { version = "0.18", features = ["realtime"] }
 ```
 
-On Linux and BSD, `realtime-dbus` requires `libdbus-1-dev` (Debian/Ubuntu), `dbus-devel` (Fedora/RHEL), or equivalent at build time.
+On Linux, `realtime-dbus` requires `libdbus-1-dev` (Debian/Ubuntu), `dbus-devel` (Fedora/RHEL), or equivalent at build time.
 
 For both features, promotion failures are non-fatal: the stream still starts and an `ErrorKind::RealtimeDenied` error is delivered through `error_callback`.
-
-**Impact:** Rename `audio_thread_priority` to `realtime-dbus` in your `Cargo.toml`. No other action is needed.
 
 ## 7. Streams are returned paused on every backend
 
@@ -224,7 +383,7 @@ For both features, promotion failures are non-fatal: the stream still starts and
 
 ```rust
 // Before (v0.17): on ALSA/CoreAudio/JACK the stream was already running
-let stream = device.build_output_stream(config, data_fn, err_fn, None)?;
+let stream = device.build_output_stream(&config, data_fn, err_fn, None)?;
 
 // After (v0.18): every backend requires play()
 let stream = device.build_output_stream(config, data_fn, err_fn, None)?;
@@ -293,13 +452,13 @@ let device = host.device_by_id(&id);
 
 ```rust
 // Before (v0.17)
-for line in desc.extended() {   // &[String]
-    println!("{}", line);       // line: &String
+for line in desc.extended() { // &[String]
+    println!("{line}");       // line: &String
 }
 
 // After (v0.18)
-for line in desc.extended() {   // impl Iterator<Item = &str>
-    println!("{}", line);       // line: &str — Display, write!, format! all unchanged
+for line in desc.extended() { // impl Iterator<Item = &str>
+    println!("{line}");       // line: &str — Display, write!, format! all unchanged
 }
 ```
 
@@ -313,6 +472,67 @@ println!("{}", lines[0]);
 **Why:** Decouples the return type from the backing store, making future storage changes
 non-breaking. The iterator yields `&str` directly, which is simpler than `&String` at every
 call site.
+
+## 11. Custom host implementations
+
+This section applies only if you implement `HostTrait`, `DeviceTrait`, or `StreamTrait` via the `custom` feature.
+
+### `DeviceTrait` supertrait bounds
+
+**What changed:** `DeviceTrait` now requires `PartialEq + Eq + Hash + Debug + Display` as supertraits.
+
+```rust
+// After (v0.18): derive or implement the required traits on your Device type
+#[derive(PartialEq, Eq, Hash, Debug)]
+struct MyDevice {
+    name: String,
+    // ...
+}
+
+impl std::fmt::Display for MyDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+```
+
+**Why:** These bounds allow devices to be used as hash map keys and displayed uniformly, supporting stable device IDs and the `Device::eq` functionality added in v0.17.
+
+### `StreamTrait::buffer_size` and `StreamTrait::now`
+
+**What changed:** Two methods with no default implementation were added to `StreamTrait`.
+
+```rust
+impl StreamTrait for MyStream {
+    // existing methods ...
+
+    fn buffer_size(&self) -> Result<cpal::FrameCount, cpal::Error> {
+        Ok(self.frames_per_callback)
+    }
+
+    fn now(&self) -> cpal::StreamInstant {
+        cpal::StreamInstant::from_nanos(/* current clock value */)
+    }
+}
+```
+
+**Why:** `buffer_size` and `now` are part of the clock and buffer API added in v0.18.
+
+### `StreamConfig` by value
+
+See [section 2](#2-streamconfig-is-now-passed-by-value): update `build_input_stream_raw` and `build_output_stream_raw` to accept `config: StreamConfig` instead of `config: &StreamConfig`.
+
+### `DeviceDescriptionBuilder` setter arguments
+
+**What changed:** Setter methods on `DeviceDescriptionBuilder` now accept `impl AsRef<str>` instead of `impl Into<String>`.
+
+```rust
+// Before (v0.17)
+builder.with_name("My Device".to_string());
+
+// After (v0.18)
+builder.with_name("My Device");
+```
 
 ---
 
@@ -366,7 +586,7 @@ let name = device.name()?;
 
 // New: For user-facing display
 let desc = device.description()?;
-println!("Device: {}", desc);  // or desc.name() for just the name
+println!("Device: {desc}");  // or desc.name() for just the name
 
 // New: For stable identification and persistence
 let id = device.id()?;

@@ -20,11 +20,6 @@ pub mod clock {
     pub const MAX_QUANTUM: &str = "clock.max-quantum";
 }
 
-pub mod node {
-    pub const RATE: &str = "node.rate";
-    pub const LATENCY: &str = "node.latency";
-}
-
 pub mod default {
     pub const NAME: &str = "default";
     pub const SINK: &str = "default.audio.sink";
@@ -37,10 +32,20 @@ pub mod audio {
     pub const DUPLEX: &str = "Audio/Duplex";
     pub const STREAM_OUTPUT: &str = "Stream/Output/Audio";
     pub const STREAM_INPUT: &str = "Stream/Input/Audio";
+
+    // Hidden from "default device" pickers but still directly connectable.
+    pub const SINK_INTERNAL: &str = "Audio/Sink/Internal";
+    pub const SOURCE_INTERNAL: &str = "Audio/Source/Internal";
+    pub const DUPLEX_INTERNAL: &str = "Audio/Duplex/Internal";
 }
 
 /// Returns the path of the PipeWire socket, checking the standard locations
 /// including the parent of `XDG_RUNTIME_DIR` for Snap sandboxes.
+///
+/// Mirrors libpipewire's own lookup order (`PIPEWIRE_RUNTIME_DIR` ->
+/// `XDG_RUNTIME_DIR` -> `/run/pipewire`) so cpal finds the same socket
+/// `pw-cli` and other native clients do, even when neither runtime dir
+/// env var is set.
 pub fn find_socket_path() -> Option<&'static PathBuf> {
     static SOCKET: OnceLock<Option<PathBuf>> = OnceLock::new();
     SOCKET
@@ -68,7 +73,7 @@ pub fn find_socket_path() -> Option<&'static PathBuf> {
                 }
             }
 
-            None
+            socket_in(Path::new("/run/pipewire"))
         })
         .as_ref()
 }

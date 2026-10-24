@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::{alsa, Device, Host};
+use super::{Device, Host, alsa};
 use crate::{DeviceDirection, Error};
 
 const HW_PREFIX: &str = "hw";
@@ -35,8 +35,10 @@ impl Host {
             for hint in hints {
                 if let Some(pcm_id) = hint.name {
                     // Per ALSA docs (https://alsa-project.org/alsa-doc/alsa-lib/group___hint.html),
-                    // NULL IOID means both Input/Output. Whether a stream can actually open in a
-                    // given direction can only be determined by attempting to open it.
+                    // NULL IOID means both Input/Output. This is common for hw:N devices that do
+                    // both directions, and for virtual PCMs like asym or pipewire. Whether a
+                    // stream can actually open in a given direction can only be determined by
+                    // attempting to open it.
                     let direction = hint.direction.map_or(DeviceDirection::Duplex, Into::into);
                     seen_pcm_ids.insert(pcm_id.clone());
                     let device = Device {
@@ -91,7 +93,7 @@ fn format_device_description(phys_dev: &PhysicalDevice, prefix: &str) -> String 
         _ => "",
     };
 
-    format!("{}\n{}", first_line, second_line)
+    format!("{first_line}\n{second_line}")
 }
 
 fn physical_devices() -> Vec<PhysicalDevice> {
@@ -133,7 +135,7 @@ fn physical_devices() -> Vec<PhysicalDevice> {
                 }
             };
 
-            let device_name = device_name.unwrap_or_else(|| format!("Device {}", device_index));
+            let device_name = device_name.unwrap_or_else(|| format!("Device {device_index}"));
             devices.push(PhysicalDevice {
                 card_index,
                 card_name: card_name.clone(),

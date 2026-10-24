@@ -1,28 +1,53 @@
-//! Monitors AVAudioSession lifecycle events and reports them as stream errors.
+//! Monitors AVAudioSession lifecycle events, recovering the stream from an interruption and
+//! reporting the rest as stream errors.
 
-use std::ptr::NonNull;
+use std::{
+    ptr::NonNull,
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use block2::RcBlock;
-use objc2::runtime::AnyObject;
 use objc2_avf_audio::{
-    AVAudioSessionMediaServicesWereLostNotification,
+    AVAudioSession, AVAudioSessionInterruptionNotification, AVAudioSessionInterruptionOptionKey,
+    AVAudioSessionInterruptionOptions, AVAudioSessionInterruptionType,
+    AVAudioSessionInterruptionTypeKey, AVAudioSessionMediaServicesWereLostNotification,
     AVAudioSessionMediaServicesWereResetNotification, AVAudioSessionRouteChangeNotification,
     AVAudioSessionRouteChangeReason, AVAudioSessionRouteChangeReasonKey,
 };
 use objc2_foundation::{NSNotification, NSNotificationCenter, NSNumber, NSString};
 
+use super::{StreamInner, input_latency_nanos, output_latency_nanos};
 use crate::{
-    host::{emit_error, latch::Latch, ErrorCallbackArc},
     Error, ErrorKind,
+    host::{ErrorCallbackArc, emit_error, latch::Latch},
 };
 
-unsafe fn route_change_error(notification: &NSNotification) -> Option<Error> {
+/// Runs `f` against the stream, if it is still alive and its lock is intact.
+fn with_stream(stream: &Weak<Mutex<StreamInner>>, f: impl FnOnce(&mut StreamInner)) {
+    if let Some(inner) = stream.upgrade() {
+        if let Ok(mut inner) = inner.lock() {
+            f(&mut inner);
+        }
+    }
+}
+
+/// Reads the number stored under `key` in a notification's `userInfo`.
+fn user_info_number(notification: &NSNotification, key: Option<&NSString>) -> Option<usize> {
     let user_info = notification.userInfo()?;
-    let key = AVAudioSessionRouteChangeReasonKey?;
-    let dict = unsafe { user_info.cast_unchecked::<NSString, AnyObject>() };
-    let value = dict.objectForKey(key)?;
-    let number = value.downcast_ref::<NSNumber>()?;
-    let reason = AVAudioSessionRouteChangeReason(number.unsignedIntegerValue());
+    let value = user_info.objectForKey(key?)?;
+    Some(value.downcast::<NSNumber>().ok()?.unsignedIntegerValue())
+}
+
+/// Shared buffer-depth value to refresh on route changes, paired with `is_input` to select the
+/// input or output latency. `true` means an input stream.
+type LatencyRefresh = (Arc<AtomicU64>, bool);
+
+fn route_change_error(notification: &NSNotification) -> Option<Error> {
+    let key = unsafe { AVAudioSessionRouteChangeReasonKey };
+    let reason = AVAudioSessionRouteChangeReason(user_info_number(notification, key)?);
     match reason {
         AVAudioSessionRouteChangeReason::OldDeviceUnavailable => Some(Error::with_message(
             ErrorKind::DeviceChanged,
@@ -58,17 +83,69 @@ unsafe impl Send for SessionEventManager {}
 unsafe impl Sync for SessionEventManager {}
 
 impl SessionEventManager {
-    pub(super) fn new(error_callback: ErrorCallbackArc, latch: Latch) -> Self {
+    pub(super) fn new(
+        error_callback: ErrorCallbackArc,
+        latch: Latch,
+        latency_refresh: LatencyRefresh,
+        stream: Weak<Mutex<StreamInner>>,
+    ) -> Self {
         let nc = NSNotificationCenter::defaultCenter();
         let mut observers = Vec::new();
         let waiter = latch.waiter();
+
+        // The OS stops the unit itself, and the session it stops is inactive on the way back.
+        {
+            let w = waiter.clone();
+            let stream = stream.clone();
+            let block = RcBlock::new(move |notif: NonNull<NSNotification>| {
+                if !w.is_released() {
+                    return;
+                }
+                let notif = unsafe { notif.as_ref() };
+                let interruption_type_key = unsafe { AVAudioSessionInterruptionTypeKey };
+                let Some(kind) = user_info_number(notif, interruption_type_key) else {
+                    return;
+                };
+                if AVAudioSessionInterruptionType(kind) == AVAudioSessionInterruptionType::Began {
+                    with_stream(&stream, StreamInner::stop_for_interruption);
+                    return;
+                }
+                let interruption_option_key = unsafe { AVAudioSessionInterruptionOptionKey };
+                let options = AVAudioSessionInterruptionOptions(
+                    user_info_number(notif, interruption_option_key).unwrap_or(0),
+                );
+                if !options.contains(AVAudioSessionInterruptionOptions::ShouldResume) {
+                    return;
+                }
+                let session = unsafe { AVAudioSession::sharedInstance() };
+                if unsafe { session.setActive_error(true) }.is_ok() {
+                    with_stream(&stream, StreamInner::resume_after_interruption);
+                }
+            });
+            if let Some(name) = unsafe { AVAudioSessionInterruptionNotification } {
+                let observer = unsafe {
+                    nc.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block)
+                };
+                observers.push(observer);
+            }
+        }
 
         {
             let cb = error_callback.clone();
             let w = waiter.clone();
             let block = RcBlock::new(move |notif: NonNull<NSNotification>| {
                 if w.is_released() {
-                    if let Some(err) = unsafe { route_change_error(notif.as_ref()) } {
+                    // The route may have changed the active device; recompute the buffer depth so
+                    // capture/playback timestamps track the new latency.
+                    let (nanos, is_input) = &latency_refresh;
+                    let depth = if *is_input {
+                        input_latency_nanos()
+                    } else {
+                        output_latency_nanos()
+                    };
+                    nanos.store(depth, Ordering::Relaxed);
+                    let notif = unsafe { notif.as_ref() };
+                    if let Some(err) = route_change_error(notif) {
                         emit_error(&cb, err);
                     }
                 }

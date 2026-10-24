@@ -1,15 +1,15 @@
 use std::{
     fmt,
     hash::{Hash, Hasher},
-    sync::{atomic::AtomicU32, Arc, Mutex},
+    sync::{Arc, atomic::AtomicU32},
 };
 
 use super::sys;
 pub use crate::iter::{SupportedInputConfigs, SupportedOutputConfigs};
 use crate::{
-    host::asio::stream::load_driver_err, host::com, ChannelCount, DeviceDescription,
-    DeviceDescriptionBuilder, DeviceId, Error, ErrorKind, FrameCount, SampleFormat, SampleRate,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    ChannelCount, DeviceDescription, DeviceDescriptionBuilder, DeviceId, Error, ErrorKind,
+    FrameCount, SampleFormat, SampleRate, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange, host::asio::stream::load_driver_err, host::com,
 };
 
 /// An ASIO Device
@@ -27,10 +27,6 @@ pub struct Device {
     output_sample_format: Option<SampleFormat>,
     supported_sample_rates: Box<[SampleRate]>,
 
-    // Input and/or Output stream.
-    // A driver can only have one of each.
-    // They need to be created at the same time.
-    pub(super) asio_streams: Arc<Mutex<sys::AsioStreams>>,
     pub(super) current_callback_flag: Arc<AtomicU32>,
 }
 
@@ -192,68 +188,60 @@ impl Iterator for Devices {
         self.current_driver = None;
 
         loop {
-            match self.drivers.next() {
-                Some(name) => match self.asio.load_driver(&name) {
-                    Ok(driver) => {
-                        let Ok(channels) = driver.channels() else {
-                            continue;
-                        };
-                        if channels.ins == 0 && channels.outs == 0 {
-                            continue;
-                        }
-
-                        // Some drivers (e.g. Realtek ASIO) return 0 for sample_rate() until a
-                        // stream is active. Treat 0 as "not yet known" rather than skipping.
-                        let sample_rate = driver.sample_rate().unwrap_or(0.0);
-
-                        let Ok(buffer_size_range) = driver.buffersize_range() else {
-                            continue;
-                        };
-
-                        let input_sample_format = driver
-                            .input_data_type()
-                            .ok()
-                            .and_then(|t| convert_data_type(&t));
-                        let output_sample_format = driver
-                            .output_data_type()
-                            .ok()
-                            .and_then(|t| convert_data_type(&t));
-
-                        let supported_sample_rates: Box<[SampleRate]> = crate::COMMON_SAMPLE_RATES
-                            .iter()
-                            .copied()
-                            .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))
-                            .collect();
-
-                        self.current_driver = Some(driver);
-
-                        let asio_streams = Arc::new(Mutex::new(sys::AsioStreams {
-                            input: None,
-                            output: None,
-                        }));
-
-                        return Some(Device {
-                            name,
-                            channels_in: channels.ins as ChannelCount,
-                            channels_out: channels.outs as ChannelCount,
-                            sample_rate: sample_rate as SampleRate,
-                            buffer_size_min: buffer_size_range.min as FrameCount,
-                            buffer_size_max: buffer_size_range.max as FrameCount,
-                            input_sample_format,
-                            output_sample_format,
-                            supported_sample_rates,
-                            asio_streams,
-                            // Initialize with sentinel value so it never matches global flag state (0 or 1).
-                            current_callback_flag: Arc::new(AtomicU32::new(u32::MAX)),
-                        });
+            let name = self.drivers.next()?;
+            match self.asio.load_driver(&name) {
+                Ok(driver) => {
+                    let Ok(channels) = driver.channels() else {
+                        continue;
+                    };
+                    if channels.ins == 0 && channels.outs == 0 {
+                        continue;
                     }
-                    // A different driver is already loaded (e.g. an active Stream holds it). Stop
-                    // cleanly rather than spinning through the rest of the list.
-                    Err(sys::LoadDriverError::DriverAlreadyExists) => return None,
-                    // Driver failed to load for its own reasons; skip and try the next.
-                    Err(_) => continue,
-                },
-                None => return None,
+
+                    // Some drivers (e.g. Realtek ASIO) return 0 for sample_rate() until a
+                    // stream is active. Treat 0 as "not yet known" rather than skipping.
+                    let sample_rate = driver.sample_rate().unwrap_or(0.0);
+
+                    let Ok(buffer_size_range) = driver.buffersize_range() else {
+                        continue;
+                    };
+
+                    let input_sample_format = driver
+                        .input_data_type()
+                        .ok()
+                        .and_then(|t| convert_data_type(&t));
+                    let output_sample_format = driver
+                        .output_data_type()
+                        .ok()
+                        .and_then(|t| convert_data_type(&t));
+
+                    let supported_sample_rates: Box<[SampleRate]> = crate::COMMON_SAMPLE_RATES
+                        .iter()
+                        .copied()
+                        .filter(|&r| driver.can_sample_rate(r.into()).unwrap_or(false))
+                        .collect();
+
+                    self.current_driver = Some(driver);
+
+                    return Some(Device {
+                        name,
+                        channels_in: channels.ins as ChannelCount,
+                        channels_out: channels.outs as ChannelCount,
+                        sample_rate: sample_rate as SampleRate,
+                        buffer_size_min: buffer_size_range.min as FrameCount,
+                        buffer_size_max: buffer_size_range.max as FrameCount,
+                        input_sample_format,
+                        output_sample_format,
+                        supported_sample_rates,
+                        // Initialize with sentinel value so it never matches global flag state (0 or 1).
+                        current_callback_flag: Arc::new(AtomicU32::new(u32::MAX)),
+                    });
+                }
+                // Another driver is already loaded (e.g. an active Stream holds it). Only that
+                // driver's own entry can load now, so keep going to reach it instead of stopping.
+                Err(sys::LoadDriverError::DriverAlreadyExists) => continue,
+                // Driver failed to load for its own reasons; skip and try the next.
+                Err(_) => continue,
             }
         }
     }
