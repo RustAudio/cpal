@@ -1264,7 +1264,10 @@ mod tests {
     use windows::Win32::{
         Foundation::{CO_E_NOTINITIALIZED, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
         System::{
-            Com::{APTTYPE, APTTYPE_MAINSTA, APTTYPE_STA, APTTYPEQUALIFIER, CoGetApartmentType},
+            Com::{
+                APTTYPE, APTTYPE_MAINSTA, APTTYPE_MTA, APTTYPE_STA, APTTYPEQUALIFIER,
+                APTTYPEQUALIFIER_IMPLICIT_MTA, CoGetApartmentType,
+            },
             Threading,
         },
     };
@@ -1350,27 +1353,29 @@ mod tests {
     }
 
     #[test]
-    fn default_device_lookup_leaves_an_uninitialized_caller_uninitialized() {
+    fn default_device_lookup_does_not_explicitly_initialize_caller() {
         std::thread::spawn(|| {
             let mut apartment_type = APTTYPE(-1);
             let mut apartment_qualifier = APTTYPEQUALIFIER(0);
-            let before =
-                unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) };
-            assert_eq!(
-                before.unwrap_err().code(),
-                CO_E_NOTINITIALIZED,
-                "test worker should start without COM initialized"
-            );
 
             let _ = super::super::device::default_output_device();
 
-            let after =
-                unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) };
-            assert_eq!(
-                after.unwrap_err().code(),
-                CO_E_NOTINITIALIZED,
-                "default-device availability checks must not initialize the caller's COM apartment"
-            );
+            match unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) } {
+                Err(error) if error.code() == CO_E_NOTINITIALIZED => {}
+                Ok(()) => {
+                    assert_eq!(
+                        apartment_type,
+                        APTTYPE_MTA,
+                        "an uninitialized caller may observe the process MTA implicitly"
+                    );
+                    assert_eq!(
+                        apartment_qualifier,
+                        APTTYPEQUALIFIER_IMPLICIT_MTA,
+                        "default-device availability checks must not explicitly initialize the caller"
+                    );
+                }
+                Err(error) => panic!("failed to query the caller's COM apartment: {error}"),
+            }
         })
         .join()
         .expect("worker thread should complete");

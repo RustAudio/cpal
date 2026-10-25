@@ -1160,8 +1160,8 @@ static ENUMERATOR: OnceLock<Result<Enumerator, windows::core::Error>> = OnceLock
 /// Returns the current default audio endpoint for `flow`, or `None` if none exists.
 pub(super) fn current_default_endpoint(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
     // Resolve endpoints on the caller's apartment. Public default-device lookups check
-    // availability on a short-lived MTA worker so they do not initialize Windows-owned callback
-    // threads or change an uninitialized UI thread's default STA policy.
+    // availability on a short-lived MTA worker so they do not explicitly initialize the caller
+    // or change an uninitialized UI thread's default STA policy.
     com::com_initialized();
     let enumerator = create_enumerator().ok()?;
     current_default_endpoint_with(&enumerator, flow)
@@ -1340,12 +1340,12 @@ impl Iterator for Devices {
 }
 
 pub fn default_input_device() -> Option<Device> {
-    // Check availability on an owned MTA worker, leaving the caller's apartment unchanged.
+    // Check availability on an owned MTA worker without explicitly initializing the caller.
     default_endpoint_available(Audio::eCapture).then(Device::default_input)
 }
 
 pub fn default_output_device() -> Option<Device> {
-    // Check availability on an owned MTA worker, leaving the caller's apartment unchanged.
+    // Check availability on an owned MTA worker without explicitly initializing the caller.
     default_endpoint_available(Audio::eRender).then(Device::default_output)
 }
 
