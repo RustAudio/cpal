@@ -61,9 +61,9 @@ use super::{
 
 use libc::c_int;
 
-
 /// [TODO] ::new_input/output/duplex
 pub struct Stream {
+    pub(super) reported_buffer_size: Option<FrameCount>, // Option because I'm not sure what to do for Duplex
     pub(super) control: Arc<Control>,
     pub(super) worker: Option<JoinHandle<()>>,
     pub(super) latch: Latch
@@ -95,8 +95,17 @@ impl StreamTrait for Stream {
         Ok(()) // join happens in Drop; poll timeout bounds it to <= 50 ms
     }
 
+    // infalliable
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        Err(Error::from(ErrorKind::HostUnavailable))
+        match self.reported_buffer_size {
+            Some(s) => Ok(s),
+            None => {
+                // I'm unsure how to handle Duplex streams for now,
+                // as OSS does not enforce that input/output buffers
+                // have the same amount of frames.
+                Err(Error::new(ErrorKind::HostUnavailable))
+            }
+        }
     }
 
     /// Returns the current time using the same clock
@@ -410,7 +419,7 @@ pub(super) fn configure(
     config: &StreamConfig,
     fmt: SampleFormat,
     input: bool, // a bool here as it should only be input/output, use `configure_duplex` otherwise. [TODO] unify them?
-) -> Result<usize, Error> {
+) -> Result<(usize, FrameCount), Error> { // (period_bytes, period_frames)
     let Some(afmt) = formats::afmt_from_sample_format(fmt) else { return Err(Error::new(ErrorKind::UnsupportedConfig)); };
     let ch = config.channels as c_int;
     let rate = config.sample_rate as c_int;
@@ -448,7 +457,11 @@ pub(super) fn configure(
         false => syscall::SNDCTL_DSP_GETOSPACE,
     };
     ioctl_ptr(fd, req, &mut info).map_err(error_from_io)?;
-    Ok(info.fragsize.max(1) as usize) // not a good idea?
+
+    let frame_bytes = config.channels as usize * fmt.sample_size();
+    let period_frames = (info.fragsize as usize / frame_bytes) as FrameCount;
+
+    Ok((info.fragsize.max(1) as usize, period_frames)) // not a good idea to .max(1)?
 }
 
 /// Configure an open device file descriptor

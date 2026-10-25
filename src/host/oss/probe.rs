@@ -81,7 +81,7 @@ pub(super) fn probe_configs(path: &str, mode: Mode) -> std::io::Result<Vec<Suppo
     };
 
     for (afmt, sample_format) in formats::FORMATS {
-        // Early return if the device doesn't support it, no point trying
+        // Early return if the device doesn't display that it supports it, no point trying
         if fmts & afmt == 0 { continue; }
 
         for &ch in PROBE_CHANNELS {
@@ -94,6 +94,7 @@ pub(super) fn probe_configs(path: &str, mode: Mode) -> std::io::Result<Vec<Suppo
                 let fd = open_dsp(path, mode)?;
                 if ioctl_int(&fd, syscall::SNDCTL_DSP_SETFMT, *afmt)? != *afmt { break; }
                 if ioctl_int(&fd, syscall::SNDCTL_DSP_CHANNELS, ch)? != ch { break; }
+                // [TODO] same driver rounding 48k -> 47999 could apply here, fixq
                 if ioctl_int(&fd, syscall::SNDCTL_DSP_SPEED, rate)? == rate { rates.push(rate as u32); }
             }
 

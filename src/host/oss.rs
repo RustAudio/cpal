@@ -2,6 +2,9 @@
 //!
 //! FreeBSD's `sound(4)` implements the OSS API in the kernel (`/dev/dspN`), so there is no
 //! userspace library or plugin layer to initialize, unlike ALSA.
+//! 
+//! During development, I'm using `ErrorKind::HostUnavailable` to mean "this feature exists and
+//! could work fine, but I haven't implemented it yet", even if that disagrees with trait docs.
 
 use std::{io, path::Path};
 

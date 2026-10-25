@@ -181,7 +181,7 @@ impl DeviceTrait for Device {
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
         let fd = open_dsp(&self.path, Mode::Read).map_err(error_from_io)?; // diff from output
-        let period_bytes = stream::configure(&fd, &config, sample_format, true)?;
+        let (period_bytes, buf_size) = stream::configure(&fd, &config, sample_format, true)?;
 
         let control = Arc::new(Control::default());
         let worker_ctl = control.clone();
@@ -193,7 +193,7 @@ impl DeviceTrait for Device {
             })
             .map_err(error_from_io)?;
 
-        Ok(super::Stream { control, worker: Some(worker), latch: Latch::new() })
+        Ok(super::Stream { reported_buffer_size: Some(buf_size), control, worker: Some(worker), latch: Latch::new() })
     }
 
     fn build_output_stream_raw<D, E>(
@@ -212,7 +212,7 @@ impl DeviceTrait for Device {
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
         let fd = open_dsp(&self.path, Mode::Write).map_err(error_from_io)?;
-        let period_bytes = stream::configure(&fd, &config, sample_format, false)?;
+        let (period_bytes, buf_size) = stream::configure(&fd, &config, sample_format, false)?;
 
         let control = Arc::new(Control::default());
         let worker_ctl = control.clone();
@@ -224,7 +224,7 @@ impl DeviceTrait for Device {
             })
             .map_err(error_from_io)?;
 
-        Ok(super::Stream { control, worker: Some(worker), latch: Latch::new() })
+        Ok(super::Stream { reported_buffer_size: Some(buf_size), control, worker: Some(worker), latch: Latch::new() })
     }
 
     // [NOTE]: OSS duplex streams must have the same input and output sample format,
@@ -263,7 +263,7 @@ impl DeviceTrait for Device {
             })
             .map_err(error_from_io)?;
 
-        Ok(super::Stream { control, worker: Some(worker), latch: Latch::new() })
+        Ok(super::Stream { reported_buffer_size: None, control, worker: Some(worker), latch: Latch::new() })
     }
 }
 
