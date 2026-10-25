@@ -1,6 +1,6 @@
 //! OSS device enumeration via /dev/sndstat.
 
-use std::{fs, io, vec, fmt, sync::Arc};
+use std::{fs, io, vec, fmt, sync::Arc, fmt::Display};
 
 use crate::{
     host::{latch::Latch, oss::stream},
@@ -34,22 +34,32 @@ use super::{
     },
 };
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash)]
 pub struct Device {
     /// The full path to the device node to open (e.g. "/dev/dsp0" or "/dev/dsp")
     pub(super) path: String,
     /// Human-readable name from sndstat, (e.g. "Intel 82801I (ICH9) High Definition Audio Controller")
-    pub(super) desc: Option<String>, // [TODO] Maybe not Option?
+    pub(super) desc: Option<String>, // [TODO]: Maybe not Option?
     pub(super) direction: DeviceDirection,
 }
 
 // Every single host seems to have this exact same Display code
-impl fmt::Display for Device {
+impl Display for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Instead of directly using self.path here, I'm going to leave it as is, for when I get round to
+        // proper device names.
         let desc = self.description().map_err(|_| fmt::Error)?;
         f.write_str(desc.name())
     }
 }
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
+}
+
+impl Eq for Device {}
 
 #[derive(Clone)]
 pub struct SupportedConfigsIter {
