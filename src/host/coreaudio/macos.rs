@@ -463,10 +463,9 @@ impl DefaultOutputMonitor {
                         // DefaultOutput AudioUnit rerouted automatically: recompute and notify
                         // the buffer depth for the new device.
                         refresh_latency(stream, &latency_refresh);
-                        let replacement =
+                        overload_shutdown_tx =
                             spawn_overload_listener(device.audio_device_id, pending_xrun.clone())
                                 .ok();
-                        drop(std::mem::replace(&mut overload_shutdown_tx, replacement));
                         // Skipped once the monitor is dropped: there is nothing left to notify.
                         set_buffer_size_listener(
                             &buffer_size_listener_thread,
