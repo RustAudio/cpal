@@ -23,6 +23,9 @@ mod stream;
 mod clock;
 mod probe;
 
+#[cfg(feature = "realtime")]
+mod realtime;
+
 /// Kernel routes this node to the default unit (`hw.snd.default_unit`).
 const DEFAULT_DSP_PATH: &str = "/dev/dsp";
 

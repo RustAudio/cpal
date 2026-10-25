@@ -1,7 +1,7 @@
 //! Stream creation, and lifetime handling for OSS
 //! 
-//! The current approach uses a blocking thread to handle the FD,
-//! its lifetime cycle for output looks roughly like this:
+//! The current approach uses a blocking worker thread to handle
+//! the FD, its lifetime cycle for output looks roughly like this:
 //! 
 //! loop {
 //!     wait if paused; exit if stopping
@@ -12,8 +12,6 @@
 //!     on error: call the error callback
 //!     on a fatal error: call the error callback and stop
 //! }
-//! 
-//! [TODO]: High-priority threads.
 
 use std::{
     thread::JoinHandle,
@@ -153,6 +151,11 @@ where
     D: FnMut(&Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error               ) + Send + 'static,
 {
+    #[cfg(feature = "realtime")]
+    if let Err(e) = super::realtime::promote_current_thread() {
+        error_callback(e)
+    }
+
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
 
@@ -217,6 +220,11 @@ where
     D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error                   ) + Send + 'static,
 {
+    #[cfg(feature = "realtime")]
+    if let Err(e) = super::realtime::promote_current_thread() {
+        error_callback(e)
+    }
+
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
 
@@ -280,6 +288,11 @@ where
     D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
     E: FnMut(Error                                ) + Send + 'static,
 {
+    #[cfg(feature = "realtime")]
+    if let Err(e) = super::realtime::promote_current_thread() {
+        error_callback(e)
+    }
+
     let mut in_buf  = vec![0u8; in_period_bytes];
     let mut in_filled = 0;
     let mut out_buf = vec![0u8; out_period_bytes];
