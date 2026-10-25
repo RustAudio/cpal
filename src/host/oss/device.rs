@@ -83,6 +83,7 @@ impl DeviceTrait for Device {
         Ok(builder.build())
     }
 
+    // [TODO]: Strip /dev/ from each path
     fn id(&self) -> Result<crate::DeviceId, Error> {
         // I don't think this is persistent between changing devices
         // infalliable though

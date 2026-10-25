@@ -9,7 +9,7 @@
 use std::{io, path::Path};
 
 use crate::{
-    DeviceId, Error, ErrorKind,
+    DeviceId, Error, ErrorKind, HostId,
     traits::{DeviceTrait, HostTrait},
 };
 
@@ -54,9 +54,17 @@ impl HostTrait for Host {
     }
 
     fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
+        if id.host() != HostId::Oss {
+            return None
+        }
+
+        if id.id() == DEFAULT_DSP_PATH {
+            return device::default_device();
+        }
+
         self.devices()
             .ok()?
-            .find(|d| d.id().ok().as_ref() == Some(&id))
+            .find(|d| d.id().ok().as_ref() == Some(id))
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
