@@ -22,7 +22,7 @@ thread_local!(static COM_INITIALIZED_MTA: ComInitialized = {
 ///
 // We store a raw pointer because it's the only way at the moment to remove `Send`/`Sync` from the
 // object.
-struct ComInitialized {
+pub(super) struct ComInitialized {
     result: windows::core::HRESULT,
     _ptr: PhantomData<*mut ()>,
 }
@@ -38,7 +38,7 @@ impl Drop for ComInitialized {
 }
 
 impl ComInitialized {
-    fn new(concurrency_model: COINIT) -> Self {
+    pub(super) fn new(concurrency_model: COINIT) -> Self {
         unsafe {
             // This can fail with RPC_E_CHANGED_MODE if another library initialized COM with a
             // different model. That's OK: COM is already initialized on this thread.

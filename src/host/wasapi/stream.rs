@@ -24,28 +24,37 @@ use crate::{
     traits::StreamTrait,
 };
 
-const DEVICE_ERROR_NONE: u8 = 0;
-const DEVICE_ERROR_NOT_AVAILABLE: u8 = 1;
-const DEVICE_ERROR_CHANGED: u8 = 2;
+#[repr(u8)]
+#[derive(Clone, Copy)]
+enum DeviceChangeError {
+    None = 0,
+    NotAvailable = 1,
+    Changed = 2,
+}
 
 /// A kernel event whose lifetime is shared by the monitor and the audio run loop.
 ///
 /// The audio loop can outlive `DefaultDeviceMonitor` when a stream is dropped from one of its
-/// callbacks. Store the opaque handle as an integer so the shared owner is `Send + Sync`; event
-/// handles can be signalled and waited on from any thread.
-struct MonitorEvent(usize);
+/// callbacks. Arc-based ownership keeps the handle valid until every waiter and signaler is done.
+struct OwnedEvent(Foundation::HANDLE);
 
-impl MonitorEvent {
-    fn new(handle: Foundation::HANDLE) -> Self {
-        Self(handle.0 as usize)
+// SAFETY: Windows event handles can be waited on and signalled from any thread. The Arc keeps
+// the handle open until all users have released their ownership.
+unsafe impl Send for OwnedEvent {}
+unsafe impl Sync for OwnedEvent {}
+
+impl OwnedEvent {
+    fn new() -> windows::core::Result<Self> {
+        let handle = unsafe { Threading::CreateEventW(None, false, false, None)? };
+        Ok(Self(handle))
     }
 
     fn handle(&self) -> Foundation::HANDLE {
-        Foundation::HANDLE(self.0 as *mut std::ffi::c_void)
+        self.0
     }
 }
 
-impl Drop for MonitorEvent {
+impl Drop for OwnedEvent {
     fn drop(&mut self) {
         unsafe {
             let _ = Foundation::CloseHandle(self.handle());
@@ -55,49 +64,29 @@ impl Drop for MonitorEvent {
 
 /// Fires a Windows auto-reset event when the system default audio device changes.
 pub(crate) struct DefaultDeviceMonitor {
-    stop_event: Foundation::HANDLE,
+    stop_event: Arc<OwnedEvent>,
     worker: Option<JoinHandle<()>>,
-    event: Arc<MonitorEvent>,
+    event: Arc<OwnedEvent>,
     pending_device_error: Arc<AtomicU8>,
 }
 
 impl DefaultDeviceMonitor {
     pub fn new(flow: Audio::EDataFlow) -> Result<Self, Error> {
-        let event = Arc::new(MonitorEvent::new(unsafe {
-            Threading::CreateEventW(None, false, false, None).map_err(Error::from)?
-        }));
-        let notification_event = match unsafe { Threading::CreateEventW(None, false, false, None) }
-        {
-            Ok(event) => event,
-            Err(error) => {
-                drop(event);
-                return Err(Error::from(error));
-            }
-        };
-        let notification_event = Arc::new(MonitorEvent::new(notification_event));
-        let stop_event = match unsafe { Threading::CreateEventW(None, false, false, None) } {
-            Ok(event) => event,
-            Err(error) => {
-                drop(event);
-                drop(notification_event);
-                return Err(Error::from(error));
-            }
-        };
+        let event = Arc::new(OwnedEvent::new().map_err(Error::from)?);
+        let notification_event = Arc::new(OwnedEvent::new().map_err(Error::from)?);
+        let stop_event = Arc::new(OwnedEvent::new().map_err(Error::from)?);
         let pending_default_changed = Arc::new(AtomicBool::new(false));
-        let pending_device_error = Arc::new(AtomicU8::new(DEVICE_ERROR_NONE));
+        let pending_device_error = Arc::new(AtomicU8::new(DeviceChangeError::None as u8));
         let worker_pending_default_changed = pending_default_changed.clone();
         let worker_pending_device_error = pending_device_error.clone();
-        // `HANDLE` is an opaque, thread-safe kernel handle, but the windows crate models it as a
-        // raw pointer and therefore does not implement `Send`. Move its bit pattern as `usize`.
-        let event_handle = event.handle().0 as usize;
-        let stop_event_handle = stop_event.0 as usize;
+        let worker_event = Arc::clone(&event);
+        let worker_notification_event = Arc::clone(&notification_event);
+        let worker_stop_event = Arc::clone(&stop_event);
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
 
         let worker = match thread::Builder::new()
             .name("cpal_wasapi_device_monitor".to_owned())
             .spawn(move || {
-                let event = Foundation::HANDLE(event_handle as *mut std::ffi::c_void);
-                let stop_event = Foundation::HANDLE(stop_event_handle as *mut std::ffi::c_void);
                 // Keep every IMMDeviceEnumerator call, including unregister, on the apartment
                 // that created the enumerator. Notification callbacks only signal an event.
                 crate::host::com::com_initialized_mta();
@@ -105,13 +94,14 @@ impl DefaultDeviceMonitor {
                     Ok(enumerator) => enumerator,
                     Err(error) => {
                         let _ = ready_tx.send(Err(error.to_string()));
-                        close_default_device_monitor_handles(stop_event);
                         return;
                     }
                 };
+                // The worker and COM callback share one handle owner; the Arc keeps the event
+                // open until both have finished using it.
                 let client: Audio::IMMNotificationClient = DefaultDeviceNotificationImpl {
                     flow,
-                    notification_event: Arc::clone(&notification_event),
+                    notification_event: Arc::clone(&worker_notification_event),
                     pending_default_changed: worker_pending_default_changed,
                 }
                 .into();
@@ -120,7 +110,6 @@ impl DefaultDeviceMonitor {
                     unsafe { enumerator.RegisterEndpointNotificationCallback(&client) }
                 {
                     let _ = ready_tx.send(Err(error.to_string()));
-                    close_default_device_monitor_handles(stop_event);
                     return;
                 }
 
@@ -128,15 +117,14 @@ impl DefaultDeviceMonitor {
                     let unregistered =
                         unsafe { enumerator.UnregisterEndpointNotificationCallback(&client) }
                             .is_ok();
-                    close_default_device_monitor_handles_after_unregister(
-                        Arc::clone(&notification_event),
-                        stop_event,
-                        unregistered,
-                    );
+                    retain_event_if_unregister_failed(worker_notification_event, unregistered);
                     return;
                 }
 
-                let handles = [stop_event, notification_event.handle()];
+                let handles = [
+                    worker_stop_event.handle(),
+                    worker_notification_event.handle(),
+                ];
                 loop {
                     let result = unsafe {
                         Threading::WaitForMultipleObjectsEx(
@@ -160,13 +148,13 @@ impl DefaultDeviceMonitor {
                                     .is_some();
                             if default_changed || !default_available {
                                 let error = if default_available {
-                                    DEVICE_ERROR_CHANGED
+                                    DeviceChangeError::Changed
                                 } else {
-                                    DEVICE_ERROR_NOT_AVAILABLE
+                                    DeviceChangeError::NotAvailable
                                 };
-                                worker_pending_device_error.store(error, Ordering::Release);
-                                unsafe {
-                                    let _ = Threading::SetEvent(event);
+                                worker_pending_device_error.store(error as u8, Ordering::Release);
+                                if unsafe { Threading::SetEvent(worker_event.handle()) }.is_err() {
+                                    break;
                                 }
                             }
                         }
@@ -176,15 +164,10 @@ impl DefaultDeviceMonitor {
 
                 let unregistered =
                     unsafe { enumerator.UnregisterEndpointNotificationCallback(&client) }.is_ok();
-                close_default_device_monitor_handles_after_unregister(
-                    Arc::clone(&notification_event),
-                    stop_event,
-                    unregistered,
-                );
+                retain_event_if_unregister_failed(worker_notification_event, unregistered);
             }) {
             Ok(worker) => worker,
             Err(error) => {
-                close_default_device_monitor_handles(stop_event);
                 return Err(Error::with_message(
                     ErrorKind::ResourceExhausted,
                     format!("Failed to create device notification thread: {error}"),
@@ -219,33 +202,17 @@ impl DefaultDeviceMonitor {
     }
 }
 
-fn close_default_device_monitor_handles(stop_event: Foundation::HANDLE) {
-    unsafe {
-        let _ = Foundation::CloseHandle(stop_event);
-    }
-}
-
-fn close_default_device_monitor_handles_after_unregister(
-    notification_event: Arc<MonitorEvent>,
-    stop_event: Foundation::HANDLE,
-    unregistered: bool,
-) {
-    if unregistered {
-        close_default_device_monitor_handles(stop_event);
-    } else {
-        // A failed unregister can leave callbacks in flight. Keep the callback event alive in
-        // case Windows still invokes the registered client after this worker exits.
-        std::mem::forget(notification_event);
-        unsafe {
-            let _ = Foundation::CloseHandle(stop_event);
-        }
+fn retain_event_if_unregister_failed(event: Arc<OwnedEvent>, unregistered: bool) {
+    if !unregistered {
+        // A failed unregister can leave callbacks in flight, so preserve their event handle.
+        std::mem::forget(event);
     }
 }
 
 impl Drop for DefaultDeviceMonitor {
     fn drop(&mut self) {
         unsafe {
-            let _ = Threading::SetEvent(self.stop_event);
+            let _ = Threading::SetEvent(self.stop_event.handle());
         }
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
@@ -257,7 +224,7 @@ impl Drop for DefaultDeviceMonitor {
 #[windows::core::implement(Audio::IMMNotificationClient)]
 struct DefaultDeviceNotificationImpl {
     flow: Audio::EDataFlow,
-    notification_event: Arc<MonitorEvent>,
+    notification_event: Arc<OwnedEvent>,
     pending_default_changed: Arc<AtomicBool>,
 }
 
@@ -271,7 +238,7 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
         if flow == self.flow && role == Audio::eConsole {
             self.pending_default_changed.store(true, Ordering::Release);
             unsafe {
-                let _ = Threading::SetEvent(self.notification_event.handle());
+                Threading::SetEvent(self.notification_event.handle())?;
             }
         }
         Ok(())
@@ -294,7 +261,7 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
             // The monitor thread checks for a replacement default without making COM calls from
             // this Windows-managed callback thread.
             unsafe {
-                let _ = Threading::SetEvent(self.notification_event.handle());
+                Threading::SetEvent(self.notification_event.handle())?;
             }
         }
         Ok(())
@@ -308,7 +275,7 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
         // The monitor thread checks for a replacement default without making COM calls from this
         // Windows-managed callback thread.
         unsafe {
-            let _ = Threading::SetEvent(self.notification_event.handle());
+            Threading::SetEvent(self.notification_event.handle())?;
         }
         Ok(())
     }
@@ -382,7 +349,7 @@ struct RunContext {
     pending_device_error: Option<Arc<AtomicU8>>,
 
     // Keeps the monitor event alive until this run loop stops waiting on it.
-    _default_device_monitor_event: Option<Arc<MonitorEvent>>,
+    _default_device_monitor_event: Option<Arc<OwnedEvent>>,
 
     // Owned here so the worker thread closes it on exit in a self-join case.
     pending_scheduled_event: Foundation::HANDLE,
@@ -966,8 +933,10 @@ fn boost_current_thread_priority(
 
 fn default_device_change_error(reason: u8) -> Option<Error> {
     match reason {
-        DEVICE_ERROR_NOT_AVAILABLE => Some(ErrorKind::DeviceNotAvailable.into()),
-        DEVICE_ERROR_CHANGED => Some(ErrorKind::DeviceChanged.into()),
+        value if value == DeviceChangeError::NotAvailable as u8 => {
+            Some(ErrorKind::DeviceNotAvailable.into())
+        }
+        value if value == DeviceChangeError::Changed as u8 => Some(ErrorKind::DeviceChanged.into()),
         _ => None,
     }
 }
@@ -976,7 +945,7 @@ fn take_default_device_change_error(run_context: &RunContext) -> Option<Error> {
     let reason = run_context
         .pending_device_error
         .as_ref()?
-        .swap(DEVICE_ERROR_NONE, Ordering::AcqRel);
+        .swap(DeviceChangeError::None as u8, Ordering::AcqRel);
     default_device_change_error(reason)
 }
 
@@ -1256,7 +1225,7 @@ fn output_timestamp(
 
 #[cfg(test)]
 mod tests {
-    use super::{Audio, DefaultDeviceMonitor, DefaultDeviceNotificationImpl, MonitorEvent};
+    use super::{Audio, DefaultDeviceMonitor, DefaultDeviceNotificationImpl, OwnedEvent};
     use std::sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -1275,10 +1244,8 @@ mod tests {
 
     #[test]
     fn notification_callbacks_do_not_initialize_com() {
-        let notification_event = Arc::new(MonitorEvent::new(unsafe {
-            Threading::CreateEventW(None, false, false, None)
-                .expect("notification event should be created")
-        }));
+        let notification_event =
+            Arc::new(OwnedEvent::new().expect("notification event should be created"));
 
         std::thread::spawn(move || {
             let notification_event_handle = notification_event.handle();
@@ -1435,11 +1402,7 @@ mod tests {
 
     #[test]
     fn monitor_event_stays_open_until_the_run_loop_releases_it() {
-        let handle = unsafe {
-            Threading::CreateEventW(None, false, false, None)
-                .expect("monitor event should be created")
-        };
-        let event = Arc::new(MonitorEvent::new(handle));
+        let event = Arc::new(OwnedEvent::new().expect("monitor event should be created"));
         let run_loop_event = Arc::clone(&event);
         let raw_handle = event.handle();
 

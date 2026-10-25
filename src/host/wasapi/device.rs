@@ -8,6 +8,7 @@ use std::{
     sync::{
         Arc, Mutex, MutexGuard, OnceLock,
         atomic::{AtomicBool, AtomicU64},
+        mpsc::{self, Sender, SyncSender},
     },
     thread,
     time::Duration,
@@ -1155,31 +1156,46 @@ impl Endpoint {
     }
 }
 
-static ENUMERATOR: OnceLock<Result<Enumerator, windows::core::Error>> = OnceLock::new();
+thread_local! {
+    static ENUMERATOR: std::cell::RefCell<Option<Enumerator>> = const { std::cell::RefCell::new(None) };
+}
+
+type DefaultEndpointQuery = (Audio::EDataFlow, SyncSender<bool>);
+static DEFAULT_ENDPOINT_QUERY: OnceLock<Option<Sender<DefaultEndpointQuery>>> = OnceLock::new();
 
 /// Returns the current default audio endpoint for `flow`, or `None` if none exists.
 pub(super) fn current_default_endpoint(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
-    // Resolve endpoints on the caller's apartment. Public default-device lookups check
-    // availability on a short-lived MTA worker so they do not explicitly initialize the caller
-    // or change an uninitialized UI thread's default STA policy.
     com::com_initialized();
-    let enumerator = create_enumerator().ok()?;
+    let enumerator = get_enumerator().ok()?;
     current_default_endpoint_with(&enumerator, flow)
 }
 
 fn default_endpoint_available(flow: Audio::EDataFlow) -> bool {
-    thread::Builder::new()
-        .name("cpal_wasapi_default_endpoint_query".to_owned())
-        .spawn(move || {
-            com::com_initialized_mta();
-            let Ok(enumerator) = create_enumerator() else {
-                return false;
-            };
-            current_default_endpoint_with(&enumerator, flow).is_some()
+    let Some(sender) = DEFAULT_ENDPOINT_QUERY
+        .get_or_init(|| {
+            let (query_tx, query_rx) = mpsc::channel::<DefaultEndpointQuery>();
+            thread::Builder::new()
+                .name("cpal_wasapi_default_endpoint_query".to_owned())
+                .spawn(move || {
+                    com::com_initialized_mta();
+                    let Ok(enumerator) = create_enumerator() else {
+                        return;
+                    };
+                    while let Ok((flow, result_tx)) = query_rx.recv() {
+                        let available = current_default_endpoint_with(&enumerator, flow).is_some();
+                        let _ = result_tx.send(available);
+                    }
+                })
+                .ok()
+                .map(|_| query_tx)
         })
-        .ok()
-        .and_then(|worker| worker.join().ok())
-        .unwrap_or(false)
+        .as_ref()
+    else {
+        return false;
+    };
+
+    let (result_tx, result_rx) = mpsc::sync_channel(1);
+    sender.send((flow, result_tx)).is_ok() && result_rx.recv().unwrap_or(false)
 }
 
 /// Creates an enumerator for use on the calling thread.
@@ -1209,11 +1225,24 @@ pub(super) fn current_default_endpoint_with(
     }
 }
 
-fn get_enumerator() -> Result<&'static Enumerator, windows::core::Error> {
-    ENUMERATOR
-        .get_or_init(|| create_enumerator().map(Enumerator))
-        .as_ref()
-        .map_err(Clone::clone)
+fn get_enumerator() -> Result<Audio::IMMDeviceEnumerator, windows::core::Error> {
+    ENUMERATOR.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.is_none() {
+            let com_initialized =
+                com::ComInitialized::new(windows::Win32::System::Com::COINIT_APARTMENTTHREADED);
+            let interface = create_enumerator()?;
+            *cache = Some(Enumerator {
+                interface,
+                _com_initialized: com_initialized,
+            });
+        }
+        Ok(cache
+            .as_ref()
+            .expect("enumerator was initialized above")
+            .interface
+            .clone())
+    })
 }
 
 // Helper function to query a DWORD property from a WASAPI device property store
@@ -1277,11 +1306,11 @@ unsafe fn get_property_string(
     result
 }
 
-/// Send/Sync wrapper around `IMMDeviceEnumerator`.
-struct Enumerator(Audio::IMMDeviceEnumerator);
-
-unsafe impl Send for Enumerator {}
-unsafe impl Sync for Enumerator {}
+/// Per-thread cache that keeps its COM apartment initialized until after the interface is released.
+struct Enumerator {
+    interface: Audio::IMMDeviceEnumerator,
+    _com_initialized: com::ComInitialized,
+}
 
 /// WASAPI implementation for `Devices`.
 pub struct Devices {
@@ -1295,9 +1324,8 @@ impl Devices {
         com::com_initialized();
         unsafe {
             // can fail because of wrong parameters (should never happen) or out of memory
-            let collection = get_enumerator()
-                .context("Failed to get device enumerator")?
-                .0
+            let enumerator = get_enumerator().context("Failed to get device enumerator")?;
+            let collection = enumerator
                 .EnumAudioEndpoints(Audio::eAll, Audio::DEVICE_STATE_ACTIVE)
                 .context("Failed to enumerate audio endpoints")?;
 
