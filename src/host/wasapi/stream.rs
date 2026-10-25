@@ -1264,10 +1264,7 @@ mod tests {
     use windows::Win32::{
         Foundation::{CO_E_NOTINITIALIZED, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
         System::{
-            Com::{
-                APTTYPE, APTTYPE_MAINSTA, APTTYPE_MTA, APTTYPE_STA, APTTYPEQUALIFIER,
-                CoGetApartmentType,
-            },
+            Com::{APTTYPE, APTTYPE_MAINSTA, APTTYPE_STA, APTTYPEQUALIFIER, CoGetApartmentType},
             Threading,
         },
     };
@@ -1353,7 +1350,34 @@ mod tests {
     }
 
     #[test]
-    fn default_endpoint_queries_initialize_uninitialized_threads_as_mta() {
+    fn default_device_lookup_leaves_an_uninitialized_caller_uninitialized() {
+        std::thread::spawn(|| {
+            let mut apartment_type = APTTYPE(-1);
+            let mut apartment_qualifier = APTTYPEQUALIFIER(0);
+            let before =
+                unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) };
+            assert_eq!(
+                before.unwrap_err().code(),
+                CO_E_NOTINITIALIZED,
+                "test worker should start without COM initialized"
+            );
+
+            let _ = super::super::device::default_output_device();
+
+            let after =
+                unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) };
+            assert_eq!(
+                after.unwrap_err().code(),
+                CO_E_NOTINITIALIZED,
+                "default-device availability checks must not initialize the caller's COM apartment"
+            );
+        })
+        .join()
+        .expect("worker thread should complete");
+    }
+
+    #[test]
+    fn default_endpoint_resolution_initializes_uninitialized_callers_as_sta() {
         std::thread::spawn(|| {
             let mut apartment_type = APTTYPE(-1);
             let mut apartment_qualifier = APTTYPEQUALIFIER(0);
@@ -1368,10 +1392,10 @@ mod tests {
             let _ = super::super::device::current_default_endpoint(Audio::eRender);
 
             unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) }
-                .expect("default endpoint query should initialize COM");
-            assert_eq!(
-                apartment_type, APTTYPE_MTA,
-                "default endpoint queries must not initialize pool workers as STAs"
+                .expect("default endpoint resolution should initialize COM");
+            assert!(
+                apartment_type == APTTYPE_STA || apartment_type == APTTYPE_MAINSTA,
+                "default endpoint resolution should preserve cpal's default STA policy"
             );
         })
         .join()

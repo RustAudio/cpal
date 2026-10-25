@@ -9,6 +9,7 @@ use std::{
         Arc, Mutex, MutexGuard, OnceLock,
         atomic::{AtomicBool, AtomicU64},
     },
+    thread,
     time::Duration,
 };
 
@@ -1158,12 +1159,27 @@ static ENUMERATOR: OnceLock<Result<Enumerator, windows::core::Error>> = OnceLock
 
 /// Returns the current default audio endpoint for `flow`, or `None` if none exists.
 pub(super) fn current_default_endpoint(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
-    // These queries can be made from Windows-managed thread-pool callbacks. Initialize a free
-    // thread as MTA so a persistent pool thread is not changed into an STA. CoInitializeEx
-    // returns RPC_E_CHANGED_MODE for an existing STA, which remains unchanged for UI callers.
-    com::com_initialized_mta();
+    // Resolve endpoints on the caller's apartment. Public default-device lookups check
+    // availability on a short-lived MTA worker so they do not initialize Windows-owned callback
+    // threads or change an uninitialized UI thread's default STA policy.
+    com::com_initialized();
     let enumerator = create_enumerator().ok()?;
     current_default_endpoint_with(&enumerator, flow)
+}
+
+fn default_endpoint_available(flow: Audio::EDataFlow) -> bool {
+    thread::Builder::new()
+        .name("cpal_wasapi_default_endpoint_query".to_owned())
+        .spawn(move || {
+            com::com_initialized_mta();
+            let Ok(enumerator) = create_enumerator() else {
+                return false;
+            };
+            current_default_endpoint_with(&enumerator, flow).is_some()
+        })
+        .ok()
+        .and_then(|worker| worker.join().ok())
+        .unwrap_or(false)
 }
 
 /// Creates an enumerator for use on the calling thread.
@@ -1324,13 +1340,13 @@ impl Iterator for Devices {
 }
 
 pub fn default_input_device() -> Option<Device> {
-    // Detect if a default input device exists before creating a `Device` for it.
-    current_default_endpoint(Audio::eCapture).map(|_| Device::default_input())
+    // Check availability on an owned MTA worker, leaving the caller's apartment unchanged.
+    default_endpoint_available(Audio::eCapture).then(Device::default_input)
 }
 
 pub fn default_output_device() -> Option<Device> {
-    // Detect if a default output device exists before creating a `Device` for it.
-    current_default_endpoint(Audio::eRender).map(|_| Device::default_output())
+    // Check availability on an owned MTA worker, leaving the caller's apartment unchanged.
+    default_endpoint_available(Audio::eRender).then(Device::default_output)
 }
 
 impl From<Audio::EDataFlow> for DeviceDirection {
