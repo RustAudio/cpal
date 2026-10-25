@@ -1282,16 +1282,17 @@ mod tests {
 
         std::thread::spawn(move || {
             let notification_event_handle = notification_event.handle();
-            let mut apartment_type = APTTYPE(-1);
-            let mut apartment_qualifier = APTTYPEQUALIFIER(0);
-            let before =
-                unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) };
-            assert_eq!(
-                before.unwrap_err().code(),
-                CO_E_NOTINITIALIZED,
-                "test worker should start without COM initialized"
-            );
-
+            let apartment_state = || {
+                let mut apartment_type = APTTYPE(-1);
+                let mut apartment_qualifier = APTTYPEQUALIFIER(0);
+                match unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) } {
+                    Ok(()) => Some((apartment_type, apartment_qualifier)),
+                    Err(error) if error.code() == CO_E_NOTINITIALIZED => None,
+                    Err(error) => {
+                        panic!("failed to query the test thread's COM apartment: {error}")
+                    }
+                }
+            };
             let pending_default_changed = Arc::new(AtomicBool::new(false));
             let notification: Audio::IMMNotificationClient = DefaultDeviceNotificationImpl {
                 flow: Audio::eRender,
@@ -1299,6 +1300,7 @@ mod tests {
                 pending_default_changed: pending_default_changed.clone(),
             }
             .into();
+            let before = apartment_state();
             drop(notification_event);
             let device_id = PCWSTR::null();
 
@@ -1333,11 +1335,9 @@ mod tests {
                 WAIT_OBJECT_0
             );
 
-            let after =
-                unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) };
             assert_eq!(
-                after.unwrap_err().code(),
-                CO_E_NOTINITIALIZED,
+                apartment_state(),
+                before,
                 "notification callbacks must not initialize their caller's COM apartment"
             );
 
