@@ -129,9 +129,9 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
+        let monitor = self.default_device_monitor()?;
         let stream_inner = self.build_input_stream_raw_inner(config, sample_format, timeout)?;
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let monitor = self.default_device_monitor()?;
         let stream = Stream::new_input(stream_inner, data_callback, error_callback, monitor)?;
         stream.signal_ready();
         Ok(stream)
@@ -152,9 +152,9 @@ impl DeviceTrait for Device {
         // Keep `playback` monotonic: an underrun can saturate `buffered` to zero, pulling
         // `playback` backward.
         let data_callback = crate::host::monotonic_output_callback(data_callback);
+        let monitor = self.default_device_monitor()?;
         let stream_inner = self.build_output_stream_raw_inner(config, sample_format, timeout)?;
         let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
-        let monitor = self.default_device_monitor()?;
         let stream = Stream::new_output(stream_inner, data_callback, error_callback, monitor)?;
         stream.signal_ready();
         Ok(stream)
@@ -555,12 +555,7 @@ impl Device {
             DeviceHandle::DefaultInput => Audio::eCapture,
             DeviceHandle::Specific(_) => return Ok(None),
         };
-        com::com_initialized();
-        let enumerator = get_enumerator()
-            .context("Failed to get device enumerator")?
-            .0
-            .clone();
-        DefaultDeviceMonitor::new(enumerator, flow).map(Some)
+        DefaultDeviceMonitor::new(flow).map(Some)
     }
 
     /// Ensures that `future_audio_client` contains a `Some` and returns a locked mutex to it.
@@ -1162,26 +1157,37 @@ impl Endpoint {
 static ENUMERATOR: OnceLock<Result<Enumerator, windows::core::Error>> = OnceLock::new();
 
 /// Returns the current default audio endpoint for `flow`, or `None` if none exists.
-///
-/// Shared by [`Device::immdevice`] and the stream-side `get_current_default` helper to
-/// avoid duplicating the `GetDefaultAudioEndpoint` call.
 pub(super) fn current_default_endpoint(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
-    com::com_initialized();
-    current_default_endpoint_inner(flow)
-}
-
-/// Returns the current default endpoint when called from a worker initialized as MTA.
-pub(super) fn current_default_endpoint_on_mta(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
+    // These queries can be made from Windows-managed thread-pool callbacks. Initialize a free
+    // thread as MTA so a persistent pool thread is not changed into an STA. CoInitializeEx
+    // returns RPC_E_CHANGED_MODE for an existing STA, which remains unchanged for UI callers.
     com::com_initialized_mta();
-    current_default_endpoint_inner(flow)
+    let enumerator = create_enumerator().ok()?;
+    current_default_endpoint_with(&enumerator, flow)
 }
 
-fn current_default_endpoint_inner(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
-    // SAFETY: `get_enumerator()` is a thread-safe singleton initialised at first use.
+/// Creates an enumerator for use on the calling thread.
+///
+/// The caller must keep the interface on the same COM apartment for its entire lifetime.
+pub(super) fn create_enumerator() -> Result<Audio::IMMDeviceEnumerator, windows::core::Error> {
+    // SAFETY: `MMDeviceEnumerator` is a well-known in-process COM class.
     unsafe {
-        get_enumerator()
-            .ok()?
-            .0
+        Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
+            &Audio::MMDeviceEnumerator,
+            None,
+            Com::CLSCTX_ALL,
+        )
+    }
+}
+
+/// Returns the current default endpoint using an enumerator owned by the caller's apartment.
+pub(super) fn current_default_endpoint_with(
+    enumerator: &Audio::IMMDeviceEnumerator,
+    flow: Audio::EDataFlow,
+) -> Option<Audio::IMMDevice> {
+    // SAFETY: the enumerator is valid and owned by the caller's COM apartment.
+    unsafe {
+        enumerator
             .GetDefaultAudioEndpoint(flow, Audio::eConsole)
             .ok()
     }
@@ -1189,20 +1195,7 @@ fn current_default_endpoint_inner(flow: Audio::EDataFlow) -> Option<Audio::IMMDe
 
 fn get_enumerator() -> Result<&'static Enumerator, windows::core::Error> {
     ENUMERATOR
-        .get_or_init(|| {
-            // SAFETY: `MMDeviceEnumerator` is a well-known in-process COM class; the returned
-            // interface pointer is only read through the safe `IMMDeviceEnumerator` wrapper.
-            // Callers initialize COM with the apartment appropriate for their thread before
-            // reaching this function.
-            unsafe {
-                Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
-                    &Audio::MMDeviceEnumerator,
-                    None,
-                    Com::CLSCTX_ALL,
-                )
-            }
-            .map(Enumerator)
-        })
+        .get_or_init(|| create_enumerator().map(Enumerator))
         .as_ref()
         .map_err(Clone::clone)
 }
