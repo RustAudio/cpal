@@ -81,7 +81,7 @@ impl Stream {
         mut data_callback: D,
         mut error_callback: E,
         timeout: Option<Duration>,
-    ) -> Stream
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
@@ -115,13 +115,13 @@ impl Stream {
             })?;
         latch.add_thread(thread.thread().clone());
 
-        Self {
+        Ok(Self {
             thread: Some(thread),
             kind: StreamKind::Single(inner),
             trigger: tx,
             _rx: rx,
             latch,
-        }
+        })
     }
 
     pub(super) fn new_output<D, E>(
@@ -129,7 +129,7 @@ impl Stream {
         mut data_callback: D,
         mut error_callback: E,
         timeout: Option<Duration>,
-    ) -> Stream
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
@@ -163,13 +163,13 @@ impl Stream {
             })?;
         latch.add_thread(thread.thread().clone());
 
-        Self {
+        Ok(Self {
             thread: Some(thread),
             kind: StreamKind::Single(inner),
             trigger: tx,
             _rx: rx,
             latch,
-        }
+        })
     }
 
     pub(super) fn new_duplex<D, E>(
@@ -177,7 +177,7 @@ impl Stream {
         mut data_callback: D,
         mut error_callback: E,
         timeout: Option<Duration>,
-    ) -> Stream
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
@@ -211,13 +211,13 @@ impl Stream {
             })?;
         latch.add_thread(thread.thread().clone());
 
-        Self {
+        Ok(Self {
             thread: Some(thread),
             kind: StreamKind::Duplex(inner),
             trigger: tx,
             _rx: rx,
             latch,
-        }
+        })
     }
 
     fn suspend_pcm(&self, inner: &StreamInner) -> Result<(), Error> {
