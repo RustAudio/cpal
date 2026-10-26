@@ -57,8 +57,8 @@ impl Host {
         for phys_dev in physical_devices {
             for prefix in [HW_PREFIX, PLUGHW_PREFIX] {
                 let pcm_id = format!(
-                    "{}:CARD={},DEV={}",
-                    prefix, phys_dev.card_index, phys_dev.device_index
+                    "{prefix}:CARD={},DEV={}",
+                    phys_dev.card_index, phys_dev.device_index
                 );
 
                 if seen_pcm_ids.insert(pcm_id.clone()) {
