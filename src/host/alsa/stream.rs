@@ -6,8 +6,8 @@ use super::{
     worker::{input_stream_worker, output_stream_worker},
 };
 use crate::{
-    CallbackInfo, Data, DeviceDirection, DuplexCallbackInfo, Error, ErrorKind, FrameCount, SampleFormat,
-    SampleRate, StreamInstant,
+    CallbackInfo, Data, DeviceDirection, DuplexCallbackInfo, Error, ErrorKind, FrameCount,
+    SampleFormat, SampleRate, StreamInstant,
     host::{
         Notify,
         equilibrium::{DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE, fill_equilibrium},
