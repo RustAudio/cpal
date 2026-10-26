@@ -60,8 +60,7 @@ pub struct StreamTimestamp {
 /// | --------- | ----- |
 /// | Same-cycle | AAudio, ALSA, PipeWire, WASAPI (capture) |
 /// | Next-cycle | CoreAudio |
-/// | No ordering guarantee | ASIO, JACK, OSS | [MUST-TODO]
-/// | No reporting | [MUST-TODO] |
+/// | No ordering guarantee | ASIO, JACK, OSS |
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CallbackInfo {
     pub(crate) timestamp: StreamTimestamp,
