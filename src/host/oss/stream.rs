@@ -176,9 +176,10 @@ where
         let r = unsafe { libc::poll(&mut pfd, 1, 50) };
         if r < 0 {
             let e = std::io::Error::last_os_error();
-            if e.kind() == std::io::ErrorKind::Interrupted { continue; } else {
-                error_callback(error_from_io(e));
-            }
+            if e.kind() == std::io::ErrorKind::Interrupted { continue; }
+            // Any other errors are fatal, so bail out
+            error_callback(error_from_io(e));
+            break;
         }
         if r == 0 { continue; } // timeout: loop around and re-check flags
 
@@ -208,7 +209,9 @@ where
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock { continue; }
                 if e.kind() == std::io::ErrorKind::Interrupted { continue; }
+                // Any other error is fatal, so call the user's error callback and bail out
                 error_callback(error_from_io(e));
+                break;
             }
         }
     }
@@ -258,10 +261,10 @@ where
         let r = unsafe { libc::poll(&mut pfd, 1, 50) } ;
         if r < 0 {
             let e = std::io::Error::last_os_error();
-            if e.kind() == std::io::ErrorKind::Interrupted { continue; } else {
-                // error callback
-                error_callback(error_from_io(e));
-            }
+            if e.kind() == std::io::ErrorKind::Interrupted { continue; }
+            // fatal error: error callback, then bail out
+            error_callback(error_from_io(e));
+            break;
         }
         if r == 0 { continue; } // timeout: loop around and re-check flags
 
@@ -275,8 +278,9 @@ where
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock { continue; }
                 if e.kind() == std::io::ErrorKind::Interrupted { continue; }
-                // error callback
+                // any other error is fatal, error callback, then bail
                 error_callback(error_from_io(e));
+                break;
             }
         }
     }
@@ -311,7 +315,9 @@ where
             if r < 0 {
                 let e = std::io::Error::last_os_error();
                 if e.kind() == std::io::ErrorKind::Interrupted { continue; }
+                // fatal error: callback, then bail out. return instead of break to avoid retrying in the next loop
                 error_callback(error_from_io(e));
+                return;
             }
             if r == 0 { continue; }
 
@@ -320,9 +326,9 @@ where
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::WouldBlock  { continue; }
                     if e.kind() == std::io::ErrorKind::Interrupted { continue; }
-
+                    // fatal error: callback, then bail out. return instead of break to avoid retrying in the next loop
                     error_callback(error_from_io(e));
-                    break;
+                    return;
                 }
             }
         }
@@ -348,20 +354,21 @@ where
             if r < 0 {
                 let e = std::io::Error::last_os_error();
                 if e.kind() == std::io::ErrorKind::Interrupted { continue; }
+                // fatal error: callback, bail
                 error_callback(error_from_io(e));
-                continue;
+                return;
             }
             if r == 0 { continue; } // timeout: outer loop re-checks pause/stop next pass
 
             match (&fd).read(&mut in_buf[in_filled..]) {
                 Ok(0) => {
-                    error_callback(error_from_io(std::io::Error::from(std::io::ErrorKind::UnexpectedEof)));
+                    error_callback(error_from_io(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))); // [TODO]
                     return;
                 }
                 Ok(n) => in_filled += n,
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock  => continue,
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => { error_callback(error_from_io(e)); continue; }
+                Err(e) => { error_callback(error_from_io(e)); return; } // fatal error: callback, bail.
             }
         }
 
@@ -397,9 +404,10 @@ where
             if r < 0 {
                 let e = std::io::Error::last_os_error();
                 if e.kind() == std::io::ErrorKind::Interrupted { continue; }
-                
+
+                // fatal error: callback, bail
                 error_callback(error_from_io(e));
-                continue;
+                return;
             }
             if r == 0 { continue; }
 
@@ -409,8 +417,9 @@ where
                     if e.kind() == std::io::ErrorKind::WouldBlock  { continue; }
                     if e.kind() == std::io::ErrorKind::Interrupted { continue; }
 
+                    // fatal error: callback, bail
                     error_callback(error_from_io(e));
-                    continue;
+                    return;
                 }
             }
         }
