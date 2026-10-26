@@ -182,7 +182,7 @@ impl Stream {
         let waiter = latch.waiter();
 
         let thread = thread::Builder::new()
-            .name("cpal_alsa_duplex".to_owned())
+            .name("cpal_alsa_dup".to_owned())
             .spawn(move || {
                 waiter.wait();
                 duplex_stream_worker(
