@@ -52,7 +52,7 @@ pub struct DuplexStreamConfig {
         target_os = "windows",
     )
 ))]
-/// Applies [`validate_config`] to each direction of a duplex configuration.
+/// Applies [`validate_stream_config`] to each direction of a duplex configuration.
 pub(crate) fn validate_duplex_config(config: &DuplexStreamConfig) -> Result<(), crate::Error> {
     let input = crate::StreamConfig {
         channels: config.input_channels,
