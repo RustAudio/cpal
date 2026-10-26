@@ -2,8 +2,6 @@
 //!
 //! Available on all platforms with the `jack` feature. Requires JACK server and client libraries.
 
-extern crate jack;
-
 use crate::{Error, ErrorKind, SampleFormat, traits::HostTrait};
 
 mod device;

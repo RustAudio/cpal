@@ -4,11 +4,10 @@ use std::sync::{
 };
 
 use super::JACK_SAMPLE_FORMAT;
-use crate::host::try_emit_error;
 use crate::{
     CallbackInfo, ChannelCount, Data, DuplexCallbackInfo, Error, ErrorKind, FrameCount, ResultExt,
     Sample, SampleRate, StreamInstant, StreamTimestamp,
-    host::{ErrorCallbackArc, emit_error, frames_to_duration, wait_for_drain},
+    host::{ErrorCallbackArc, try_emit_error, emit_error, frames_to_duration, wait_for_drain},
     traits::StreamTrait,
 };
 

@@ -1,5 +1,4 @@
-extern crate asio_sys as sys;
-extern crate num_traits;
+use asio_sys as sys;
 
 use std::{
     sync::{
@@ -10,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use self::num_traits::{FromPrimitive, PrimInt};
+use num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
     BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, Sample, SampleFormat,

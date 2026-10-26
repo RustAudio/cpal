@@ -1,7 +1,5 @@
 //! Time-conversion helpers for the AAudio backend.
 
-extern crate ndk;
-
 use crate::{Error, ErrorKind, StreamInstant};
 
 /// Returns a [`StreamInstant`] for the current moment.

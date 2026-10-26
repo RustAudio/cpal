@@ -2,10 +2,8 @@ use std::{
     sync::{Arc, atomic::Ordering},
     time::Duration,
 };
-
+use alsa::poll::Descriptors;
 use super::{
-    alsa,
-    alsa::poll::Descriptors,
     poll_timeout_millis,
     stream::{ErrorCallback, InputDataCallback, OutputDataCallback, StreamInner},
     timestamp::status_with_timestamp,

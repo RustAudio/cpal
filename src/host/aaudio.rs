@@ -22,8 +22,7 @@ use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
-extern crate ndk;
-use self::ndk::audio::AudioStream;
+use ndk::audio::AudioStream;
 
 #[cfg(feature = "realtime")]
 use crate::host::try_emit_error;

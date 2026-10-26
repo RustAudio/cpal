@@ -6,10 +6,9 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-
+use alsa::poll::Descriptors;
 use super::{
-    AlsaContext, POLL_INFINITE, alsa,
-    alsa::poll::Descriptors,
+    AlsaContext, POLL_INFINITE,
     duplex::{duplex_stream_worker, start_duplex},
     timestamp::{callback_instant_for, status_with_timestamp},
     trigger::{TriggerReceiver, TriggerSender, trigger},

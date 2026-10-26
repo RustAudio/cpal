@@ -5,10 +5,10 @@ use std::{
     time::Duration,
     vec::IntoIter as VecIntoIter,
 };
+use alsa::poll::Descriptors;
 
 use super::{
-    AlsaContext, DEFAULT_PERIODS, Stream, alsa,
-    alsa::poll::Descriptors,
+    AlsaContext, DEFAULT_PERIODS, Stream,
     hw_params::{
         StartThreshold, set_hw_params_from_format, set_sw_params_from_format,
         supported_period_size_range,

@@ -2,10 +2,6 @@
 //!
 //! Default backend on WebAssembly.
 
-extern crate js_sys;
-extern crate wasm_bindgen;
-extern crate web_sys;
-
 #[cfg(target_feature = "atomics")]
 use std::sync::atomic::AtomicU64;
 use std::{
@@ -38,14 +34,13 @@ type CaptureGraphResult = Result<
 >;
 
 #[cfg(not(target_feature = "atomics"))]
-use self::web_sys::MediaStream;
-use self::{
-    wasm_bindgen::{JsCast, prelude::*},
-    web_sys::{
-        AudioContext, AudioContextOptions, AudioProcessingEvent, GainNode,
-        MediaStreamAudioSourceNode, ScriptProcessorNode,
-    },
+use web_sys::MediaStream;
+use wasm_bindgen::{JsCast, prelude::*};
+use web_sys::{
+    AudioContext, AudioContextOptions, AudioProcessingEvent, GainNode,
+    MediaStreamAudioSourceNode, ScriptProcessorNode,
 };
+
 use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
     DeviceDirection, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,

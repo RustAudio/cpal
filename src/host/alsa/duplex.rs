@@ -2,10 +2,9 @@ use std::{
     sync::{Arc, atomic::Ordering},
     time::Duration,
 };
-
+use alsa::poll::Descriptors;
 use super::{
-    DEFAULT_PERIODS, alsa,
-    alsa::poll::Descriptors,
+    DEFAULT_PERIODS,
     poll_timeout_millis,
     stream::{DuplexDataCallback, DuplexStreamInner, ErrorCallback},
     timestamp::{callback_instant_for, status_with_timestamp},

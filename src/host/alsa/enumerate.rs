@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::{Device, Host, alsa};
+use super::{Device, Host};
 use crate::{DeviceDirection, Error};
 
 const HW_PREFIX: &str = "hw";
