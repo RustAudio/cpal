@@ -9,7 +9,6 @@ use std::{
     time::Duration,
 };
 
-use num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
     BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, Sample, SampleFormat,
@@ -19,6 +18,7 @@ use crate::{
         wait_for_drain,
     },
 };
+use num_traits::{FromPrimitive, PrimInt};
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
 /// monotonic 64-bit nanosecond value, shared between `now()` and audio callbacks.

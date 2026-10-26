@@ -7,7 +7,7 @@ use super::JACK_SAMPLE_FORMAT;
 use crate::{
     CallbackInfo, ChannelCount, Data, DuplexCallbackInfo, Error, ErrorKind, FrameCount, ResultExt,
     Sample, SampleRate, StreamInstant, StreamTimestamp,
-    host::{ErrorCallbackArc, try_emit_error, emit_error, frames_to_duration, wait_for_drain},
+    host::{ErrorCallbackArc, emit_error, frames_to_duration, try_emit_error, wait_for_drain},
     traits::StreamTrait,
 };
 

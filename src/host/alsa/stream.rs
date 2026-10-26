@@ -1,12 +1,3 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::{self, JoinHandle},
-    time::{Duration, Instant},
-};
-use alsa::poll::Descriptors;
 use super::{
     AlsaContext, POLL_INFINITE,
     duplex::{duplex_stream_worker, start_duplex},
@@ -23,6 +14,15 @@ use crate::{
         latch::Latch,
     },
     traits::StreamTrait,
+};
+use alsa::poll::Descriptors;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
 pub(super) type InputDataCallback = dyn FnMut(&Data, &CallbackInfo) + Send + 'static;

@@ -33,12 +33,12 @@ type CaptureGraphResult = Result<
     JsValue,
 >;
 
+use wasm_bindgen::{JsCast, prelude::*};
 #[cfg(not(target_feature = "atomics"))]
 use web_sys::MediaStream;
-use wasm_bindgen::{JsCast, prelude::*};
 use web_sys::{
-    AudioContext, AudioContextOptions, AudioProcessingEvent, GainNode,
-    MediaStreamAudioSourceNode, ScriptProcessorNode,
+    AudioContext, AudioContextOptions, AudioProcessingEvent, GainNode, MediaStreamAudioSourceNode,
+    ScriptProcessorNode,
 };
 
 use crate::{

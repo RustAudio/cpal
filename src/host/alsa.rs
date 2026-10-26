@@ -8,11 +8,7 @@ use std::{
     time::Duration,
 };
 
-pub use self::{
-    device::Device,
-    enumerate::Devices,
-    stream::Stream,
-};
+pub use self::{device::Device, enumerate::Devices, stream::Stream};
 use crate::{
     DeviceDirection, DeviceId, Error, ErrorKind,
     traits::{DeviceTrait, HostTrait},

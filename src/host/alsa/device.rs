@@ -1,3 +1,4 @@
+use alsa::poll::Descriptors;
 use std::{
     collections::HashMap,
     fmt,
@@ -5,7 +6,6 @@ use std::{
     time::Duration,
     vec::IntoIter as VecIntoIter,
 };
-use alsa::poll::Descriptors;
 
 use super::{
     AlsaContext, DEFAULT_PERIODS, Stream,
