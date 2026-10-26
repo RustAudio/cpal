@@ -107,7 +107,12 @@ impl Stream {
                     timeout,
                 );
             })
-            .unwrap();
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create ALSA input worker thread: {e}"),
+                )
+            })?;
         latch.add_thread(thread.thread().clone());
 
         Self {
@@ -150,7 +155,12 @@ impl Stream {
                     timeout,
                 );
             })
-            .unwrap();
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create ALSA output worker thread: {e}"),
+                )
+            })?;
         latch.add_thread(thread.thread().clone());
 
         Self {
@@ -193,7 +203,12 @@ impl Stream {
                     timeout,
                 );
             })
-            .unwrap();
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create ALSA duplex worker thread: {e}"),
+                )
+            })?;
         latch.add_thread(thread.thread().clone());
 
         Self {
