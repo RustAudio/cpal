@@ -194,7 +194,6 @@ impl From<ErrorKind> for Error {
 ))]
 impl From<audio_thread_priority::AudioThreadPriorityError> for Error {
     fn from(err: audio_thread_priority::AudioThreadPriorityError) -> Self {
-        use std::error::Error as StdError;
         let msg = match err.source() {
             Some(inner) => {
                 format!("Failed to promote audio thread to real-time priority: {err}: {inner}")
