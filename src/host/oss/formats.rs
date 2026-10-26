@@ -38,7 +38,7 @@ pub const AFMT_S24_PACKED: c_int = 1 << 16;
 // bit 17 is a bit odd though, it seems to vary
 pub const AFMT_F32_LE:     c_int = 1 << 28;
 pub const AFMT_F32_BE:     c_int = 1 << 29;
-// bit 30: `AFMT_FULLDUPLEX`
+// bit 30: `AFMT_FULLDUPLEX` (see above)
 // bit 31: sign
 
 // Native-endian aliases.
