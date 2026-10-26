@@ -202,7 +202,12 @@ impl DeviceTrait for Device {
             .spawn(move || {
                 stream::input_loop(fd, worker_ctl, period_bytes, data_callback, error_callback, sample_format); // diff from output
             })
-            .map_err(error_from_io)?;
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create OSS input worker thread: {e}"),
+                )
+            })?;
 
         Ok(super::Stream { reported_buffer_size: Some(buf_size), control, worker: Some(worker), latch: Latch::new() })
     }
@@ -233,7 +238,12 @@ impl DeviceTrait for Device {
             .spawn(move || {
                 stream::output_loop(fd, worker_ctl, period_bytes, data_callback, error_callback, sample_format);
             })
-            .map_err(error_from_io)?;
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create OSS output worker thread: {e}"),
+                )
+            })?;
 
         Ok(super::Stream { reported_buffer_size: Some(buf_size), control, worker: Some(worker), latch: Latch::new() })
     }
@@ -268,11 +278,16 @@ impl DeviceTrait for Device {
         let worker_ctl = control.clone();
 
         let worker = std::thread::Builder::new()
-            .name("cpal_oss_duplex".into())
+            .name("cpal_oss_dup".into())
             .spawn(move || {
                 stream::duplex_loop(fd, worker_ctl, in_period_bytes, out_period_bytes, data_callback, error_callback, sample_format);
             })
-            .map_err(error_from_io)?;
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create OSS duplex worker thread: {e}"),
+                )
+            })?;
 
         Ok(super::Stream { reported_buffer_size: None, control, worker: Some(worker), latch: Latch::new() })
     }
