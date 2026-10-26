@@ -6,7 +6,7 @@ use super::{
     worker::{input_stream_worker, output_stream_worker},
 };
 use crate::{
-    CallbackInfo, Data, DeviceDirection, DuplexCallbackInfo, Error, FrameCount, SampleFormat,
+    CallbackInfo, Data, DeviceDirection, DuplexCallbackInfo, Error, ErrorKind, FrameCount, SampleFormat,
     SampleRate, StreamInstant,
     host::{
         Notify,
