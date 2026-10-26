@@ -24,6 +24,8 @@ use crate::{
 
 extern crate ndk;
 use self::ndk::audio::AudioStream;
+
+#[cfg(feature = "realtime")]
 use crate::host::try_emit_error;
 
 mod convert;
