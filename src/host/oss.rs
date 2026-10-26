@@ -2,7 +2,7 @@
 //!
 //! FreeBSD's `sound(4)` implements the OSS API in the kernel (`/dev/dspN`), so there is no
 //! userspace library or plugin layer to initialize, unlike ALSA.
-//! 
+//!
 //! During development, I'm using `ErrorKind::HostUnavailable` to mean "this feature exists and
 //! could work fine, but I haven't implemented it yet", even if that disagrees with trait docs.
 
@@ -16,12 +16,12 @@ use crate::{
 pub use self::device::{Device, Devices};
 pub use self::stream::Stream;
 
-mod formats;
-mod syscall;
-mod device;
-mod stream;
 mod clock;
+mod device;
+mod formats;
 mod probe;
+mod stream;
+mod syscall;
 
 #[cfg(feature = "realtime")]
 mod realtime;
@@ -58,7 +58,7 @@ impl HostTrait for Host {
 
     fn device_by_id(&self, id: &DeviceId) -> Option<Self::Device> {
         if id.host() != HostId::Oss {
-            return None
+            return None;
         }
 
         if id.id() == DEFAULT_DSP_PATH {
@@ -84,11 +84,11 @@ fn error_from_io(err: io::Error) -> Error {
     let kind = match err.raw_os_error() {
         // [TODO] add EOF?
         Some(libc::ENODEV | libc::ENXIO | libc::ENOENT) => ErrorKind::DeviceNotAvailable,
-        Some(libc::EPERM  | libc::EACCES              ) => ErrorKind::PermissionDenied,
-        Some(libc::EBUSY  | libc::EAGAIN              ) => ErrorKind::DeviceBusy,
-        Some(libc::EINVAL                             ) => ErrorKind::UnsupportedConfig,
-        Some(libc::ENOSYS | libc::ENOTSUP             ) => ErrorKind::UnsupportedOperation,
-        _                                               => ErrorKind::BackendError,
+        Some(libc::EPERM | libc::EACCES) => ErrorKind::PermissionDenied,
+        Some(libc::EBUSY | libc::EAGAIN) => ErrorKind::DeviceBusy,
+        Some(libc::EINVAL) => ErrorKind::UnsupportedConfig,
+        Some(libc::ENOSYS | libc::ENOTSUP) => ErrorKind::UnsupportedOperation,
+        _ => ErrorKind::BackendError,
     };
     Error::with_message(kind, err.to_string())
 }

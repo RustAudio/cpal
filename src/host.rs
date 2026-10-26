@@ -15,11 +15,7 @@ pub(crate) mod com;
 #[cfg(target_os = "android")]
 pub(crate) mod aaudio;
 
-#[cfg(any(
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "netbsd"
-))]
+#[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "netbsd"))]
 pub(crate) mod alsa;
 
 #[cfg(all(windows, feature = "asio"))]
@@ -112,11 +108,7 @@ pub(crate) mod latch;
 /// Mutex-guarded bool with Condvar for cross-thread signaling.
 ///
 /// The bool tracks whether the notified side has acknowledged the signal.
-#[cfg(any(
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "netbsd",
-))]
+#[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "netbsd",))]
 pub(crate) type Notify = (std::sync::Mutex<bool>, std::sync::Condvar);
 
 /// Shared error-callback type that hands the callback across thread boundaries.

@@ -866,10 +866,10 @@ macro_rules! __cpal_select_host_name {
 mod platform_impl {
     #[cfg(feature = "jack")]
     use super::JackHost;
-    #[cfg(target_os = "freebsd")]
-    use crate::host::oss::Host as OssHost;
     #[cfg(not(target_os = "freebsd"))]
     use crate::host::alsa::Host as AlsaHost;
+    #[cfg(target_os = "freebsd")]
+    use crate::host::oss::Host as OssHost;
     #[cfg(feature = "pipewire")]
     use crate::host::pipewire::Host as PipeWireHost;
     #[cfg(feature = "pulseaudio")]

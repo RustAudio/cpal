@@ -1,37 +1,21 @@
 //! OSS device enumeration via /dev/sndstat.
 
-use std::{fs, io, vec, fmt, sync::Arc, fmt::Display};
+use std::{fmt, fmt::Display, fs, io, sync::Arc, vec};
 
 use crate::{
+    CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
+    DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind, SampleFormat, StreamConfig,
+    SupportedStreamConfig, SupportedStreamConfigRange,
     host::{latch::Latch, oss::stream},
-    SupportedStreamConfigRange,
-    DeviceDescriptionBuilder,
-    validate_stream_config,
-    SupportedStreamConfig,
     traits::DeviceTrait,
-    DuplexCallbackInfo,
-    DuplexStreamConfig,
-    DeviceDescription,
-    DeviceDirection,
-    StreamConfig,
-    CallbackInfo,
-    SampleFormat,
-    ErrorKind,
-    Error,
-    Data,
+    validate_stream_config,
 };
 
 use super::{
-    syscall::{self, ioctl_int},
-    DEFAULT_DSP_PATH,
-    SNDSTAT_PATH,
+    DEFAULT_DSP_PATH, SNDSTAT_PATH, error_from_io,
+    probe::{Mode, open_dsp, probe_configs},
     stream::Control,
-    error_from_io,
-    probe::{
-        probe_configs,
-        open_dsp,
-        Mode,
-    },
+    syscall::{self, ioctl_int},
 };
 
 #[derive(Clone, Debug, Hash)]
@@ -88,7 +72,7 @@ impl DeviceTrait for Device {
         let builder = DeviceDescriptionBuilder::new(name)
             .address(&self.path)
             .direction(self.direction);
-            // .extended(lines); extra lines from /dev/sndstat
+        // .extended(lines); extra lines from /dev/sndstat
 
         Ok(builder.build())
     }
@@ -101,20 +85,30 @@ impl DeviceTrait for Device {
     }
 
     fn supports_input(&self) -> bool {
-        matches!(self.direction, DeviceDirection::Input | DeviceDirection::Duplex)
+        matches!(
+            self.direction,
+            DeviceDirection::Input | DeviceDirection::Duplex
+        )
     }
-    
+
     fn supports_output(&self) -> bool {
-        matches!(self.direction, DeviceDirection::Output | DeviceDirection::Duplex)
+        matches!(
+            self.direction,
+            DeviceDirection::Output | DeviceDirection::Duplex
+        )
     }
 
     /// Whether or whether not the driver reports true native duplex for this device.
     /// Any failure to open or query means returns false.
-    /// 
+    ///
     /// [NOTE]: This currently does not cache the result, and performs a syscall everytime.
     fn supports_duplex(&self) -> bool {
-        let Ok(fd) = open_dsp(&self.path, Mode::ReadWrite) else { return false };
-        let Ok(caps) = ioctl_int(&fd, syscall::SNDCTL_DSP_GETCAPS, 0) else { return false };
+        let Ok(fd) = open_dsp(&self.path, Mode::ReadWrite) else {
+            return false;
+        };
+        let Ok(caps) = ioctl_int(&fd, syscall::SNDCTL_DSP_GETCAPS, 0) else {
+            return false;
+        };
         caps & syscall::PCM_CAP_DUPLEX != 0
         // [TODO]: make self.direction mutable (with only &self?) and set here
     }
@@ -122,7 +116,9 @@ impl DeviceTrait for Device {
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
         if self.supports_input() {
             match probe_configs(&self.path, Mode::Read) {
-                Ok(ranges) => Ok(SupportedConfigsIter { inner: ranges.into_iter() }),
+                Ok(ranges) => Ok(SupportedConfigsIter {
+                    inner: ranges.into_iter(),
+                }),
                 Err(e) => Err(error_from_io(e)),
             }
         } else {
@@ -133,7 +129,9 @@ impl DeviceTrait for Device {
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
         if self.supports_output() {
             match probe_configs(&self.path, Mode::Write) {
-                Ok(ranges) => Ok(SupportedConfigsIter { inner: ranges.into_iter() }),
+                Ok(ranges) => Ok(SupportedConfigsIter {
+                    inner: ranges.into_iter(),
+                }),
                 Err(e) => Err(error_from_io(e)),
             }
         } else {
@@ -186,7 +184,7 @@ impl DeviceTrait for Device {
     ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
-        E: FnMut(Error               ) + Send + 'static
+        E: FnMut(Error) + Send + 'static,
     {
         validate_stream_config(&config)?;
 
@@ -200,7 +198,14 @@ impl DeviceTrait for Device {
         let worker = std::thread::Builder::new()
             .name("cpal_oss_in".into()) // diff from output
             .spawn(move || {
-                stream::input_loop(fd, worker_ctl, period_bytes, data_callback, error_callback, sample_format); // diff from output
+                stream::input_loop(
+                    fd,
+                    worker_ctl,
+                    period_bytes,
+                    data_callback,
+                    error_callback,
+                    sample_format,
+                ); // diff from output
             })
             .map_err(|e| {
                 Error::with_message(
@@ -209,7 +214,12 @@ impl DeviceTrait for Device {
                 )
             })?;
 
-        Ok(super::Stream { reported_buffer_size: Some(buf_size), control, worker: Some(worker), latch: Latch::new() })
+        Ok(super::Stream {
+            reported_buffer_size: Some(buf_size),
+            control,
+            worker: Some(worker),
+            latch: Latch::new(),
+        })
     }
 
     fn build_output_stream_raw<D, E>(
@@ -222,7 +232,7 @@ impl DeviceTrait for Device {
     ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
-        E: FnMut(Error                   ) + Send + 'static
+        E: FnMut(Error) + Send + 'static,
     {
         validate_stream_config(&config)?;
 
@@ -236,7 +246,14 @@ impl DeviceTrait for Device {
         let worker = std::thread::Builder::new()
             .name("cpal_oss_out".into())
             .spawn(move || {
-                stream::output_loop(fd, worker_ctl, period_bytes, data_callback, error_callback, sample_format);
+                stream::output_loop(
+                    fd,
+                    worker_ctl,
+                    period_bytes,
+                    data_callback,
+                    error_callback,
+                    sample_format,
+                );
             })
             .map_err(|e| {
                 Error::with_message(
@@ -245,7 +262,12 @@ impl DeviceTrait for Device {
                 )
             })?;
 
-        Ok(super::Stream { reported_buffer_size: Some(buf_size), control, worker: Some(worker), latch: Latch::new() })
+        Ok(super::Stream {
+            reported_buffer_size: Some(buf_size),
+            control,
+            worker: Some(worker),
+            latch: Latch::new(),
+        })
     }
 
     // [NOTE]: OSS duplex streams must have the same input and output sample format,
@@ -261,18 +283,22 @@ impl DeviceTrait for Device {
     ) -> Result<Self::Stream, Error>
     where
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
-        E: FnMut(Error                                ) + Send + 'static,
+        E: FnMut(Error) + Send + 'static,
     {
         validate_duplex_stream_config(&config)?;
         let sample_format = if input_sample_format == output_sample_format {
             input_sample_format
         } else {
-            return Err(Error::with_message(ErrorKind::UnsupportedConfig, "OSS duplex must share the sample sample format between input and output"));
+            return Err(Error::with_message(
+                ErrorKind::UnsupportedConfig,
+                "OSS duplex must share the sample sample format between input and output",
+            ));
         };
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
         let fd = open_dsp(&self.path, Mode::ReadWrite).map_err(error_from_io)?;
-        let (in_period_bytes, out_period_bytes) = stream::configure_duplex(&fd, &config, sample_format)?;
+        let (in_period_bytes, out_period_bytes) =
+            stream::configure_duplex(&fd, &config, sample_format)?;
 
         let control = Arc::new(Control::default());
         let worker_ctl = control.clone();
@@ -280,7 +306,15 @@ impl DeviceTrait for Device {
         let worker = std::thread::Builder::new()
             .name("cpal_oss_dup".into())
             .spawn(move || {
-                stream::duplex_loop(fd, worker_ctl, in_period_bytes, out_period_bytes, data_callback, error_callback, sample_format);
+                stream::duplex_loop(
+                    fd,
+                    worker_ctl,
+                    in_period_bytes,
+                    out_period_bytes,
+                    data_callback,
+                    error_callback,
+                    sample_format,
+                );
             })
             .map_err(|e| {
                 Error::with_message(
@@ -289,7 +323,12 @@ impl DeviceTrait for Device {
                 )
             })?;
 
-        Ok(super::Stream { reported_buffer_size: None, control, worker: Some(worker), latch: Latch::new() })
+        Ok(super::Stream {
+            reported_buffer_size: None,
+            control,
+            worker: Some(worker),
+            latch: Latch::new(),
+        })
     }
 }
 
@@ -328,9 +367,9 @@ pub fn default_device() -> Option<Device> {
 /// **Note**: This could fail when the device is busy, which is suboptimal, [TODO]
 fn detect_direction(path: &str) -> DeviceDirection {
     match (open_dsp(path, Mode::Read), open_dsp(path, Mode::Write)) {
-        (Ok(_),  Ok(_) ) => DeviceDirection::Duplex,
-        (Ok(_),  Err(_)) => DeviceDirection::Input,
-        (Err(_), Ok(_) ) => DeviceDirection::Output,
+        (Ok(_), Ok(_)) => DeviceDirection::Duplex,
+        (Ok(_), Err(_)) => DeviceDirection::Input,
+        (Err(_), Ok(_)) => DeviceDirection::Output,
         _ => DeviceDirection::Unknown,
     }
 }
@@ -342,7 +381,7 @@ pub struct Devices {
 impl Devices {
     /// If the file is missing, assume OSS is unavailable, as /dev/sndstat is created by sound(4) on creationg
     /// do not assume no devices, as that forms a valid sndstat file
-    /// 
+    ///
     /// [TODO]: Remove this and use `ossinfo`
     /// [NOTE]: This is formally obsolete now, and exists for compatability.
     /// [DOCS]: [Depreciation notice and description](http://manuals.opensound.com/usersguide/sndstat.html)
@@ -350,8 +389,12 @@ impl Devices {
     pub fn new() -> Result<Self, Error> {
         let devices = match fs::read(SNDSTAT_PATH) {
             Ok(bytes) => parse_sndstat(&String::from_utf8_lossy(&bytes)),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(Error::new(ErrorKind::DeviceNotAvailable)),
-            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(Error::new(ErrorKind::PermissionDenied)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(Error::new(ErrorKind::DeviceNotAvailable));
+            }
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                return Err(Error::new(ErrorKind::PermissionDenied));
+            }
             Err(e) => return Err(error_from_io(e)),
         };
         Ok(Self {
