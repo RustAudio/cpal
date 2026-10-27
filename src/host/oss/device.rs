@@ -365,7 +365,7 @@ pub fn default_device() -> Option<Device> {
 }
 
 /// **Note**: This could fail when the device is busy, which is suboptimal.
-/// 
+///
 /// The alternative is a full `AudioInfo` parsing, which also raises the minimum
 /// version floor to the latest.
 fn detect_direction(path: &str) -> DeviceDirection {
