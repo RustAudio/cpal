@@ -9,14 +9,16 @@ extern crate web_sys;
 #[cfg(target_feature = "atomics")]
 use std::sync::atomic::AtomicU64;
 use std::{
+    cell::{Cell, RefCell},
     fmt,
     ops::DerefMut,
+    rc::Rc,
     sync::{Arc, Mutex, RwLock, atomic::Ordering},
     time::Duration,
 };
 
 #[cfg(not(target_feature = "atomics"))]
-use std::{cell::Cell, rc::Rc, sync::atomic::AtomicBool};
+use std::sync::atomic::AtomicBool;
 
 #[cfg(target_feature = "atomics")]
 use futures_channel::mpsc;
@@ -57,8 +59,34 @@ use crate::{
 
 mod main_thread;
 
-/// Type alias for shared closure handles used in audio callbacks
-type ClosureHandle = Arc<RwLock<Option<Closure<dyn FnMut()>>>>;
+#[derive(Default)]
+struct OutputCallback {
+    closure: RefCell<Option<Closure<dyn FnMut()>>>,
+    timeout_id: Cell<Option<i32>>,
+    source: RefCell<Option<web_sys::AudioBufferSourceNode>>,
+}
+
+impl OutputCallback {
+    fn clear_source(&self) {
+        if let Some(source) = self.source.borrow_mut().take() {
+            let source: &web_sys::AudioScheduledSourceNode = source.as_ref();
+            source.set_onended(None);
+            let _ = source.stop();
+            let _ = source.disconnect();
+        }
+    }
+}
+
+impl Drop for OutputCallback {
+    fn drop(&mut self) {
+        if let Some(id) = self.timeout_id.take() {
+            if let Some(window) = web_sys::window() {
+                window.clear_timeout_with_handle(id);
+            }
+        }
+        self.clear_source();
+    }
+}
 
 #[cfg(target_feature = "atomics")]
 enum Command {
@@ -90,7 +118,7 @@ pub struct Stream {
     #[cfg(not(target_feature = "atomics"))]
     ctx: Arc<AudioContext>,
     #[cfg(not(target_feature = "atomics"))]
-    on_ended_closures: Vec<ClosureHandle>,
+    output_callbacks: Vec<Rc<OutputCallback>>,
     #[cfg(not(target_feature = "atomics"))]
     is_started: Arc<AtomicBool>,
     // Populated asynchronously once getUserMedia() resolves; empty for output streams. Never
@@ -542,7 +570,7 @@ impl DeviceTrait for Device {
             {
                 Ok(Self::Stream {
                     ctx,
-                    on_ended_closures: Vec::new(),
+                    output_callbacks: Vec::new(),
                     config,
                     buffer_size_frames,
                     is_started,
@@ -637,7 +665,7 @@ impl DeviceTrait for Device {
             let ctx = Arc::new(ctx);
 
             // A container for managing the lifecycle of the audio callbacks.
-            let mut on_ended_closures: Vec<ClosureHandle> = Vec::new();
+            let mut output_callbacks: Vec<Rc<OutputCallback>> = Vec::new();
 
             // A cursor keeping track of the current time at which new frames should be scheduled.
             let time = Arc::new(RwLock::new(0f64));
@@ -695,15 +723,19 @@ impl DeviceTrait for Device {
                         )
                     })?;
 
-                // A self reference to this closure for passing to future audio event calls.
-                #[allow(clippy::arc_with_non_send_sync)]
-                let on_ended_closure: ClosureHandle = Arc::new(RwLock::new(None));
-                let on_ended_closure_handle = on_ended_closure.clone();
+                let output_callback = Rc::new(OutputCallback::default());
+                // The stream owns the closure; its self reference must not keep it alive.
+                let output_callback_handle = Rc::downgrade(&output_callback);
 
-                on_ended_closure
-                    .write()
-                    .unwrap()
-                    .replace(Closure::wrap(Box::new(move || {
+                output_callback
+                    .closure
+                    .borrow_mut()
+                    .replace(Closure::wrap_aborting(Box::new(move || {
+                        let Some(output_callback) = output_callback_handle.upgrade() else {
+                            return;
+                        };
+                        output_callback.timeout_id.take();
+                        output_callback.clear_source();
                         let now = ctx_handle.current_time();
 
                         // Keep the shared clock up to date so Stream::now() has a fresh value.
@@ -856,30 +888,17 @@ impl DeviceTrait for Device {
                             );
                             return;
                         }
-                        if source
-                            .add_event_listener_with_callback(
-                                "ended",
-                                on_ended_closure_handle
-                                    .read()
-                                    .unwrap()
-                                    .as_ref()
-                                    .unwrap()
-                                    .as_ref()
-                                    .unchecked_ref(),
-                            )
-                            .is_err()
-                        {
-                            // addEventListener is documented not to throw; defensive only.
-                            (error_callback_handle
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner()))(
-                                Error::with_message(
-                                    ErrorKind::StreamInvalidated,
-                                    "Failed to register audio event listener",
-                                ),
-                            );
-                            return;
-                        }
+                        let scheduled_source: &web_sys::AudioScheduledSourceNode = source.as_ref();
+                        scheduled_source.set_onended(Some(
+                            output_callback
+                                .closure
+                                .borrow()
+                                .as_ref()
+                                .unwrap()
+                                .as_ref()
+                                .unchecked_ref(),
+                        ));
+                        output_callback.source.replace(Some(source.clone()));
                         if source.start_with_when(time_at_start_of_buffer).is_err() {
                             // InvalidStateError (already started) is the expected failure mode.
                             (error_callback_handle
@@ -898,14 +917,14 @@ impl DeviceTrait for Device {
                             time_at_start_of_buffer + buffer_time_step_secs;
                     })));
 
-                on_ended_closures.push(on_ended_closure);
+                output_callbacks.push(output_callback);
             }
 
             #[cfg(not(target_feature = "atomics"))]
             {
                 Ok(Self::Stream {
                     ctx,
-                    on_ended_closures,
+                    output_callbacks,
                     config,
                     buffer_size_frames,
                     is_started,
@@ -934,7 +953,7 @@ impl DeviceTrait for Device {
                                     started = true;
                                     schedule_initial_timeouts(
                                         &window,
-                                        &on_ended_closures,
+                                        &output_callbacks,
                                         buffer_size_frames,
                                         config.sample_rate,
                                     );
@@ -952,7 +971,8 @@ impl DeviceTrait for Device {
                             }
                         }
                     }
-                    // Stream dropped: close the AudioContext on the main thread.
+                    // Detach JS callbacks before invalidating their wasm closures.
+                    drop(output_callbacks);
                     let _ = ctx.close();
                 });
                 Ok(Self::Stream {
@@ -1331,7 +1351,7 @@ impl DeviceTrait for Device {
                     ctx,
                     // The ScriptProcessorNode fires on its own once the context is running, so the
                     // buffer-source scheduling the output path needs has no counterpart here.
-                    on_ended_closures: Vec::new(),
+                    output_callbacks: Vec::new(),
                     config: stream_config,
                     buffer_size_frames,
                     is_started,
@@ -1378,7 +1398,7 @@ impl StreamTrait for Stream {
                     }
                     schedule_initial_timeouts(
                         &window,
-                        &self.on_ended_closures,
+                        &self.output_callbacks,
                         self.buffer_size_frames,
                         self.config.sample_rate,
                     );
@@ -1440,6 +1460,7 @@ impl StreamTrait for Stream {
 #[cfg(not(target_feature = "atomics"))]
 impl Drop for Stream {
     fn drop(&mut self) {
+        self.output_callbacks.clear();
         let _ = self.ctx.close();
     }
 }
@@ -1592,19 +1613,19 @@ fn buffer_time_step_secs(buffer_size_frames: usize, sample_rate: SampleRate) -> 
 /// don't fire at the same instant on the first tick.
 fn schedule_initial_timeouts(
     window: &web_sys::Window,
-    on_ended_closures: &[ClosureHandle],
+    output_callbacks: &[Rc<OutputCallback>],
     buffer_size_frames: usize,
     sample_rate: SampleRate,
 ) {
     let time_step_secs = buffer_time_step_secs(buffer_size_frames, sample_rate);
     let time_step_ms = ((time_step_secs * 1_000.0).ceil() as i32).max(1);
     let mut offset_ms = INITIAL_TIMEOUT_MS;
-    for on_ended_closure in on_ended_closures {
-        window
+    for output_callback in output_callbacks {
+        let id = window
             .set_timeout_with_callback_and_timeout_and_arguments_0(
-                on_ended_closure
-                    .read()
-                    .unwrap()
+                output_callback
+                    .closure
+                    .borrow()
                     .as_ref()
                     .unwrap()
                     .as_ref()
@@ -1612,6 +1633,7 @@ fn schedule_initial_timeouts(
                 offset_ms,
             )
             .unwrap();
+        output_callback.timeout_id.set(Some(id));
         offset_ms += time_step_ms;
     }
 }
