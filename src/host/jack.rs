@@ -182,7 +182,7 @@ impl From<jack::Error> for Error {
             | jack::Error::ClientDeactivationError
             | jack::Error::LibraryError(_)
             | jack::Error::WeakFunctionNotFound(_)
-            | jack::Error::RingbufferCreateFailed => ErrorKind::DeviceUnavailable,
+            | jack::Error::RingbufferCreateFailed => ErrorKind::DeviceNotAvailable,
 
             jack::Error::ClientIsNoLongerAlive | jack::Error::ClientPanicked => {
                 ErrorKind::StreamInvalidated
@@ -214,27 +214,27 @@ fn get_client(name: &str, client_options: jack::ClientOptions) -> Result<jack::C
         ))
     } else if status.intersects(jack::ClientStatus::SERVER_ERROR) {
         Err(Error::with_message(
-            ErrorKind::DeviceUnavailable,
+            ErrorKind::DeviceNotAvailable,
             "Error communicating with the JACK server",
         ))
     } else if status.intersects(jack::ClientStatus::SERVER_FAILED) {
         Err(Error::with_message(
-            ErrorKind::DeviceUnavailable,
+            ErrorKind::DeviceNotAvailable,
             "Could not connect to the JACK server",
         ))
     } else if status.intersects(jack::ClientStatus::INIT_FAILURE) {
         Err(Error::with_message(
-            ErrorKind::DeviceUnavailable,
+            ErrorKind::DeviceNotAvailable,
             "Unable to initialize JACK client",
         ))
     } else if status.intersects(jack::ClientStatus::SHM_FAILURE) {
         Err(Error::with_message(
-            ErrorKind::DeviceUnavailable,
+            ErrorKind::DeviceNotAvailable,
             "Unable to access JACK shared memory",
         ))
     } else if status.intersects(jack::ClientStatus::NO_SUCH_CLIENT) {
         Err(Error::with_message(
-            ErrorKind::DeviceUnavailable,
+            ErrorKind::DeviceNotAvailable,
             "Requested JACK client does not exist",
         ))
     } else {

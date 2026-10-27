@@ -414,7 +414,7 @@ unsafe fn activate_audio_interface_sync(
 impl Device {
     pub fn description(&self) -> Result<DeviceDescription, Error> {
         let device = self.immdevice().ok_or_else(|| {
-            Error::with_message(ErrorKind::DeviceUnavailable, "Default device not found")
+            Error::with_message(ErrorKind::DeviceNotAvailable, "Default device not found")
         })?;
         unsafe {
             // Open the device's property store.
@@ -456,7 +456,7 @@ impl Device {
             // Prefer FriendlyName for name (e.g., "Speakers (XYZ Audio Adapter)"), fall back to DeviceDesc
             let name = friendly_name.or(device_desc).ok_or_else(|| {
                 Error::with_message(
-                    ErrorKind::DeviceUnavailable,
+                    ErrorKind::DeviceNotAvailable,
                     "Failed to retrieve device name",
                 )
             })?;
@@ -502,7 +502,7 @@ impl Device {
 
     fn id(&self) -> Result<DeviceId, Error> {
         let device = self.immdevice().ok_or_else(|| {
-            Error::with_message(ErrorKind::DeviceUnavailable, "Default device not found")
+            Error::with_message(ErrorKind::DeviceNotAvailable, "Default device not found")
         })?;
         unsafe {
             match device.GetId().map(ComString) {

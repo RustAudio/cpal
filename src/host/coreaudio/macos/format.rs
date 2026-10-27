@@ -275,7 +275,7 @@ fn wait_for_property<T>(
 ) -> Result<(), Error> {
     let timed_out = || {
         Error::with_message(
-            ErrorKind::DeviceUnavailable,
+            ErrorKind::DeviceNotAvailable,
             format!("Timed out waiting for the {what} to change"),
         )
     };
@@ -300,7 +300,7 @@ fn wait_for_property<T>(
             }
             Ok(PropertyEvent::Unavailable) => {
                 return Err(Error::with_message(
-                    ErrorKind::DeviceUnavailable,
+                    ErrorKind::DeviceNotAvailable,
                     format!("Device disconnected while updating the {what}"),
                 ));
             }

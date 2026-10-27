@@ -831,7 +831,7 @@ fn boost_current_thread_priority(
 
 fn default_device_change_error(flow: Option<Audio::EDataFlow>) -> Error {
     match flow.and_then(get_current_default) {
-        None => ErrorKind::DeviceUnavailable.into(),
+        None => ErrorKind::DeviceNotAvailable.into(),
         Some(_) => ErrorKind::DeviceChanged.into(),
     }
 }

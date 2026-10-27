@@ -17,23 +17,23 @@ pub enum ErrorKind {
     ///
     /// Only fires for a stream built from the default device, on backends that support following
     /// it. A stream built from a specific device does not follow a replacement; if that device
-    /// disappears, it reports [`DeviceUnavailable`] instead.
+    /// disappears, it reports [`DeviceNotAvailable`] instead.
     ///
-    /// [`DeviceUnavailable`]: ErrorKind::DeviceUnavailable
+    /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
     DeviceChanged,
 
     /// The requested audio device is not available.
     ///
     /// This can happen if the device has been disconnected while the program is running, or if
     /// the device identifier refers to a device that does not exist on this system.
-    DeviceUnavailable,
+    DeviceNotAvailable,
 
     /// The audio host (server or subsystem) is not available on this system.
     ///
-    /// This is distinct from [`DeviceUnavailable`]: when a host (e.g. PulseAudio, PipeWire, JACK,
+    /// This is distinct from [`DeviceNotAvailable`]: when a host (e.g. PulseAudio, PipeWire, JACK,
     /// or kernel subsystem) is absent or not running, no devices can be reached through it.
     ///
-    /// [`DeviceUnavailable`]: ErrorKind::DeviceUnavailable
+    /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
     HostUnavailable,
 
     /// Invalid input or argument.
@@ -45,10 +45,10 @@ pub enum ErrorKind {
     /// permission to use it. Common causes include microphone privacy settings (iOS, macOS),
     /// missing audio group membership (Linux), or file permission errors.
     ///
-    /// Unlike [`DeviceUnavailable`], which signals absence, this variant signals an
+    /// Unlike [`DeviceNotAvailable`], which signals absence, this variant signals an
     /// authorization failure.
     ///
-    /// [`DeviceUnavailable`]: ErrorKind::DeviceUnavailable
+    /// [`DeviceNotAvailable`]: ErrorKind::DeviceNotAvailable
     PermissionDenied,
 
     /// A real-time scheduling promotion or equivalent platform performance mode was refused.
@@ -97,7 +97,7 @@ impl Display for ErrorKind {
             Self::DeviceChanged => f.write_str(
                 "The audio route changed. The stream was automatically rerouted to a different device.",
             ),
-            Self::DeviceUnavailable => f.write_str(
+            Self::DeviceNotAvailable => f.write_str(
                 "The requested audio device is not available. It may have been disconnected.",
             ),
             Self::HostUnavailable => f.write_str(

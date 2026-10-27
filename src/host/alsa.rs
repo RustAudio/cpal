@@ -222,7 +222,7 @@ fn canonical_pcm_id(pcm_id: &str) -> String {
 impl From<alsa::Error> for Error {
     fn from(err: alsa::Error) -> Self {
         match err.errno() {
-            libc::ENODEV | libc::ENOENT | LIBC_ENOTSUPP => ErrorKind::DeviceUnavailable.into(),
+            libc::ENODEV | libc::ENOENT | LIBC_ENOTSUPP => ErrorKind::DeviceNotAvailable.into(),
             libc::EPERM | libc::EACCES => ErrorKind::PermissionDenied.into(),
             libc::EBUSY | libc::EAGAIN => ErrorKind::DeviceBusy.into(),
             libc::EINVAL => ErrorKind::UnsupportedConfig.into(),

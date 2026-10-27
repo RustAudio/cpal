@@ -436,7 +436,7 @@ fn build_with_timeout(
     });
     rx.recv_timeout(dur).unwrap_or_else(|_| {
         Err(Error::with_message(
-            ErrorKind::DeviceUnavailable,
+            ErrorKind::DeviceNotAvailable,
             "timed out waiting for JACK server",
         ))
     })

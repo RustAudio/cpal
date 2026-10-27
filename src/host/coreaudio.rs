@@ -108,7 +108,7 @@ impl From<coreaudio::Error> for Error {
             | coreaudio::Error::AudioUnit(AudioUnitError::NoConnection)
             | coreaudio::Error::AudioUnit(AudioUnitError::FailedInitialization)
             | coreaudio::Error::Audio(AudioError::FileNotFound) => {
-                Error::with_message(ErrorKind::DeviceUnavailable, msg)
+                Error::with_message(ErrorKind::DeviceNotAvailable, msg)
             }
 
             coreaudio::Error::AudioUnit(AudioUnitError::Unauthorized)

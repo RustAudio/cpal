@@ -307,7 +307,7 @@ impl Device {
                 uid_string,
             ))
         } else {
-            Err(ErrorKind::DeviceUnavailable.into())
+            Err(ErrorKind::DeviceNotAvailable.into())
         }
     }
 

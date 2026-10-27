@@ -57,7 +57,7 @@ impl From<ndk::audio::AudioError> for Error {
     fn from(error: ndk::audio::AudioError) -> Self {
         use ndk::audio::AudioError::*;
         let kind = match error {
-            Disconnected | Unavailable | NoService | InvalidHandle => ErrorKind::DeviceUnavailable,
+            Disconnected | Unavailable | NoService | InvalidHandle => ErrorKind::DeviceNotAvailable,
             NoFreeHandles | NoMemory => ErrorKind::ResourceExhausted,
             WouldBlock | Timeout => ErrorKind::DeviceBusy,
             InvalidFormat | InvalidRate => ErrorKind::UnsupportedConfig,

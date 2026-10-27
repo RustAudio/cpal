@@ -762,7 +762,7 @@ fn recv_init(
     received.unwrap_or_else(|err| {
         Err(match err {
             mpsc::RecvTimeoutError::Timeout => {
-                Error::with_message(ErrorKind::DeviceUnavailable, "PipeWire timed out")
+                Error::with_message(ErrorKind::DeviceNotAvailable, "PipeWire timed out")
             }
             mpsc::RecvTimeoutError::Disconnected => Error::with_message(
                 ErrorKind::BackendError,

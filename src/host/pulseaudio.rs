@@ -85,7 +85,7 @@ impl From<pulseaudio::ClientError> for Error {
             match e {
                 AccessDenied | AuthKey => ErrorKind::PermissionDenied,
                 ConnectionRefused | InvalidServer | ModInitFailed => ErrorKind::HostUnavailable,
-                NoEntity => ErrorKind::DeviceUnavailable,
+                NoEntity => ErrorKind::DeviceNotAvailable,
                 Timeout | Busy => ErrorKind::DeviceBusy,
                 NotSupported | Obsolete | NotImplemented | Version | NoExtension => {
                     ErrorKind::UnsupportedOperation
@@ -393,7 +393,7 @@ impl DeviceTrait for Device {
             match rx.recv_timeout(dur) {
                 Ok(result) => result,
                 Err(_) => Err(Error::with_message(
-                    ErrorKind::DeviceUnavailable,
+                    ErrorKind::DeviceNotAvailable,
                     "Stream creation timed out",
                 )),
             }
@@ -488,7 +488,7 @@ impl DeviceTrait for Device {
             match rx.recv_timeout(dur) {
                 Ok(result) => result,
                 Err(_) => Err(Error::with_message(
-                    ErrorKind::DeviceUnavailable,
+                    ErrorKind::DeviceNotAvailable,
                     "Stream creation timed out",
                 )),
             }

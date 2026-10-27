@@ -183,13 +183,13 @@ impl Device {
         };
         let (buffer_size, period_size) = set_sw_params_from_format(&handle, start_threshold)?;
         if buffer_size == 0 || period_size == 0 {
-            return Err(ErrorKind::DeviceUnavailable.into());
+            return Err(ErrorKind::DeviceNotAvailable.into());
         }
 
         handle.prepare()?;
 
         if handle.count() == 0 {
-            return Err(ErrorKind::DeviceUnavailable.into());
+            return Err(ErrorKind::DeviceNotAvailable.into());
         }
 
         let (creation_ts, timestamp_mode) = creation_timestamp(&handle, hw_params)?;
@@ -257,7 +257,7 @@ impl Device {
             || playback_buffer_size == 0
             || playback_period_size == 0
         {
-            return Err(ErrorKind::DeviceUnavailable.into());
+            return Err(ErrorKind::DeviceNotAvailable.into());
         }
         // Duplex drives both directions from one worker cycle; period sizes must match.
         if capture_period_size != playback_period_size {
@@ -273,7 +273,7 @@ impl Device {
         playback_handle.prepare()?;
 
         if capture_handle.count() == 0 || playback_handle.count() == 0 {
-            return Err(ErrorKind::DeviceUnavailable.into());
+            return Err(ErrorKind::DeviceNotAvailable.into());
         }
 
         let (capture_creation_ts, capture_timestamp_mode) =
