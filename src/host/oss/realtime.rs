@@ -7,9 +7,6 @@
 //! than REALTIME, to avoid them getting
 //! interrupted mid execution.
 
-// [TODO]: I really need to get round to fixing that spinning
-// on fatal error issue on worker threads, starving the system isn't
-// exactly being a considerate programmer.
 use crate::{Error, ErrorKind};
 
 /// The scheduling priority value for a realtime promoted thread.
