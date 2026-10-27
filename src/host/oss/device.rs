@@ -1,6 +1,6 @@
 //! OSS device enumeration via /dev/sndstat.
 
-use std::{fmt, fmt::Display, fs, fs::File, io, sync::Arc, vec};
+use std::{fmt, fmt::Display, fs, io, sync::Arc, vec};
 
 use crate::{
     CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
@@ -15,7 +15,7 @@ use super::{
     DEFAULT_DSP_PATH, SNDSTAT_PATH, error_from_io,
     probe::{Mode, open_dsp, probe_configs},
     stream::Control,
-    syscall::{self, PCM_CAP_INPUT, PCM_CAP_OUTPUT, SNDCTL_DSP_GETCAPS, ioctl_int},
+    syscall::{self, ioctl_int},
 };
 
 #[derive(Clone, Debug, Hash)]
@@ -356,7 +356,7 @@ pub fn default_device() -> Option<Device> {
         Some(Device {
             path: DEFAULT_DSP_PATH.to_owned(),
             desc: Some("Default Audio Device".to_owned()),
-            direction: read_direction_caps(DEFAULT_DSP_PATH),
+            direction: detect_direction(DEFAULT_DSP_PATH),
         })
     } else {
         // [todo] enumerate devices and return the first one, if any
@@ -364,40 +364,16 @@ pub fn default_device() -> Option<Device> {
     }
 }
 
-/// Query a device's direction capabilities via `SNDCTL_DSP_GETCAPS`.
-///
-/// Unlike crude probing with read/write modes, this
-/// is the well documentated way to query direction
-/// capabilities, and will not fail if a device is busy.
-///
-/// Returns `DeviceDirection::Duplex` even if the Duplex
-/// flag is unset, but Input and Output are both set, due
-/// to cpal's `DeviceDirection` behaviour.
-///
-/// Any errors will be swallowed by `DeviceDirection::Unknown`.
-fn read_direction_caps(path: &str) -> DeviceDirection {
-    println!("0");
-    let Ok(file) = File::open(path) else {
-        println!("A");
-        return DeviceDirection::Unknown;
-    };
-
-    let Ok(caps) = ioctl_int(&file, SNDCTL_DSP_GETCAPS, 0) else {
-        println!("B");
-        return DeviceDirection::Unknown;
-    };
-
-    let input = caps & PCM_CAP_INPUT != 0;
-    let output = caps & PCM_CAP_OUTPUT != 0;
-
-    match (input, output) {
-        (true, true) => DeviceDirection::Duplex,
-        (true, false) => DeviceDirection::Input,
-        (false, true) => DeviceDirection::Output,
-        (false, false) => {
-            println!("C");
-            DeviceDirection::Unknown
-        }
+/// **Note**: This could fail when the device is busy, which is suboptimal.
+/// 
+/// The alternative is a full `AudioInfo` parsing, which also raises the minimum
+/// version floor to the latest.
+fn detect_direction(path: &str) -> DeviceDirection {
+    match (open_dsp(path, Mode::Read), open_dsp(path, Mode::Write)) {
+        (Ok(_), Ok(_)) => DeviceDirection::Duplex,
+        (Ok(_), Err(_)) => DeviceDirection::Input,
+        (Err(_), Ok(_)) => DeviceDirection::Output,
+        _ => DeviceDirection::Unknown,
     }
 }
 

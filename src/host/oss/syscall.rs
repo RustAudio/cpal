@@ -14,7 +14,7 @@
 //! The source of truth for much of this file is /usr/include/sys/soundcard.h from
 //! FreeBSD-15.1-RELEASE
 
-use libc::{c_int, c_ulong};
+use libc::{c_int, c_ulong, c_char, c_uint};
 use std::fs::File;
 use std::os::fd::AsRawFd;
 
