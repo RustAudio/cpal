@@ -540,7 +540,7 @@ pub(super) fn duplex_loop<D, E>(
 /// open a 48kHz stream, it always gave me 47999Hz.
 const RATE_TOLERANCE_HZ: c_int = 2;
 
-fn rate_close_enough(asked: c_int, got: c_int) -> bool {
+pub(super) fn rate_close_enough(asked: c_int, got: c_int) -> bool {
     (asked - got).abs() <= RATE_TOLERANCE_HZ
 }
 

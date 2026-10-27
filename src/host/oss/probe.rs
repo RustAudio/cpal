@@ -23,11 +23,12 @@ use std::{
     os::unix::fs::OpenOptionsExt,
 };
 
-use crate::{SupportedBufferSize, SupportedStreamConfigRange};
+use crate::{SupportedBufferSize, SupportedStreamConfigRange, SampleFormat};
 
 use super::{
     formats,
-    syscall::{self, ioctl_int},
+    syscall::{self, ioctl_int, AudioBufInfo, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETOSPACE, ioctl_ptr},
+    stream::rate_close_enough,
 };
 
 #[derive(Clone, Copy)]
@@ -92,12 +93,9 @@ pub(super) fn probe_configs(
 
         for &ch in PROBE_CHANNELS {
             let mut rates = Vec::new();
+            let mut buffer_size = SupportedBufferSize::Unknown;
 
             for &rate in PROBE_RATES {
-                let rate: i32 = rate
-                    .try_into()
-                    .expect("All the samples rates are non-negative");
-
                 // Fresh fd per attempt as OSS settings are sticky once the device is configured.
                 let fd = open_dsp(path, mode)?;
                 if ioctl_int(&fd, syscall::SNDCTL_DSP_SETFMT, *afmt)? != *afmt {
@@ -106,9 +104,25 @@ pub(super) fn probe_configs(
                 if ioctl_int(&fd, syscall::SNDCTL_DSP_CHANNELS, ch)? != ch {
                     break;
                 }
-                // [TODO] same driver rounding 48k -> 47999 could apply here, fixq
-                if ioctl_int(&fd, syscall::SNDCTL_DSP_SPEED, rate)? == rate {
+                let got = ioctl_int(&fd, syscall::SNDCTL_DSP_SPEED, rate)?;
+                if rate_close_enough(rate, got) {
                     rates.push(rate as u32);
+
+                    // Query the buffer size on the first working config for
+                    // this (format, channels) pair. Buffer parameters depend
+                    // only on format and channels on OSS, not on sample rate.
+                    if rates.len() == 1 {
+                        if let Some(frames) =
+                            query_buffer_frames(&fd, mode, ch as u16, *sample_format)
+                        {
+                            buffer_size = SupportedBufferSize::Range {
+                                min: frames,
+                                max: frames,
+                            };
+                        }
+                    }
+                } else {
+                    break;
                 }
             }
 
@@ -117,11 +131,46 @@ pub(super) fn probe_configs(
                     ch as u16,
                     min,
                     max,
-                    SupportedBufferSize::Unknown,
+                    buffer_size,
                     *sample_format,
                 ));
             }
         }
     }
     Ok(out)
+}
+
+/// Query the device's default buffer size (in frames) for the given direction.
+///
+/// Must be called on an fd that has already been configured as
+/// OSS allocates the fragment buffer lazily on first configuration, so
+/// querying on a freshly-opened fd returns zeros.
+///
+/// Returns `None` if the ioctl fails or the result doesn't divide cleanly
+/// into whole frames.
+fn query_buffer_frames(
+    fd: &File,
+    mode: Mode,
+    channels: u16,
+    sample_format: SampleFormat,
+) -> Option<u32> {
+    let mut info = AudioBufInfo::default();
+    let req = match mode {
+        Mode::Read => SNDCTL_DSP_GETISPACE,
+        Mode::Write => SNDCTL_DSP_GETOSPACE,
+        _ => { return None; } // This should never be used for duplex, atleast for now
+    };
+    ioctl_ptr(fd, req, &mut info).ok()?;
+
+    let fragsize   = usize::try_from(info.fragsize).ok()?;
+    let fragstotal = usize::try_from(info.fragstotal).ok()?;
+    let total_bytes = fragsize.checked_mul(fragstotal)?;
+
+    let frame_size = channels as usize * sample_format.sample_size();
+    if frame_size == 0 {
+        return None;
+    }
+
+    let frames = total_bytes / frame_size;
+    u32::try_from(frames).ok().filter(|&n| n > 0)
 }
