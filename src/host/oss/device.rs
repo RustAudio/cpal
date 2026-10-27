@@ -152,10 +152,10 @@ impl DeviceTrait for Device {
     }
 
     // this isn't the best approach atall, it can spew out exotic configs as 'default',
-    // e.g., on my headphones: 1ch 192kHz, Unkown (though thats due to my probing), F32 (fine)
+    // e.g., on my headphones: 1ch 192kHz, Unknown (though thats due to my probing), F32 (fine).
     //
     // research: maybe `AUDIOINFO` has something for this?
-    // 2ch 48khz 1024 f32 would be far more sane
+    // 2ch 48khz 1024 f32 would be far more sane, but then the issue of hardcoded defaults pops up.
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         if self.supports_output() {
             self.supported_output_configs()?
@@ -377,10 +377,12 @@ pub fn default_device() -> Option<Device> {
 /// Any errors will be swallowed by `DeviceDirection::Unknown`.
 fn read_direction_caps(path: &str) -> DeviceDirection {
     let Ok(file) = File::open(path) else {
+        println!("A");
         return DeviceDirection::Unknown;
     };
 
     let Ok(caps) = ioctl_int(&file, SNDCTL_DSP_GETCAPS, 0) else {
+        println!("B");
         return DeviceDirection::Unknown;
     };
 
