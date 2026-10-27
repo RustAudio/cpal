@@ -1,6 +1,6 @@
 //! OSS device enumeration via /dev/sndstat.
 
-use std::{fmt, fmt::Display, fs, io, sync::Arc, vec, fs::File};
+use std::{fmt, fmt::Display, fs, fs::File, io, sync::Arc, vec};
 
 use crate::{
     CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
@@ -15,7 +15,7 @@ use super::{
     DEFAULT_DSP_PATH, SNDSTAT_PATH, error_from_io,
     probe::{Mode, open_dsp, probe_configs},
     stream::Control,
-    syscall::{self, ioctl_int, SNDCTL_DSP_GETCAPS, PCM_CAP_INPUT, PCM_CAP_OUTPUT},
+    syscall::{self, PCM_CAP_INPUT, PCM_CAP_OUTPUT, SNDCTL_DSP_GETCAPS, ioctl_int},
 };
 
 #[derive(Clone, Debug, Hash)]
@@ -365,15 +365,15 @@ pub fn default_device() -> Option<Device> {
 }
 
 /// Query a device's direction capabilities via `SNDCTL_DSP_GETCAPS`.
-/// 
+///
 /// Unlike crude probing with read/write modes, this
 /// is the well documentated way to query direction
 /// capabilities, and will not fail if a device is busy.
-/// 
+///
 /// Returns `DeviceDirection::Duplex` even if the Duplex
 /// flag is unset, but Input and Output are both set, due
 /// to cpal's `DeviceDirection` behaviour.
-/// 
+///
 /// Any errors will be swallowed by `DeviceDirection::Unknown`.
 fn read_direction_caps(path: &str) -> DeviceDirection {
     let Ok(file) = File::open(path) else {
