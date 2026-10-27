@@ -376,6 +376,7 @@ pub fn default_device() -> Option<Device> {
 ///
 /// Any errors will be swallowed by `DeviceDirection::Unknown`.
 fn read_direction_caps(path: &str) -> DeviceDirection {
+    println!("0");
     let Ok(file) = File::open(path) else {
         println!("A");
         return DeviceDirection::Unknown;
@@ -393,7 +394,10 @@ fn read_direction_caps(path: &str) -> DeviceDirection {
         (true, true) => DeviceDirection::Duplex,
         (true, false) => DeviceDirection::Input,
         (false, true) => DeviceDirection::Output,
-        (false, false) => DeviceDirection::Unknown,
+        (false, false) => {
+            println!("C");
+            DeviceDirection::Unknown
+        }
     }
 }
 
