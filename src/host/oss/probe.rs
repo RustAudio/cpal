@@ -23,12 +23,14 @@ use std::{
     os::unix::fs::OpenOptionsExt,
 };
 
-use crate::{SupportedBufferSize, SupportedStreamConfigRange, SampleFormat};
+use crate::{SampleFormat, SupportedBufferSize, SupportedStreamConfigRange};
 
 use super::{
     formats,
-    syscall::{self, ioctl_int, AudioBufInfo, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETOSPACE, ioctl_ptr},
     stream::rate_close_enough,
+    syscall::{
+        self, AudioBufInfo, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETOSPACE, ioctl_int, ioctl_ptr,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -158,11 +160,13 @@ fn query_buffer_frames(
     let req = match mode {
         Mode::Read => SNDCTL_DSP_GETISPACE,
         Mode::Write => SNDCTL_DSP_GETOSPACE,
-        _ => { return None; } // This should never be used for duplex, atleast for now
+        _ => {
+            return None;
+        } // This should never be used for duplex, atleast for now
     };
     ioctl_ptr(fd, req, &mut info).ok()?;
 
-    let fragsize   = usize::try_from(info.fragsize).ok()?;
+    let fragsize = usize::try_from(info.fragsize).ok()?;
     let fragstotal = usize::try_from(info.fragstotal).ok()?;
     let total_bytes = fragsize.checked_mul(fragstotal)?;
 
