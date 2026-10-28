@@ -605,7 +605,7 @@ pub(super) fn configure(
 /// Configure an open device file descriptor for a duplex stream.
 ///
 /// [TODO]: hoist away some duplication between this and `configure`.
-/// 
+///
 /// In an ideal world, there wouldn't be a difference between input and output here,
 /// and there would be no need to try to squash different input and output buffer sizes
 /// into one FrameCount, unfortunately, due to OSS' `COOKED_MODE` (disabling COOKED mode
@@ -671,11 +671,11 @@ pub(super) fn configure_duplex(
     // I assume .max(1) would never cause an issues
     let in_bytes = in_info.fragsize.max(1) as usize;
     let out_bytes = out_info.fragsize.max(1) as usize;
-    
+
     // one divisor because input and output share both their format and number of channels.
     let frame_bytes = config.output_channels as usize * fmt.sample_size();
     // Cooked mode lets the input and output fragment sizes differ (resampling, asymmetric ring geometry, etc.?).
-    // We can't express that through a single .buffer_size() frame count, 
+    // We can't express that through a single .buffer_size() frame count,
     // so report the smaller of the two to avoid overrunning either direction.
     // For a (slightly more detailed) rant on this, see above.
     let period_frames = (in_bytes / frame_bytes).min(out_bytes / frame_bytes) as FrameCount;
