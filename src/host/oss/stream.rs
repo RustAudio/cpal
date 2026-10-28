@@ -39,9 +39,8 @@ use super::{
 
 use libc::c_int;
 
-/// [TODO] ::new_input/output/duplex
 pub struct Stream {
-    pub(super) reported_buffer_size: Option<FrameCount>, // Option because I'm not sure what to do for Duplex
+    pub(super) reported_buffer_size: FrameCount,
     pub(super) control: Arc<Control>,
     pub(super) worker: Option<JoinHandle<()>>,
     pub(super) latch: Latch,
@@ -75,21 +74,18 @@ impl StreamTrait for Stream {
 
     // infalliable
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        match self.reported_buffer_size {
-            Some(s) => Ok(s),
-            None => {
-                // I'm unsure how to handle Duplex streams for now,
-                // as OSS does not enforce that input/output buffers
-                // have the same amount of frames.
-                Err(Error::new(ErrorKind::HostUnavailable))
-            }
-        }
+        Ok(self.reported_buffer_size)
+        // I'm unsure how to handle Duplex streams for now,
+        // as OSS does not enforce that input/output buffers
+        // have the same amount of frames.
     }
 
-    /// Returns the current time using the same clock
-    /// as the stream.
-    ///
-    /// The clock in question is `CLOCK_MONOTONIC`.
+    // Returns the current time using the same clock
+    // as the stream.
+    //
+    // The clock in question is `CLOCK_MONOTONIC`.
+    //
+    // Infalliable
     fn now(&self) -> StreamInstant {
         clock::now()
     }
@@ -611,7 +607,7 @@ pub(super) fn configure_duplex(
     fd: &File,
     config: &DuplexStreamConfig,
     fmt: SampleFormat,
-) -> Result<(usize, usize), Error> {
+) -> Result<(usize, FrameCount), Error> {
     let Some(afmt) = formats::afmt_from_sample_format(fmt) else {
         return Err(Error::with_message(
             ErrorKind::UnsupportedConfig,
@@ -661,8 +657,22 @@ pub(super) fn configure_duplex(
     let mut out_info = AudioBufInfo::default();
     ioctl_ptr(fd, syscall::SNDCTL_DSP_GETOSPACE, &mut out_info).map_err(error_from_io)?;
 
-    Ok((
-        in_info.fragsize.max(1) as usize,
-        out_info.fragsize.max(1) as usize,
-    ))
+    // SNDCTL_DSP_SETFRAGMENT is a device-level setting: one fragment size
+    // drives both rings, so a mismatch here means the driver didn't honour
+    // the duplex contract.
+    if in_info.fragsize != out_info.fragsize {
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!(
+                "OSS duplex fragsize mismatch: input {} != output {}",
+                in_info.fragsize, out_info.fragsize
+            ),
+        ));
+    }
+
+    let fragsize = in_info.fragsize.max(1) as usize;
+    let frame_bytes = config.output_channels as usize * fmt.sample_size();
+    let period_frames = (fragsize / frame_bytes) as FrameCount;
+
+    Ok((fragsize, period_frames))
 }
