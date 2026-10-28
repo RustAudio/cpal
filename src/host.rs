@@ -190,7 +190,7 @@ pub(crate) use error_emit::emit_error;
 
 #[cfg(any(
     target_vendor = "apple",
-    target_os = "android",
+    all(target_os = "android", feature = "realtime",),
     all(
         feature = "jack",
         any(

@@ -40,3 +40,31 @@ pub struct DuplexStreamConfig {
     /// The desired buffer size, in frames per callback.
     pub buffer_size: BufferSize,
 }
+
+#[cfg(all(
+    feature = "jack",
+    any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "macos",
+        target_os = "windows",
+    )
+))]
+/// Applies [`validate_stream_config`] to each direction of a duplex configuration.
+pub(crate) fn validate_duplex_config(config: &DuplexStreamConfig) -> Result<(), crate::Error> {
+    let input = crate::StreamConfig {
+        channels: config.input_channels,
+        sample_rate: config.sample_rate,
+        buffer_size: config.buffer_size,
+    };
+    crate::validate_stream_config(&input)?;
+
+    let output = crate::StreamConfig {
+        channels: config.output_channels,
+        sample_rate: config.sample_rate,
+        buffer_size: config.buffer_size,
+    };
+    crate::validate_stream_config(&output)
+}

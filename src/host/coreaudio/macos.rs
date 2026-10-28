@@ -312,7 +312,7 @@ impl DisconnectManager {
 
         let mut latch = Latch::new();
         spawn_delivery_thread(
-            "cpal-coreaudio-disconnect",
+            "cpal_coreaudio_disconnect",
             &mut latch,
             disconnect_rx,
             stream_weak,
@@ -435,7 +435,7 @@ impl DefaultOutputMonitor {
 
         let mut latch = Latch::new();
         spawn_delivery_thread(
-            "cpal-coreaudio-default-output",
+            "cpal_coreaudio_default_out",
             &mut latch,
             change_rx,
             stream_weak,

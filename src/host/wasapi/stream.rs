@@ -379,7 +379,7 @@ impl Stream {
             .map_err(|e| {
                 Error::with_message(
                     ErrorKind::ResourceExhausted,
-                    format!("Failed to create audio thread: {e}"),
+                    format!("Failed to create WASAPI input worker thread: {e}"),
                 )
             })?;
 
@@ -455,7 +455,7 @@ impl Stream {
             .map_err(|e| {
                 Error::with_message(
                     ErrorKind::ResourceExhausted,
-                    format!("Failed to create audio thread: {e}"),
+                    format!("Failed to create WASAPI output worker thread: {e}"),
                 )
             })?;
 

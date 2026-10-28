@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated to Rust 2024.
 - Bump minimum Windows version to 10 (since 0.17.2).
 - Bump `audio_thread_priority` dependency to 0.36.
+- Normalized thread and client naming across all backends.
 - `DeviceTrait` and `StreamTrait` now require `Send + Sync` as supertrait bounds.
 - `StreamTrait::play` is renamed to `start`.
 - `InputCallbackInfo`/`OutputCallbackInfo` merged into `CallbackInfo`.
