@@ -507,11 +507,15 @@ fn monotonic_stream_instant() -> Option<StreamInstant> {
     }
 }
 
-fn remote_props() -> Option<PropertiesBox> {
-    let socket = super::utils::find_socket_path()?;
+fn remote_props(client_properties: &[(&'static str, String)]) -> PropertiesBox {
     let mut props = PropertiesBox::new();
-    props.insert(*pw::keys::REMOTE_NAME, socket.to_string_lossy().as_ref());
-    Some(props)
+    if let Some(socket) = super::utils::find_socket_path() {
+        props.insert(*pw::keys::REMOTE_NAME, socket.to_string_lossy().as_ref());
+    }
+    for (key, value) in client_properties {
+        props.insert(*key, value.as_str());
+    }
+    props
 }
 
 /// Holds the metadata proxy and its listener alive for the duration of the stream, so that
@@ -655,6 +659,10 @@ pub(super) fn watch_target_node(
 pub struct ConnectParams {
     pub config: StreamConfig,
     pub properties: PropertiesBox,
+    /// The stream's name, also its `media.name`.
+    pub name: String,
+    /// Properties for the stream's connection, which PipeWire shows as its client.
+    pub client_properties: Vec<(&'static str, String)>,
     pub sample_format: SampleFormat,
     pub last_quantum: Arc<AtomicU32>,
     pub start: Instant,
@@ -676,6 +684,8 @@ where
     let ConnectParams {
         config,
         properties,
+        name,
+        client_properties,
         sample_format,
         last_quantum,
         start,
@@ -687,7 +697,7 @@ where
 
     let mainloop = MainLoopRc::new(None)?;
     let context = ContextRc::new(&mainloop, None)?;
-    let core = context.connect_rc(remote_props())?;
+    let core = context.connect_rc(Some(remote_props(&client_properties)))?;
 
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let invalidated = Arc::new(AtomicBool::new(false));
@@ -736,11 +746,7 @@ where
     };
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
-    let stream = StreamRc::new(
-        core.clone(),
-        &format!("cpal-playback-{}", std::process::id()),
-        properties,
-    )?;
+    let stream = StreamRc::new(core.clone(), &name, properties)?;
 
     let listener = stream
         .add_local_listener_with_user_data(data)
@@ -950,6 +956,8 @@ where
     let ConnectParams {
         config,
         properties,
+        name,
+        client_properties,
         sample_format,
         last_quantum,
         start,
@@ -961,7 +969,7 @@ where
 
     let mainloop = MainLoopRc::new(None)?;
     let context = ContextRc::new(&mainloop, None)?;
-    let core = context.connect_rc(remote_props())?;
+    let core = context.connect_rc(Some(remote_props(&client_properties)))?;
 
     let error_callback: ErrorCallbackArc = Arc::new(Mutex::new(error_callback));
     let invalidated = Arc::new(AtomicBool::new(false));
@@ -1011,11 +1019,7 @@ where
 
     let channels = config.channels as _;
     let rate = config.sample_rate as _;
-    let stream = StreamRc::new(
-        core.clone(),
-        &format!("cpal-capture-{}", std::process::id()),
-        properties,
-    )?;
+    let stream = StreamRc::new(core.clone(), &name, properties)?;
     let listener = stream
         .add_local_listener_with_user_data(data)
         .param_changed(move |stream, user_data, id, param| {

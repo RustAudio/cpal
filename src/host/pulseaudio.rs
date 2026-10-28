@@ -3,7 +3,7 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
     mem::discriminant,
-    sync::mpsc,
+    sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
 
@@ -15,9 +15,10 @@ mod stream;
 pub use stream::Stream;
 
 use crate::{
-    BufferSize, CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
-    DeviceId, Error, ErrorKind, FrameCount, HostId, SampleFormat, SampleRate, StreamConfig,
-    SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
+    ApplicationInfo, BufferSize, CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder,
+    DeviceDirection, DeviceId, Error, ErrorKind, FrameCount, HostId, SampleFormat, SampleRate,
+    StreamConfig, StreamMetadata, StreamRole, SupportedBufferSize, SupportedStreamConfig,
+    SupportedStreamConfigRange,
     error::ResultExt,
     traits::{DeviceTrait, HostTrait},
 };
@@ -122,19 +123,111 @@ impl From<pulseaudio::ClientError> for Error {
     }
 }
 
+/// The application and stream metadata that a host gives the streams built from its devices.
+#[derive(Clone, Debug, Default)]
+pub struct Identity {
+    application: Option<ApplicationInfo>,
+    stream: StreamMetadata,
+}
+
+impl Identity {
+    /// The stream's properties: the application's name and icon, the stream's name and role.
+    fn props(&self) -> Vec<(protocol::Prop, &str)> {
+        let mut props = Vec::new();
+        if let Some(application) = &self.application {
+            props.push((protocol::Prop::ApplicationName, application.name.as_str()));
+            if let Some(icon_name) = &application.icon_name {
+                props.push((protocol::Prop::ApplicationIconName, icon_name.as_str()));
+            }
+        }
+        if let Some(name) = &self.stream.name {
+            props.push((protocol::Prop::MediaName, name.as_str()));
+        }
+        if let Some(role) = self.stream.role {
+            props.push((protocol::Prop::MediaRole, media_role(role)));
+        }
+        props
+    }
+
+    fn proplist(&self) -> protocol::Props {
+        let mut proplist = protocol::Props::new();
+        for (prop, value) in self.props() {
+            // Values were checked for NUL bytes when they were set.
+            if let Ok(value) = CString::new(value) {
+                proplist.set(prop, value);
+            }
+        }
+        proplist
+    }
+}
+
+/// PulseAudio's `media.role` for a role.
+fn media_role(role: StreamRole) -> &'static str {
+    match role {
+        StreamRole::Music => "music",
+        StreamRole::Movie => "video",
+        StreamRole::Game => "game",
+        StreamRole::Communication => "phone",
+        StreamRole::Notification => "event",
+        StreamRole::Production => "production",
+        StreamRole::Accessibility => "a11y",
+    }
+}
+
 /// A Host for connecting to the popular PulseAudio and PipeWire (via
 /// pipewire-pulse) audio servers on linux.
+///
+/// # PulseAudio-Specific Configuration
+///
+/// - The application's name and icon via [`with_application`](Host::with_application)
+/// - A stream's name and role via [`set_stream_metadata`](Host::set_stream_metadata)
 pub struct Host {
     client: pulseaudio::Client,
+    identity: Arc<Mutex<Identity>>,
 }
 
 impl Host {
     pub fn new() -> Result<Self, Error> {
+        Self::connect(None)
+    }
+
+    /// Creates a host whose connection and streams name `application` as their owner.
+    ///
+    /// Its name becomes the client's name and, with its icon, the `application.name` and
+    /// `application.icon_name` of each stream, which volume mixers show instead of
+    /// `cpal-pulseaudio-<pid>`.
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if a value contains a NUL byte.
+    pub fn with_application(application: ApplicationInfo) -> Result<Self, Error> {
+        application.validate()?;
+        Self::connect(Some(application))
+    }
+
+    /// Describes the streams built from this host's devices from now on.
+    ///
+    /// The name becomes the stream's name (`media.name`) and the role its `media.role`. Streams
+    /// already built keep the metadata they were built with.
+    ///
+    /// Returns [`ErrorKind::InvalidInput`] if the name contains a NUL byte.
+    pub fn set_stream_metadata(&mut self, metadata: StreamMetadata) -> Result<(), Error> {
+        metadata.validate()?;
+        self.identity
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .stream = metadata;
+        Ok(())
+    }
+
+    fn connect(application: Option<ApplicationInfo>) -> Result<Self, Error> {
+        let name = match &application {
+            Some(application) => CString::new(application.name.as_str()),
+            None => CString::new(format!("cpal-pulseaudio-{}", std::process::id())),
+        }
+        .map_err(|e| Error::with_message(ErrorKind::InvalidInput, e.to_string()))?;
         // `Client::from_env` does a blocking auth handshake with no socket timeout. If this never
         // returns, fall through to the next host with no other option than to leak the thread.
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let name = CString::new(format!("cpal-pulseaudio-{}", std::process::id())).unwrap();
             let _ = tx.send(pulseaudio::Client::from_env(&name));
         });
         let client = rx
@@ -151,7 +244,11 @@ impl Host {
             })
             .and_then(|r| r.map_err(Error::from))?;
 
-        Ok(Self { client })
+        let identity = Arc::new(Mutex::new(Identity {
+            application,
+            ..Default::default()
+        }));
+        Ok(Self { client, identity })
     }
 }
 
@@ -172,10 +269,12 @@ impl HostTrait for Host {
             .into_iter()
             .map(|sink_info| Device::Sink {
                 client: self.client.clone(),
+                identity: self.identity.clone(),
                 info: sink_info,
             })
             .chain(sources.into_iter().map(|source_info| Device::Source {
                 client: self.client.clone(),
+                identity: self.identity.clone(),
                 info: source_info,
             }))
             .collect::<Vec<_>>()
@@ -191,6 +290,7 @@ impl HostTrait for Host {
 
         Some(Device::Source {
             client: self.client.clone(),
+            identity: self.identity.clone(),
             info: source_info,
         })
     }
@@ -204,6 +304,7 @@ impl HostTrait for Host {
 
         Some(Device::Sink {
             client: self.client.clone(),
+            identity: self.identity.clone(),
             info: sink_info,
         })
     }
@@ -214,10 +315,12 @@ impl HostTrait for Host {
 pub enum Device {
     Sink {
         client: pulseaudio::Client,
+        identity: Arc<Mutex<Identity>>,
         info: protocol::SinkInfo,
     },
     Source {
         client: pulseaudio::Client,
+        identity: Arc<Mutex<Identity>>,
         info: protocol::SourceInfo,
     },
 }
@@ -322,7 +425,12 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        let Device::Source { client, info } = self else {
+        let Device::Source {
+            client,
+            identity,
+            info,
+        } = self
+        else {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
                 "Device does not support input",
@@ -369,6 +477,10 @@ impl DeviceTrait for Device {
                 adjust_latency,
                 ..Default::default()
             },
+            props: identity
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .proplist(),
             ..Default::default()
         };
 
@@ -415,7 +527,12 @@ impl DeviceTrait for Device {
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        let Device::Sink { client, info } = self else {
+        let Device::Sink {
+            client,
+            identity,
+            info,
+        } = self
+        else {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedOperation,
                 "Device does not support output",
@@ -464,6 +581,10 @@ impl DeviceTrait for Device {
                 adjust_latency,
                 ..Default::default()
             },
+            props: identity
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .proplist(),
             ..Default::default()
         };
 
@@ -680,5 +801,43 @@ impl Hash for Device {
             Device::Sink { info, .. } => info.name.hash(state),
             Device::Source { info, .. } => info.name.hash(state),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Identity, protocol::Prop};
+    use crate::{ApplicationInfo, StreamMetadata, StreamRole};
+
+    #[test]
+    fn identity_props() {
+        assert!(Identity::default().props().is_empty());
+
+        let identity = Identity {
+            application: Some(ApplicationInfo {
+                name: "Player".into(),
+                icon_name: Some("player".into()),
+            }),
+            stream: StreamMetadata {
+                name: Some("A song".into()),
+                role: Some(StreamRole::Communication),
+            },
+        };
+        assert_eq!(
+            identity.props(),
+            vec![
+                (Prop::ApplicationName, "Player"),
+                (Prop::ApplicationIconName, "player"),
+                (Prop::MediaName, "A song"),
+                (Prop::MediaRole, "phone"),
+            ]
+        );
+        assert_eq!(
+            identity
+                .proplist()
+                .get(Prop::MediaRole)
+                .map(|value| value.to_vec()),
+            Some(b"phone\0".to_vec())
+        );
     }
 }

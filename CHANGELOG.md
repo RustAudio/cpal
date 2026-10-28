@@ -12,9 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StreamTrait::stop` ends a stream gracefully, draining buffered audio before halting (blocking up to a caller-supplied timeout). Dropping a stream still halts immediately without draining.
 - `CallbackInfo::xrun()` reports buffer over/underruns via the data callback.
 - `DeviceTrait::build_duplex_stream()`, `build_duplex_stream_raw()`, `default_duplex_config()`, and `supports_duplex()` for capture and playback from one device-level callback.
+- `ApplicationInfo`, `StreamMetadata` and `StreamRole` describe the application and its streams to audio servers that show them, such as in volume mixers.
 - **ALSA**: Duplex streams are now supported.
 - **AudioWorklet**: Input and duplex streams are now supported.
 - **JACK**: Duplex streams are now supported.
+- **PipeWire**: `Host::with_application` and `Host::set_stream_metadata` set a stream's `application.name`, `application.icon-name`, `media.name` and `media.role`, and the client's application name and icon.
+- **PulseAudio**: `Host::with_application` names the client and `Host::set_stream_metadata` sets a stream's name and role, with the application's name and icon in its proplist. `PulseAudioHost` is now exported from `cpal::platform`.
 - **WebAudio**: Input and duplex streams are now supported.
 - **WebAudio**: Added support for Emscripten targets via [wasm-bindgen/Emscripten integration](https://github.com/wasm-bindgen/wasm-bindgen/issues/5237).
 
@@ -35,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: A `None` timeout now waits indefinitely for sample rate and format changes, instead of giving up after 1 or 2 seconds.
 - **Linux**: `realtime` can now promote threads without requiring `realtime-dbus`.
 - **PipeWire**: Set `node.rate` property so that `default.clock.allowed-rates` PipeWire config works.
+- **PulseAudio**: `Device::Sink` and `Device::Source` carry the host's stream metadata in a new `identity` field.
 
 ### Deprecated
 
