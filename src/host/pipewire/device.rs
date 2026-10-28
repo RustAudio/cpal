@@ -175,7 +175,7 @@ impl Device {
         // preventing phase drift between simultaneous input/output streams.
         properties.insert(
             *pw::keys::NODE_GROUP,
-            format!("cpal-{}", std::process::id()),
+            format!("cpal_pw_node_{}", std::process::id()),
         );
 
         properties.insert(*pw::keys::NODE_RATE, format!("1/{}", config.sample_rate));
@@ -385,7 +385,7 @@ impl DeviceTrait for Device {
         let data_callback = crate::host::monotonic_input_callback(data_callback);
         let start = std::time::Instant::now();
         let handle = thread::Builder::new()
-            .name("pw_in".to_owned())
+            .name("cpal_pw_in".to_owned())
             .spawn(move || {
                 let _pw = PwInitGuard::new();
                 let properties = device.pw_properties(DeviceDirection::Input, &config);
@@ -583,7 +583,7 @@ impl DeviceTrait for Device {
         let data_callback = crate::host::monotonic_output_callback(data_callback);
         let start = std::time::Instant::now();
         let handle = thread::Builder::new()
-            .name("pw_out".to_owned())
+            .name("cpal_pw_out".to_owned())
             .spawn(move || {
                 let _pw = PwInitGuard::new();
                 let properties = device.pw_properties(DeviceDirection::Output, &config);

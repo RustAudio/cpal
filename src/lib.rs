@@ -195,26 +195,6 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-// Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", target_os = "unknown"),
-    feature = "wasm-bindgen"
-))]
-extern crate js_sys;
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", target_os = "unknown"),
-    feature = "wasm-bindgen"
-))]
-extern crate wasm_bindgen;
-#[cfg(all(
-    target_arch = "wasm32",
-    any(target_os = "emscripten", target_os = "unknown"),
-    feature = "wasm-bindgen"
-))]
-extern crate web_sys;
-
 pub use device_description::{
     DeviceDescription, DeviceDescriptionBuilder, DeviceDirection, DeviceType, InterfaceType,
 };

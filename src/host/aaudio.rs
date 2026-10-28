@@ -22,8 +22,9 @@ use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
-extern crate ndk;
-use self::ndk::audio::AudioStream;
+use ndk::audio::AudioStream;
+
+#[cfg(feature = "realtime")]
 use crate::host::try_emit_error;
 
 mod convert;
@@ -577,7 +578,7 @@ impl DeviceTrait for Device {
                 let device_type: DeviceType = info.device_type.into();
                 let name = match device_type {
                     DeviceType::Unknown => info.product_name.clone(),
-                    _ => format!("{} ({})", info.product_name, device_type),
+                    _ => format!("{} ({device_type})", info.product_name),
                 };
                 let mut builder = DeviceDescriptionBuilder::new(name)
                     .device_type(device_type)

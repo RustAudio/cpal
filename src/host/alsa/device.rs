@@ -1,3 +1,4 @@
+use alsa::poll::Descriptors;
 use std::{
     collections::HashMap,
     fmt,
@@ -7,8 +8,7 @@ use std::{
 };
 
 use super::{
-    AlsaContext, DEFAULT_PERIODS, Stream, alsa,
-    alsa::poll::Descriptors,
+    AlsaContext, DEFAULT_PERIODS, Stream,
     hw_params::{
         StartThreshold, set_hw_params_from_format, set_sw_params_from_format,
         supported_period_size_range,
@@ -105,13 +105,13 @@ impl DeviceTrait for Device {
         let data_callback = crate::host::monotonic_input_callback(data_callback);
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Capture)?;
-        let stream = Self::Stream::new_input(
+
+        Self::Stream::new_input(
             Arc::new(stream_inner),
             data_callback,
             error_callback,
             timeout,
-        );
-        Ok(stream)
+        )
     }
 
     fn build_output_stream_raw<D, E>(
@@ -131,13 +131,13 @@ impl DeviceTrait for Device {
         let data_callback = crate::host::monotonic_output_callback(data_callback);
         let stream_inner =
             self.build_stream_inner(conf, sample_format, alsa::Direction::Playback)?;
-        let stream = Self::Stream::new_output(
+
+        Self::Stream::new_output(
             Arc::new(stream_inner),
             data_callback,
             error_callback,
             timeout,
-        );
-        Ok(stream)
+        )
     }
 
     fn build_duplex_stream_raw<D, E>(
@@ -155,13 +155,13 @@ impl DeviceTrait for Device {
     {
         let stream_inner =
             self.build_duplex_stream_inner(config, input_sample_format, output_sample_format)?;
-        let stream = Self::Stream::new_duplex(
+
+        Self::Stream::new_duplex(
             Arc::new(stream_inner),
             data_callback,
             error_callback,
             timeout,
-        );
-        Ok(stream)
+        )
     }
 }
 

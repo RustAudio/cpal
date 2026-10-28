@@ -2,20 +2,13 @@
 //!
 //! Default backend on Linux and BSD systems.
 
-extern crate alsa;
-#[cfg(feature = "realtime")]
-extern crate alsa_sys;
-extern crate libc;
-
 use std::{
     mem,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-pub use self::device::Device;
-pub use self::enumerate::Devices;
-pub use self::stream::Stream;
+pub use self::{device::Device, enumerate::Devices, stream::Stream};
 use crate::{
     DeviceDirection, DeviceId, Error, ErrorKind,
     traits::{DeviceTrait, HostTrait},

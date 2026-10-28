@@ -1,11 +1,4 @@
-use std::{
-    sync::{Arc, atomic::Ordering},
-    time::Duration,
-};
-
 use super::{
-    alsa,
-    alsa::poll::Descriptors,
     poll_timeout_millis,
     stream::{ErrorCallback, InputDataCallback, OutputDataCallback, StreamInner},
     timestamp::status_with_timestamp,
@@ -14,6 +7,11 @@ use super::{
 use crate::{
     CallbackInfo, Data, Error, ErrorKind, FrameCount, StreamInstant, StreamTimestamp,
     host::frames_to_duration,
+};
+use alsa::poll::Descriptors;
+use std::{
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
 };
 
 pub(super) fn input_stream_worker(

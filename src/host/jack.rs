@@ -2,8 +2,6 @@
 //!
 //! Available on all platforms with the `jack` feature. Requires JACK server and client libraries.
 
-extern crate jack;
-
 use crate::{Error, ErrorKind, SampleFormat, traits::HostTrait};
 
 mod device;
@@ -46,7 +44,7 @@ pub struct Host {
 impl Host {
     pub fn new() -> Result<Self, Error> {
         let mut host = Host {
-            name: format!("cpal_client_{}", std::process::id()),
+            name: format!("cpal_jack_client_{}", std::process::id()),
             connect_ports_automatically: true,
             start_server_automatically: false,
             devices_created: vec![],
@@ -178,35 +176,27 @@ fn get_client_options(start_server_automatically: bool) -> jack::ClientOptions {
 
 impl From<jack::Error> for Error {
     fn from(err: jack::Error) -> Self {
-        let msg = format!("{err}");
-        match err {
+        let kind = match err {
             jack::Error::ClientError(_)
             | jack::Error::ClientActivationError
             | jack::Error::ClientDeactivationError
             | jack::Error::LibraryError(_)
             | jack::Error::WeakFunctionNotFound(_)
-            | jack::Error::RingbufferCreateFailed => {
-                Error::with_message(ErrorKind::DeviceNotAvailable, msg)
-            }
+            | jack::Error::RingbufferCreateFailed => ErrorKind::DeviceNotAvailable,
 
             jack::Error::ClientIsNoLongerAlive | jack::Error::ClientPanicked => {
-                Error::with_message(ErrorKind::StreamInvalidated, msg)
+                ErrorKind::StreamInvalidated
             }
-
             jack::Error::SetBufferSizeError | jack::Error::NotEnoughSpace => {
-                Error::with_message(ErrorKind::UnsupportedConfig, msg)
+                ErrorKind::UnsupportedConfig
             }
-
             jack::Error::InvalidDeactivation | jack::Error::FreewheelError => {
-                Error::with_message(ErrorKind::UnsupportedOperation, msg)
+                ErrorKind::UnsupportedOperation
             }
-
-            jack::Error::PortNamingError | jack::Error::PortAliasError => {
-                Error::with_message(ErrorKind::InvalidInput, msg)
-            }
-
-            _ => Error::with_message(ErrorKind::BackendError, msg),
-        }
+            jack::Error::PortNamingError | jack::Error::PortAliasError => ErrorKind::InvalidInput,
+            _ => ErrorKind::BackendError,
+        };
+        Error::with_message(kind, format!("{err}"))
     }
 }
 

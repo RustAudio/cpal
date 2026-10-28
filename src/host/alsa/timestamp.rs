@@ -1,4 +1,4 @@
-use super::{alsa, stream::TimestampMode};
+use super::stream::TimestampMode;
 use crate::{Error, StreamInstant};
 
 #[inline]
