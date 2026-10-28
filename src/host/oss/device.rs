@@ -139,28 +139,42 @@ impl DeviceTrait for Device {
         }
     }
 
-    // [TODO]: best? or research probing a specific format with `SNDCTL_DSP_GETCAPS`
+    // OSS doesn't really have a concept of default stream formats, so we sort all supported ones
+    // with `SupportedStreamConfigRange::cmp_default_heuristics`.
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         if self.supports_input() {
-            self.supported_input_configs()?
-                .next()
-                .map(|range| range.with_max_sample_rate())
+            let mut formats: Vec<_> = self.supported_input_configs()?.collect();
+
+            formats.sort_by(|a, b| a.cmp_default_heuristics(b));
+
+            formats
+                .into_iter()
+                .next_back()
+                .map(|f| {
+                    f.try_with_standard_sample_rate()
+                        .unwrap_or_else(|| f.with_max_sample_rate())
+                })
                 .ok_or(Error::new(ErrorKind::UnsupportedConfig))
         } else {
             Err(Error::new(ErrorKind::UnsupportedOperation))
         }
     }
 
-    // this isn't the best approach atall, it can spew out exotic configs as 'default',
-    // e.g., on my headphones: 1ch 192kHz, Unknown (though thats due to my probing), F32 (fine).
-    //
-    // research: maybe `AUDIOINFO` has something for this?
-    // 2ch 48khz 1024 f32 would be far more sane, but then the issue of hardcoded defaults pops up.
+    // OSS doesn't really have a concept of default stream formats, so we sort all supported ones
+    // with `SupportedStreamConfigRange::cmp_default_heuristics`.
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         if self.supports_output() {
-            self.supported_output_configs()?
-                .next()
-                .map(|range| range.with_max_sample_rate())
+            let mut formats: Vec<_> = self.supported_output_configs()?.collect();
+
+            formats.sort_by(|a, b| a.cmp_default_heuristics(b));
+
+            formats
+                .into_iter()
+                .next_back()
+                .map(|f| {
+                    f.try_with_standard_sample_rate()
+                        .unwrap_or_else(|| f.with_max_sample_rate())
+                })
                 .ok_or(Error::new(ErrorKind::UnsupportedConfig))
         } else {
             Err(Error::new(ErrorKind::UnsupportedOperation))
