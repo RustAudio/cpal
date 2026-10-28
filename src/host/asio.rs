@@ -3,7 +3,7 @@
 //! ASIO is available on Windows with the `asio` feature.
 //! See the project README for setup instructions.
 
-extern crate asio_sys as sys;
+use asio_sys as sys;
 
 use std::{
     sync::{Arc, OnceLock},

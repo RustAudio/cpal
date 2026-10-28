@@ -61,6 +61,7 @@ pub struct StreamTimestamp {
 /// | Same-cycle | AAudio, ALSA, PipeWire, WASAPI (capture) |
 /// | Next-cycle | CoreAudio |
 /// | No ordering guarantee | ASIO, JACK, OSS |
+/// | No reporting | PulseAudio, iOS, WebAudio, AudioWorklet |
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CallbackInfo {
     pub(crate) timestamp: StreamTimestamp,

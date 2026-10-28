@@ -45,7 +45,7 @@ fn main() -> Result<(), anyhow::Error> {
                 .id()
                 .map_or("Unknown ID".to_string(), |id| id.to_string());
             if let Ok(desc) = device.description() {
-                println!("  {}. {id} ({})", device_index + 1, desc);
+                println!("  {}. {id} ({desc})", device_index + 1);
             } else {
                 println!("  {}. {id}", device_index + 1);
             }
@@ -65,10 +65,9 @@ fn main() -> Result<(), anyhow::Error> {
                 println!("    All supported input stream configs:");
                 for (config_index, config) in input_configs.into_iter().enumerate() {
                     println!(
-                        "      {}.{}. {:?}",
+                        "      {}.{}. {config:?}",
                         device_index + 1,
                         config_index + 1,
-                        config
                     );
                 }
             }
@@ -88,10 +87,9 @@ fn main() -> Result<(), anyhow::Error> {
                 println!("    All supported output stream configs:");
                 for (config_index, config) in output_configs.into_iter().enumerate() {
                     println!(
-                        "      {}.{}. {:?}",
+                        "      {}.{}. {config:?}",
                         device_index + 1,
                         config_index + 1,
-                        config
                     );
                 }
             }

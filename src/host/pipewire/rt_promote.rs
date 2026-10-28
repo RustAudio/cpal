@@ -39,7 +39,7 @@ impl RtPromoter {
         let error_callback_bg = error_callback.clone();
 
         let join = thread::Builder::new()
-            .name("cpal_rt_promote".to_owned())
+            .name("cpal_pw_rt_prom".to_owned())
             .spawn(move || {
                 let mut promoted = false;
                 loop {

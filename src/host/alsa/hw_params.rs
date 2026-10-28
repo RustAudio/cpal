@@ -1,4 +1,4 @@
-use super::{DEFAULT_PERIODS, alsa};
+use super::DEFAULT_PERIODS;
 use crate::{
     BufferSize, ChannelCount, Error, ErrorKind, FrameCount, SampleFormat, StreamConfig,
     SupportedBufferSize,

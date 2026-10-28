@@ -1,3 +1,21 @@
+use super::{
+    AlsaContext, POLL_INFINITE,
+    duplex::{duplex_stream_worker, start_duplex},
+    timestamp::{callback_instant_for, status_with_timestamp},
+    trigger::{TriggerReceiver, TriggerSender, trigger},
+    worker::{input_stream_worker, output_stream_worker},
+};
+use crate::{
+    CallbackInfo, Data, DeviceDirection, DuplexCallbackInfo, Error, ErrorKind, FrameCount,
+    SampleFormat, SampleRate, StreamInstant,
+    host::{
+        Notify,
+        equilibrium::{DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE, fill_equilibrium},
+        latch::Latch,
+    },
+    traits::StreamTrait,
+};
+use alsa::poll::Descriptors;
 use std::{
     sync::{
         Arc,
@@ -5,25 +23,6 @@ use std::{
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
-};
-
-use super::{
-    AlsaContext, POLL_INFINITE, alsa,
-    alsa::poll::Descriptors,
-    duplex::{duplex_stream_worker, start_duplex},
-    timestamp::{callback_instant_for, status_with_timestamp},
-    trigger::{TriggerReceiver, TriggerSender, trigger},
-    worker::{input_stream_worker, output_stream_worker},
-};
-use crate::{
-    CallbackInfo, Data, DeviceDirection, DuplexCallbackInfo, Error, FrameCount, SampleFormat,
-    SampleRate, StreamInstant,
-    host::{
-        Notify,
-        equilibrium::{DSD_EQUILIBRIUM_BYTE, U8_EQUILIBRIUM_BYTE, fill_equilibrium},
-        latch::Latch,
-    },
-    traits::StreamTrait,
 };
 
 pub(super) type InputDataCallback = dyn FnMut(&Data, &CallbackInfo) + Send + 'static;
@@ -82,7 +81,7 @@ impl Stream {
         mut data_callback: D,
         mut error_callback: E,
         timeout: Option<Duration>,
-    ) -> Stream
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
@@ -108,16 +107,21 @@ impl Stream {
                     timeout,
                 );
             })
-            .unwrap();
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create ALSA input worker thread: {e}"),
+                )
+            })?;
         latch.add_thread(thread.thread().clone());
 
-        Self {
+        Ok(Self {
             thread: Some(thread),
             kind: StreamKind::Single(inner),
             trigger: tx,
             _rx: rx,
             latch,
-        }
+        })
     }
 
     pub(super) fn new_output<D, E>(
@@ -125,7 +129,7 @@ impl Stream {
         mut data_callback: D,
         mut error_callback: E,
         timeout: Option<Duration>,
-    ) -> Stream
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
@@ -151,16 +155,21 @@ impl Stream {
                     timeout,
                 );
             })
-            .unwrap();
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create ALSA output worker thread: {e}"),
+                )
+            })?;
         latch.add_thread(thread.thread().clone());
 
-        Self {
+        Ok(Self {
             thread: Some(thread),
             kind: StreamKind::Single(inner),
             trigger: tx,
             _rx: rx,
             latch,
-        }
+        })
     }
 
     pub(super) fn new_duplex<D, E>(
@@ -168,7 +177,7 @@ impl Stream {
         mut data_callback: D,
         mut error_callback: E,
         timeout: Option<Duration>,
-    ) -> Stream
+    ) -> Result<Stream, Error>
     where
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
@@ -183,7 +192,7 @@ impl Stream {
         let waiter = latch.waiter();
 
         let thread = thread::Builder::new()
-            .name("cpal_alsa_duplex".to_owned())
+            .name("cpal_alsa_dup".to_owned())
             .spawn(move || {
                 waiter.wait();
                 duplex_stream_worker(
@@ -194,16 +203,21 @@ impl Stream {
                     timeout,
                 );
             })
-            .unwrap();
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create ALSA duplex worker thread: {e}"),
+                )
+            })?;
         latch.add_thread(thread.thread().clone());
 
-        Self {
+        Ok(Self {
             thread: Some(thread),
             kind: StreamKind::Duplex(inner),
             trigger: tx,
             _rx: rx,
             latch,
-        }
+        })
     }
 
     fn suspend_pcm(&self, inner: &StreamInner) -> Result<(), Error> {

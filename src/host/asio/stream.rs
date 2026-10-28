@@ -1,5 +1,4 @@
-extern crate asio_sys as sys;
-extern crate num_traits;
+use asio_sys as sys;
 
 use std::{
     sync::{
@@ -10,7 +9,6 @@ use std::{
     time::Duration,
 };
 
-use self::num_traits::{FromPrimitive, PrimInt};
 use super::Device;
 use crate::{
     BufferSize, CallbackInfo, Data, Error, ErrorKind, FrameCount, I24, Sample, SampleFormat,
@@ -20,6 +18,7 @@ use crate::{
         wait_for_drain,
     },
 };
+use num_traits::{FromPrimitive, PrimInt};
 
 /// Shared state for extending the 32-bit `timeGetTime()` millisecond counter into a
 /// monotonic 64-bit nanosecond value, shared between `now()` and audio callbacks.
@@ -1022,7 +1021,7 @@ impl Device {
         let (timer_tx, timer_rx) = mpsc::channel::<Error>();
         let error_cb_for_timer = Arc::clone(&error_callback_shared);
         std::thread::Builder::new()
-            .name("cpal-asio-event-timer".into())
+            .name("cpal_asio_event_timer".into())
             .spawn(move || {
                 let mut pending: Option<Error> = None;
                 loop {

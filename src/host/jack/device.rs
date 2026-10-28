@@ -10,7 +10,7 @@ use crate::{
     BufferSize, CallbackInfo, ChannelCount, Data, DeviceDescription, DeviceDescriptionBuilder,
     DeviceDirection, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,
     SampleFormat, SampleRate, StreamConfig, SupportedBufferSize, SupportedStreamConfig,
-    SupportedStreamConfigRange, traits::DeviceTrait,
+    SupportedStreamConfigRange, duplex::validate_duplex_config, traits::DeviceTrait,
 };
 
 const DEFAULT_NUM_CHANNELS: ChannelCount = 2;
@@ -351,7 +351,9 @@ impl DeviceTrait for Device {
                 "Device does not support duplex streams",
             ));
         }
-        validate_duplex_stream_config(&config, input_sample_format, output_sample_format)?;
+        validate_duplex_config(&config)?;
+        validate_sample_format(input_sample_format)?;
+        validate_sample_format(output_sample_format)?;
 
         // Keep both `capture` and `playback` monotonic: re-patching cpal's ports to a
         // different hardware port can move either direction's latency, pulling `device`
@@ -438,25 +440,6 @@ fn build_with_timeout(
             "timed out waiting for JACK server",
         ))
     })
-}
-
-/// Applies the sample rate/buffer size/channel checks from [`crate::validate_stream_config`] to
-/// each direction of a duplex configuration, and checks each direction's sample format.
-fn validate_duplex_stream_config(
-    config: &DuplexStreamConfig,
-    input_sample_format: SampleFormat,
-    output_sample_format: SampleFormat,
-) -> Result<(), Error> {
-    let per_direction = |channels| StreamConfig {
-        channels,
-        sample_rate: config.sample_rate,
-        buffer_size: config.buffer_size,
-    };
-    crate::validate_stream_config(&per_direction(config.input_channels))?;
-    validate_sample_format(input_sample_format)?;
-    crate::validate_stream_config(&per_direction(config.output_channels))?;
-    validate_sample_format(output_sample_format)?;
-    Ok(())
 }
 
 fn validate_sample_format(sample_format: SampleFormat) -> Result<(), Error> {

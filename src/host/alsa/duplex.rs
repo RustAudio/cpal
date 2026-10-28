@@ -1,12 +1,5 @@
-use std::{
-    sync::{Arc, atomic::Ordering},
-    time::Duration,
-};
-
 use super::{
-    DEFAULT_PERIODS, alsa,
-    alsa::poll::Descriptors,
-    poll_timeout_millis,
+    DEFAULT_PERIODS, poll_timeout_millis,
     stream::{DuplexDataCallback, DuplexStreamInner, ErrorCallback},
     timestamp::{callback_instant_for, status_with_timestamp},
     trigger::TriggerReceiver,
@@ -14,6 +7,11 @@ use super::{
 use crate::{
     CallbackInfo, Data, DuplexCallbackInfo, Error, ErrorKind, FrameCount, StreamInstant,
     StreamTimestamp, host::frames_to_duration,
+};
+use alsa::poll::Descriptors;
+use std::{
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
 };
 
 pub(super) fn start_duplex(stream: &DuplexStreamInner) -> Result<(), Error> {
