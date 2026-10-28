@@ -297,7 +297,7 @@ impl DeviceTrait for Device {
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
         let fd = open_dsp(&self.path, Mode::ReadWrite).map_err(error_from_io)?;
-        let (period_bytes, buf_size) = stream::configure_duplex(&fd, &config, sample_format)?;
+        let (in_period_bytes, out_period_bytes, buf_size) = stream::configure_duplex(&fd, &config, sample_format)?;
 
         let control = Arc::new(Control::default());
         let worker_ctl = control.clone();
@@ -308,8 +308,8 @@ impl DeviceTrait for Device {
                 stream::duplex_loop(
                     fd,
                     worker_ctl,
-                    period_bytes, // [TODO] Remove this duplication once I've confirmed it works properly
-                    period_bytes,
+                    in_period_bytes,
+                    out_period_bytes,
                     data_callback,
                     error_callback,
                     sample_format,

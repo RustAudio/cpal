@@ -548,7 +548,10 @@ pub(super) fn configure(
 ) -> Result<(usize, FrameCount), Error> {
     // (period_bytes, period_frames)
     let Some(afmt) = formats::afmt_from_sample_format(fmt) else {
-        return Err(Error::new(ErrorKind::UnsupportedConfig));
+        return Err(Error::with_message(
+            ErrorKind::UnsupportedConfig,
+            format!("OSS does not support {fmt}"),
+        ));
     };
     let ch = config.channels as c_int;
     let rate = config.sample_rate as c_int;
@@ -599,30 +602,38 @@ pub(super) fn configure(
     Ok((info.fragsize.max(1) as usize, period_frames)) // not a good idea to .max(1)?
 }
 
-/// Configure an open device file descriptor
-/// for a duplex stream.
+/// Configure an open device file descriptor for a duplex stream.
 ///
 /// [TODO]: hoist away some duplication between this and `configure`.
+/// 
+/// In an ideal world, there wouldn't be a difference between input and output here,
+/// and there would be no need to try to squash different input and output buffer sizes
+/// into one FrameCount, unfortunately, due to OSS' `COOKED_MODE` (disabling COOKED mode
+/// leads to OSS not resampling automatically, which it should), the fragment sizes for
+/// input and output can differ due to resampling and asymmetries, to give a single buffer
+/// size value for stream.buffer_size(), I use the smallest of input/output, to prevent overruns,
+/// but it is only a rough suggestion anyways, it holds no promise. I believe RtAudio/cubeb hit similar
+/// roadblocks.
 pub(super) fn configure_duplex(
     fd: &File,
     config: &DuplexStreamConfig,
     fmt: SampleFormat,
-) -> Result<(usize, FrameCount), Error> {
+) -> Result<(usize, usize, FrameCount), Error> {
     let Some(afmt) = formats::afmt_from_sample_format(fmt) else {
         return Err(Error::with_message(
             ErrorKind::UnsupportedConfig,
             format!("OSS does not support {fmt}"),
         ));
     };
-    let ch = config.output_channels as c_int;
-    let rate = config.sample_rate as c_int;
-
     if config.input_channels != config.output_channels {
         return Err(Error::with_message(
             ErrorKind::UnsupportedConfig,
             "OSS duplex requires input_channels == output_channels",
         ));
     }
+
+    let ch = config.output_channels as c_int;
+    let rate = config.sample_rate as c_int;
 
     if let BufferSize::Fixed(frames) = config.buffer_size {
         let bytes = frames as usize * config.output_channels as usize * fmt.sample_size();
@@ -657,22 +668,17 @@ pub(super) fn configure_duplex(
     let mut out_info = AudioBufInfo::default();
     ioctl_ptr(fd, syscall::SNDCTL_DSP_GETOSPACE, &mut out_info).map_err(error_from_io)?;
 
-    // SNDCTL_DSP_SETFRAGMENT is a device-level setting: one fragment size
-    // drives both rings, so a mismatch here means the driver didn't honour
-    // the duplex contract.
-    if in_info.fragsize != out_info.fragsize {
-        return Err(Error::with_message(
-            ErrorKind::UnsupportedConfig,
-            format!(
-                "OSS duplex fragsize mismatch: input {} != output {}",
-                in_info.fragsize, out_info.fragsize
-            ),
-        ));
-    }
-
-    let fragsize = in_info.fragsize.max(1) as usize;
+    // I assume .max(1) would never cause an issues
+    let in_bytes = in_info.fragsize.max(1) as usize;
+    let out_bytes = out_info.fragsize.max(1) as usize;
+    
+    // one divisor because input and output share both their format and number of channels.
     let frame_bytes = config.output_channels as usize * fmt.sample_size();
-    let period_frames = (fragsize / frame_bytes) as FrameCount;
+    // Cooked mode lets the input and output fragment sizes differ (resampling, asymmetric ring geometry, etc.?).
+    // We can't express that through a single .buffer_size() frame count, 
+    // so report the smaller of the two to avoid overrunning either direction.
+    // For a (slightly more detailed) rant on this, see above.
+    let period_frames = (in_bytes / frame_bytes).min(out_bytes / frame_bytes) as FrameCount;
 
-    Ok((fragsize, period_frames))
+    Ok((in_bytes, out_bytes, period_frames))
 }
