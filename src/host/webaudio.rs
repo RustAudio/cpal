@@ -583,8 +583,8 @@ impl DeviceTrait for Device {
                     Error::with_message(
                         ErrorKind::UnsupportedConfig,
                         format!(
-                            "Buffer size {} * channel count {} overflows on this platform",
-                            buffer_size_frames, config.channels
+                            "Buffer size {buffer_size_frames} * channel count {} overflows on this platform",
+                            config.channels
                         ),
                     )
                 })?;

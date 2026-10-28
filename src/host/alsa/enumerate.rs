@@ -80,7 +80,7 @@ impl Host {
 fn format_device_description(phys_dev: &PhysicalDevice, prefix: &str) -> String {
     // "Card Name, Device Name" or variations
     let first_line = match (&phys_dev.card_name, &phys_dev.device_name) {
-        (Some(card), Some(device)) => format!("{}, {}", card, device),
+        (Some(card), Some(device)) => format!("{card}, {device}"),
         (Some(card), None) => card.clone(),
         (None, Some(device)) => device.clone(),
         (None, None) => format!("Card {}", phys_dev.card_index),
@@ -100,7 +100,7 @@ fn physical_devices() -> Vec<PhysicalDevice> {
     let mut devices = Vec::new();
     for card in alsa::card::Iter::new().filter_map(Result::ok) {
         let card_index = card.get_index() as u32;
-        let ctl = match alsa::Ctl::new(&format!("{}:{}", HW_PREFIX, card_index), false) {
+        let ctl = match alsa::Ctl::new(&format!("{HW_PREFIX}:{card_index}"), false) {
             Ok(ctl) => ctl,
             Err(_) => continue,
         };

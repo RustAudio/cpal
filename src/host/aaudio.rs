@@ -578,7 +578,7 @@ impl DeviceTrait for Device {
                 let device_type: DeviceType = info.device_type.into();
                 let name = match device_type {
                     DeviceType::Unknown => info.product_name.clone(),
-                    _ => format!("{} ({})", info.product_name, device_type),
+                    _ => format!("{} ({device_type})", info.product_name),
                 };
                 let mut builder = DeviceDescriptionBuilder::new(name)
                     .device_type(device_type)
