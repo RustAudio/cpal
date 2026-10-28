@@ -4,7 +4,7 @@ use std::{
     ptr, slice,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
         mpsc::{Receiver, Sender, channel},
     },
     thread::{self, JoinHandle},
@@ -24,94 +24,208 @@ use crate::{
     traits::StreamTrait,
 };
 
-/// Returns the current default audio endpoint for `flow`, or `None` if none exists.
+#[repr(u8)]
+#[derive(Clone, Copy)]
+enum DeviceChangeError {
+    None = 0,
+    NotAvailable = 1,
+    Changed = 2,
+}
+
+/// A kernel event whose lifetime is shared by the monitor and the audio run loop.
 ///
-/// Used by `OnDeviceStateChanged` and `OnDeviceRemoved` to cover the edge case where the
-/// default device becomes unavailable with no replacement: in that situation Windows does
-/// not fire `OnDefaultDeviceChanged`, so these callbacks must signal the run loop instead.
-/// When a replacement *does* exist this returns `Some` and we skip signalling, letting
-/// `OnDefaultDeviceChanged` fire as the sole notifier and avoiding a double wakeup.
-fn get_current_default(flow: Audio::EDataFlow) -> Option<Audio::IMMDevice> {
-    super::device::current_default_endpoint(flow)
+/// The audio loop can outlive `DefaultDeviceMonitor` when a stream is dropped from one of its
+/// callbacks. Arc-based ownership keeps the handle valid until every waiter and signaler is done.
+struct OwnedEvent(Foundation::HANDLE);
+
+// SAFETY: Windows event handles can be waited on and signalled from any thread. The Arc keeps
+// the handle open until all users have released their ownership.
+unsafe impl Send for OwnedEvent {}
+unsafe impl Sync for OwnedEvent {}
+
+impl OwnedEvent {
+    fn new() -> windows::core::Result<Self> {
+        let handle = unsafe { Threading::CreateEventW(None, false, false, None)? };
+        Ok(Self(handle))
+    }
+
+    fn handle(&self) -> Foundation::HANDLE {
+        self.0
+    }
+}
+
+impl Drop for OwnedEvent {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = Foundation::CloseHandle(self.handle());
+        }
+    }
 }
 
 /// Fires a Windows auto-reset event when the system default audio device changes.
 pub(crate) struct DefaultDeviceMonitor {
-    enumerator: Audio::IMMDeviceEnumerator,
-    client: Audio::IMMNotificationClient,
-    event: Foundation::HANDLE,
-    pub(crate) flow: Audio::EDataFlow,
-    pub(crate) pending_device_changed: Arc<AtomicBool>,
+    stop_event: Arc<OwnedEvent>,
+    worker: Option<JoinHandle<()>>,
+    event: Arc<OwnedEvent>,
+    pending_device_error: Arc<AtomicU8>,
 }
 
-// SAFETY: `IMMDeviceEnumerator` and `IMMNotificationClient` are COM objects used only for
-// register/unregister (in new/drop) and `SetEvent` (from the Windows notification thread).
-// All of these are thread-safe operations on Windows.
-unsafe impl Send for DefaultDeviceMonitor {}
-unsafe impl Sync for DefaultDeviceMonitor {}
-
 impl DefaultDeviceMonitor {
-    pub fn new(
-        enumerator: Audio::IMMDeviceEnumerator,
-        flow: Audio::EDataFlow,
-    ) -> Result<Self, Error> {
-        let event =
-            unsafe { Threading::CreateEventW(None, false, false, None).map_err(Error::from)? };
+    pub fn new(flow: Audio::EDataFlow) -> Result<Self, Error> {
+        let event = Arc::new(OwnedEvent::new().map_err(Error::from)?);
+        let notification_event = Arc::new(OwnedEvent::new().map_err(Error::from)?);
+        let stop_event = Arc::new(OwnedEvent::new().map_err(Error::from)?);
+        let pending_default_changed = Arc::new(AtomicBool::new(false));
+        let pending_device_error = Arc::new(AtomicU8::new(DeviceChangeError::None as u8));
+        let worker_pending_default_changed = pending_default_changed.clone();
+        let worker_pending_device_error = pending_device_error.clone();
+        let worker_event = Arc::clone(&event);
+        let worker_notification_event = Arc::clone(&notification_event);
+        let worker_stop_event = Arc::clone(&stop_event);
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
 
-        let pending_device_changed = Arc::new(AtomicBool::new(false));
-        let client: Audio::IMMNotificationClient = DefaultDeviceNotificationImpl {
-            flow,
-            event,
-            pending_device_changed: pending_device_changed.clone(),
-        }
-        .into();
+        let worker = match thread::Builder::new()
+            .name("cpal_wasapi_device_monitor".to_owned())
+            .spawn(move || {
+                // Keep every IMMDeviceEnumerator call, including unregister, on the apartment
+                // that created the enumerator. Notification callbacks only signal an event.
+                crate::host::com::com_initialized_mta();
+                let enumerator = match super::device::create_enumerator() {
+                    Ok(enumerator) => enumerator,
+                    Err(error) => {
+                        let _ = ready_tx.send(Err(error.to_string()));
+                        return;
+                    }
+                };
+                // The worker and COM callback share one handle owner; the Arc keeps the event
+                // open until both have finished using it.
+                let client: Audio::IMMNotificationClient = DefaultDeviceNotificationImpl {
+                    flow,
+                    notification_event: Arc::clone(&worker_notification_event),
+                    pending_default_changed: worker_pending_default_changed,
+                }
+                .into();
 
-        unsafe {
-            enumerator
-                .RegisterEndpointNotificationCallback(&client)
-                .map_err(Error::from)?;
+                if let Err(error) =
+                    unsafe { enumerator.RegisterEndpointNotificationCallback(&client) }
+                {
+                    let _ = ready_tx.send(Err(error.to_string()));
+                    return;
+                }
+
+                if ready_tx.send(Ok(())).is_err() {
+                    let unregistered =
+                        unsafe { enumerator.UnregisterEndpointNotificationCallback(&client) }
+                            .is_ok();
+                    retain_event_if_unregister_failed(worker_notification_event, unregistered);
+                    return;
+                }
+
+                let handles = [
+                    worker_stop_event.handle(),
+                    worker_notification_event.handle(),
+                ];
+                loop {
+                    let result = unsafe {
+                        Threading::WaitForMultipleObjectsEx(
+                            &handles,
+                            false,
+                            Threading::INFINITE,
+                            false,
+                        )
+                    };
+                    if result == Foundation::WAIT_FAILED {
+                        break;
+                    }
+
+                    match (result.0 - Foundation::WAIT_OBJECT_0.0) as usize {
+                        0 => break,
+                        1 => {
+                            let default_changed =
+                                pending_default_changed.swap(false, Ordering::AcqRel);
+                            let default_available =
+                                super::device::current_default_endpoint_with(&enumerator, flow)
+                                    .is_some();
+                            if default_changed || !default_available {
+                                let error = if default_available {
+                                    DeviceChangeError::Changed
+                                } else {
+                                    DeviceChangeError::NotAvailable
+                                };
+                                worker_pending_device_error.store(error as u8, Ordering::Release);
+                                if unsafe { Threading::SetEvent(worker_event.handle()) }.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+
+                let unregistered =
+                    unsafe { enumerator.UnregisterEndpointNotificationCallback(&client) }.is_ok();
+                retain_event_if_unregister_failed(worker_notification_event, unregistered);
+            }) {
+            Ok(worker) => worker,
+            Err(error) => {
+                return Err(Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create device notification thread: {error}"),
+                ));
+            }
+        };
+
+        match ready_rx.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                let _ = worker.join();
+                return Err(Error::with_message(
+                    ErrorKind::BackendError,
+                    format!("Failed to register device notification callback: {error}"),
+                ));
+            }
+            Err(_) => {
+                let _ = worker.join();
+                return Err(Error::with_message(
+                    ErrorKind::BackendError,
+                    "Device notification thread exited before registration completed",
+                ));
+            }
         }
 
         Ok(Self {
-            enumerator,
-            client,
+            stop_event,
+            worker: Some(worker),
             event,
-            flow,
-            pending_device_changed,
+            pending_device_error,
         })
+    }
+}
+
+fn retain_event_if_unregister_failed(event: Arc<OwnedEvent>, unregistered: bool) {
+    if !unregistered {
+        // A failed unregister can leave callbacks in flight, so preserve their event handle.
+        std::mem::forget(event);
     }
 }
 
 impl Drop for DefaultDeviceMonitor {
     fn drop(&mut self) {
-        // Ensure COM is initialised on this thread before making COM calls. Drop can run on
-        // any thread (e.g. the audio run thread), which may not have called CoInitialize.
-        crate::host::com::com_initialized();
         unsafe {
-            // Synchronous: waits for any in-progress IMMNotificationClient callback to finish
-            // before returning. Notification callbacks must not invoke the user error callback:
-            // if the user dropped the Stream in response, this call would deadlock waiting for
-            // the in-progress callback. Instead, callbacks set `pending_device_changed` and
-            // the audio thread delivers the error on its next iteration.
-            //
-            // Only close the event handle on success; if unregister fails the callback may
-            // still hold a reference and could later call SetEvent on a closed/reused handle.
-            if self
-                .enumerator
-                .UnregisterEndpointNotificationCallback(&self.client)
-                .is_ok()
-            {
-                let _ = Foundation::CloseHandle(self.event);
-            }
+            let _ = Threading::SetEvent(self.stop_event.handle());
         }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        // `event` remains open until the audio run loop drops its shared reference.
     }
 }
 
 #[windows::core::implement(Audio::IMMNotificationClient)]
 struct DefaultDeviceNotificationImpl {
     flow: Audio::EDataFlow,
-    event: Foundation::HANDLE,
-    pending_device_changed: Arc<AtomicBool>,
+    notification_event: Arc<OwnedEvent>,
+    pending_default_changed: Arc<AtomicBool>,
 }
 
 impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
@@ -122,12 +236,9 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
         _pwstrdefaultdeviceid: &windows::core::PCWSTR,
     ) -> windows::core::Result<()> {
         if flow == self.flow && role == Audio::eConsole {
-            // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor, which
-            // outlives all uses of this HANDLE copy.
+            self.pending_default_changed.store(true, Ordering::Release);
             unsafe {
-                if Threading::SetEvent(self.event).is_err() {
-                    self.pending_device_changed.store(true, Ordering::Relaxed);
-                }
+                Threading::SetEvent(self.notification_event.handle())?;
             }
         }
         Ok(())
@@ -143,17 +254,14 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
         // `DEVICE_STATE_NOTPRESENT`: hardware absent; endpoint may persist as a ghost record.
         // `DEVICE_STATE_DISABLED`: device was manually disabled by the user.
         //
-        // Only signal when there is no replacement default; if one exists `OnDefaultDeviceChanged`
-        // will fire instead, avoiding a double wakeup.
         let is_unavailable = dwnewstate == Audio::DEVICE_STATE_DISABLED
             || dwnewstate == Audio::DEVICE_STATE_NOTPRESENT
             || dwnewstate == Audio::DEVICE_STATE_UNPLUGGED;
-        if is_unavailable && get_current_default(self.flow).is_none() {
-            // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor.
+        if is_unavailable {
+            // The monitor thread checks for a replacement default without making COM calls from
+            // this Windows-managed callback thread.
             unsafe {
-                if Threading::SetEvent(self.event).is_err() {
-                    self.pending_device_changed.store(true, Ordering::Relaxed);
-                }
+                Threading::SetEvent(self.notification_event.handle())?;
             }
         }
         Ok(())
@@ -164,15 +272,10 @@ impl Audio::IMMNotificationClient_Impl for DefaultDeviceNotificationImpl_Impl {
     }
 
     fn OnDeviceRemoved(&self, _pwstrdeviceid: &windows::core::PCWSTR) -> windows::core::Result<()> {
-        // Only signal when there is no replacement default; if one exists `OnDefaultDeviceChanged`
-        // will fire instead, avoiding a double wakeup.
-        if get_current_default(self.flow).is_none() {
-            // SAFETY: event handle is valid for the lifetime of DefaultDeviceMonitor.
-            unsafe {
-                if Threading::SetEvent(self.event).is_err() {
-                    self.pending_device_changed.store(true, Ordering::Relaxed);
-                }
-            }
+        // The monitor thread checks for a replacement default without making COM calls from this
+        // Windows-managed callback thread.
+        unsafe {
+            Threading::SetEvent(self.notification_event.handle())?;
         }
         Ok(())
     }
@@ -208,8 +311,8 @@ pub struct Stream {
     // QueryPerformanceFrequency result, cached at construction (constant for the system lifetime).
     qpc_frequency: u64,
 
-    // Present for default-device streams. Dropped after the run thread joins, ensuring the
-    // HANDLE is not waited on when it is closed.
+    // Present for default-device streams. The monitor and run loop share the event owner, so a
+    // self-drop from a callback cannot close a handle the run loop is about to wait on.
     _default_device_monitor: Option<DefaultDeviceMonitor>,
 
     // Latch that ensures no callbacks fire before the caller receives the `Stream` handle.
@@ -222,19 +325,14 @@ pub struct Stream {
     fill_usec: Arc<AtomicU64>,
 }
 
-// SAFETY: All fields of Stream are Send:
-// - Option<JoinHandle<()>>, Sender<Command>, u32, u64, Latch,
-//   Arc<AtomicBool>, Arc<AtomicU64>: all trivially Send
-// - Foundation::HANDLE: Windows event HANDLEs are safe to send between threads
-//   (see https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createeventa)
-// - Option<DefaultDeviceMonitor>: has its own unsafe impl Send
+// SAFETY: Stream's event HANDLE is a kernel event that can be signalled from any thread. The
+// default-device monitor uses a joined worker, atomic state, and an Arc-owned event handle; the
+// run loop retains the event owner until it stops waiting on the handle.
 unsafe impl Send for Stream {}
 
-// SAFETY: All fields of Stream are Sync:
-// - Option<JoinHandle<()>>, Sender<Command>, u32, u64, Latch,
-//   Arc<AtomicBool>, Arc<AtomicU64>: all trivially Sync
-// - Foundation::HANDLE: SetEvent/WaitForSingleObject are thread-safe
-// - Option<DefaultDeviceMonitor>: has its own unsafe impl Sync
+// SAFETY: Shared access to Stream is limited to the thread-safe command sender, atomics, and
+// kernel-event signalling. The raw event handle is closed only after the run loop exits or drops
+// its shared owner, and the monitor worker is joined during exclusive Stream destruction.
 unsafe impl Sync for Stream {}
 
 struct RunContext {
@@ -247,11 +345,11 @@ struct RunContext {
 
     commands: Receiver<Command>,
 
-    // Set by a device-change notification callback when SetEvent fails.
-    pending_device_changed: Option<Arc<AtomicBool>>,
+    // Set by the monitor thread before it signals a default-device change.
+    pending_device_error: Option<Arc<AtomicU8>>,
 
-    // Set when this stream tracks the default device, rather than a pinned one.
-    default_device_flow: Option<Audio::EDataFlow>,
+    // Keeps the monitor event alive until this run loop stops waiting on it.
+    _default_device_monitor_event: Option<Arc<OwnedEvent>>,
 
     // Owned here so the worker thread closes it on exit in a self-join case.
     pending_scheduled_event: Foundation::HANDLE,
@@ -348,20 +446,22 @@ impl Stream {
         }
 
         let mut handles = vec![pending_scheduled_event, stream_inner.event];
-        if let Some(ref monitor) = default_device_monitor {
-            handles.push(monitor.event);
+        let default_device_monitor_event = default_device_monitor
+            .as_ref()
+            .map(|monitor| Arc::clone(&monitor.event));
+        if let Some(ref event) = default_device_monitor_event {
+            handles.push(event.handle());
         }
 
-        let pending_device_changed = default_device_monitor
+        let pending_device_error = default_device_monitor
             .as_ref()
-            .map(|m| m.pending_device_changed.clone());
-        let default_device_flow = default_device_monitor.as_ref().map(|m| m.flow);
+            .map(|m| m.pending_device_error.clone());
         let run_context = RunContext {
             handles,
             stream: stream_inner,
             commands: rx,
-            pending_device_changed,
-            default_device_flow,
+            pending_device_error,
+            _default_device_monitor_event: default_device_monitor_event,
             pending_scheduled_event,
         };
 
@@ -424,20 +524,22 @@ impl Stream {
         }
 
         let mut handles = vec![pending_scheduled_event, stream_inner.event];
-        if let Some(ref monitor) = default_device_monitor {
-            handles.push(monitor.event);
+        let default_device_monitor_event = default_device_monitor
+            .as_ref()
+            .map(|monitor| Arc::clone(&monitor.event));
+        if let Some(ref event) = default_device_monitor_event {
+            handles.push(event.handle());
         }
 
-        let pending_device_changed = default_device_monitor
+        let pending_device_error = default_device_monitor
             .as_ref()
-            .map(|m| m.pending_device_changed.clone());
-        let default_device_flow = default_device_monitor.as_ref().map(|m| m.flow);
+            .map(|m| m.pending_device_error.clone());
         let run_context = RunContext {
             handles,
             stream: stream_inner,
             commands: rx,
-            pending_device_changed,
-            default_device_flow,
+            pending_device_error,
+            _default_device_monitor_event: default_device_monitor_event,
             pending_scheduled_event,
         };
 
@@ -829,11 +931,22 @@ fn boost_current_thread_priority(
     }
 }
 
-fn default_device_change_error(flow: Option<Audio::EDataFlow>) -> Error {
-    match flow.and_then(get_current_default) {
-        None => ErrorKind::DeviceNotAvailable.into(),
-        Some(_) => ErrorKind::DeviceChanged.into(),
+fn default_device_change_error(reason: u8) -> Option<Error> {
+    match reason {
+        value if value == DeviceChangeError::NotAvailable as u8 => {
+            Some(ErrorKind::DeviceNotAvailable.into())
+        }
+        value if value == DeviceChangeError::Changed as u8 => Some(ErrorKind::DeviceChanged.into()),
+        _ => None,
     }
+}
+
+fn take_default_device_change_error(run_context: &RunContext) -> Option<Error> {
+    let reason = run_context
+        .pending_device_error
+        .as_ref()?
+        .swap(DeviceChangeError::None as u8, Ordering::AcqRel);
+    default_device_change_error(reason)
 }
 
 fn process_commands_and_await_signal(
@@ -856,13 +969,8 @@ fn process_commands_and_await_signal(
         return ControlFlow::Continue(true);
     }
 
-    if let Some(ref flag) = run_context.pending_device_changed {
-        if flag.swap(false, Ordering::Relaxed) {
-            emit_error(
-                error_callback,
-                default_device_change_error(run_context.default_device_flow),
-            );
-        }
+    if let Some(error) = take_default_device_change_error(run_context) {
+        emit_error(error_callback, error);
     }
 
     // Wait for any of the handles to be signalled.
@@ -879,10 +987,9 @@ fn process_commands_and_await_signal(
     // Continue(true)  = audio event fired, proceed to process audio this iteration.
     // Continue(false) = command or device-change event, loop around and wait again.
     if handle_idx >= 2 {
-        emit_error(
-            error_callback,
-            default_device_change_error(run_context.default_device_flow),
-        );
+        if let Some(error) = take_default_device_change_error(run_context) {
+            emit_error(error_callback, error);
+        }
         return ControlFlow::Continue(false);
     }
     ControlFlow::Continue(handle_idx != 0)
@@ -1114,4 +1221,205 @@ fn output_timestamp(
         callback,
         device: playback,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Audio, DefaultDeviceMonitor, DefaultDeviceNotificationImpl, OwnedEvent};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use windows::Win32::{
+        Foundation::{CO_E_NOTINITIALIZED, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
+        System::{
+            Com::{
+                APTTYPE, APTTYPE_MAINSTA, APTTYPE_MTA, APTTYPE_STA, APTTYPEQUALIFIER,
+                APTTYPEQUALIFIER_IMPLICIT_MTA, CoGetApartmentType,
+            },
+            Threading,
+        },
+    };
+    use windows::core::PCWSTR;
+
+    #[test]
+    fn notification_callbacks_do_not_initialize_com() {
+        let notification_event =
+            Arc::new(OwnedEvent::new().expect("notification event should be created"));
+
+        std::thread::spawn(move || {
+            let notification_event_handle = notification_event.handle();
+            let apartment_state = || {
+                let mut apartment_type = APTTYPE(-1);
+                let mut apartment_qualifier = APTTYPEQUALIFIER(0);
+                match unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) } {
+                    Ok(()) => Some((apartment_type, apartment_qualifier)),
+                    Err(error) if error.code() == CO_E_NOTINITIALIZED => None,
+                    Err(error) => {
+                        panic!("failed to query the test thread's COM apartment: {error}")
+                    }
+                }
+            };
+            let pending_default_changed = Arc::new(AtomicBool::new(false));
+            let notification: Audio::IMMNotificationClient = DefaultDeviceNotificationImpl {
+                flow: Audio::eRender,
+                notification_event: Arc::clone(&notification_event),
+                pending_default_changed: pending_default_changed.clone(),
+            }
+            .into();
+            let before = apartment_state();
+            drop(notification_event);
+            let device_id = PCWSTR::null();
+
+            unsafe {
+                notification
+                    .OnDefaultDeviceChanged(Audio::eRender, Audio::eConsole, device_id)
+                    .expect("default-device callback should succeed");
+            }
+            assert!(pending_default_changed.load(Ordering::Acquire));
+            assert_eq!(
+                unsafe { Threading::WaitForSingleObject(notification_event_handle, 0) },
+                WAIT_OBJECT_0
+            );
+
+            unsafe {
+                notification
+                    .OnDeviceStateChanged(device_id, Audio::DEVICE_STATE_UNPLUGGED)
+                    .expect("device-state callback should succeed");
+            }
+            assert_eq!(
+                unsafe { Threading::WaitForSingleObject(notification_event_handle, 0) },
+                WAIT_OBJECT_0
+            );
+
+            unsafe {
+                notification
+                    .OnDeviceRemoved(device_id)
+                    .expect("device-removed callback should succeed");
+            }
+            assert_eq!(
+                unsafe { Threading::WaitForSingleObject(notification_event_handle, 0) },
+                WAIT_OBJECT_0
+            );
+
+            assert_eq!(
+                apartment_state(),
+                before,
+                "notification callbacks must not initialize their caller's COM apartment"
+            );
+
+            drop(notification);
+            assert_eq!(
+                unsafe { Threading::WaitForSingleObject(notification_event_handle, 0) },
+                WAIT_FAILED,
+                "the callback event should close when its final owner is dropped"
+            );
+        })
+        .join()
+        .expect("worker thread should complete");
+    }
+
+    #[test]
+    fn default_device_lookup_does_not_explicitly_initialize_caller() {
+        std::thread::spawn(|| {
+            let mut apartment_type = APTTYPE(-1);
+            let mut apartment_qualifier = APTTYPEQUALIFIER(0);
+
+            let _ = super::super::device::default_output_device();
+
+            match unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) } {
+                Err(error) if error.code() == CO_E_NOTINITIALIZED => {}
+                Ok(()) => {
+                    assert_eq!(
+                        apartment_type,
+                        APTTYPE_MTA,
+                        "an uninitialized caller may observe the process MTA implicitly"
+                    );
+                    assert_eq!(
+                        apartment_qualifier,
+                        APTTYPEQUALIFIER_IMPLICIT_MTA,
+                        "default-device availability checks must not explicitly initialize the caller"
+                    );
+                }
+                Err(error) => panic!("failed to query the caller's COM apartment: {error}"),
+            }
+        })
+        .join()
+        .expect("worker thread should complete");
+    }
+
+    #[test]
+    fn default_endpoint_resolution_initializes_uninitialized_callers_as_sta() {
+        std::thread::spawn(|| {
+            let mut apartment_type = APTTYPE(-1);
+            let mut apartment_qualifier = APTTYPEQUALIFIER(0);
+            let before =
+                unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) };
+            assert_eq!(
+                before.unwrap_err().code(),
+                CO_E_NOTINITIALIZED,
+                "test worker should start without COM initialized"
+            );
+
+            let _ = super::super::device::current_default_endpoint(Audio::eRender);
+
+            unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) }
+                .expect("default endpoint resolution should initialize COM");
+            assert!(
+                apartment_type == APTTYPE_STA || apartment_type == APTTYPE_MAINSTA,
+                "default endpoint resolution should preserve cpal's default STA policy"
+            );
+        })
+        .join()
+        .expect("worker thread should complete");
+    }
+
+    #[test]
+    fn default_endpoint_query_preserves_an_existing_sta() {
+        std::thread::spawn(|| {
+            crate::host::com::com_initialized();
+            let mut apartment_type = APTTYPE(-1);
+            let mut apartment_qualifier = APTTYPEQUALIFIER(0);
+            unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) }
+                .expect("test thread should be initialized as an STA");
+            assert!(
+                apartment_type == APTTYPE_STA || apartment_type == APTTYPE_MAINSTA,
+                "test thread should be initialized as an STA"
+            );
+
+            let _ = super::super::device::current_default_endpoint(Audio::eRender);
+
+            unsafe { CoGetApartmentType(&mut apartment_type, &mut apartment_qualifier) }
+                .expect("default endpoint query should leave COM initialized");
+            assert!(
+                apartment_type == APTTYPE_STA || apartment_type == APTTYPE_MAINSTA,
+                "default endpoint queries must preserve a caller's existing STA"
+            );
+        })
+        .join()
+        .expect("worker thread should complete");
+    }
+
+    #[test]
+    fn monitor_event_stays_open_until_the_run_loop_releases_it() {
+        let event = Arc::new(OwnedEvent::new().expect("monitor event should be created"));
+        let run_loop_event = Arc::clone(&event);
+        let raw_handle = event.handle();
+
+        drop(event);
+        assert_eq!(
+            unsafe { Threading::WaitForSingleObject(raw_handle, 0) },
+            WAIT_TIMEOUT,
+            "dropping the monitor must not close an event still owned by the run loop"
+        );
+
+        drop(run_loop_event);
+    }
+
+    #[test]
+    fn default_device_monitor_registers_on_its_mta_worker() {
+        let monitor = DefaultDeviceMonitor::new(Audio::eRender)
+            .expect("device monitor should register on its MTA worker");
+        drop(monitor);
+    }
 }
