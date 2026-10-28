@@ -1297,6 +1297,9 @@ impl Devices {
     }
 }
 
+unsafe impl Send for Devices {}
+unsafe impl Sync for Devices {}
+
 impl Iterator for Devices {
     type Item = Device;
 
