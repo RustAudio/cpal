@@ -291,7 +291,7 @@ impl DeviceTrait for Device {
         } else {
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
-                "OSS duplex must share the sample sample format between input and output",
+                "OSS duplex must share the same sample format between input and output",
             ));
         };
 
