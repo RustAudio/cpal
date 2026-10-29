@@ -460,14 +460,18 @@ pub(super) fn duplex_loop<D, E>(
                 Ok(0) => {
                     error_callback(Error::with_message(
                         ErrorKind::DeviceNotAvailable,
-                        "Device disconnected unexpectedly"
+                        "Device disconnected unexpectedly",
                     ));
                     return;
                 }
                 Ok(n) => in_filled += n,
                 Err(e) => {
-                    if e.kind() == std::io::ErrorKind::WouldBlock { continue; }
-                    if e.kind() == std::io::ErrorKind::Interrupted { continue; }
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        continue;
+                    }
+                    if e.kind() == std::io::ErrorKind::Interrupted {
+                        continue;
+                    }
 
                     // fatal error: callback, bail.
                     error_callback(error_from_io(e));
@@ -567,7 +571,7 @@ pub(super) fn duplex_loop<D, E>(
 
 /// If there is an error from a pfd, decide what to do, and return
 /// that error. If r > 0 then at least one bit in `revents` is set.
-/// 
+///
 /// `POLLERR`/`POLLHUP`/`POLLNVAL` are reported regardless of what
 /// is put in `events`, so they can, and will, fire on their own,
 /// so they're checked first.
