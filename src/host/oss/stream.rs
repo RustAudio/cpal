@@ -174,9 +174,15 @@ pub(super) fn input_loop<D, E>(
             break;
         }
         if r == 0 {
-            continue;
-        } // timeout: loop around and re-check flags
+            continue; // timeout: loop around and re-check flags
+        }
+        // if r > 0 then at least one bit in `revents` is set
+        if let Err(e) = check_poll_revents(pfd.revents) {
+            error_callback(e);
+            break;
+        }
 
+        // POLLIN must be set
         match (&fd).read(&mut buf[filled..]) {
             Ok(0) => {
                 // /dev/dspX returning EOF means the device was removed
@@ -296,9 +302,16 @@ pub(super) fn output_loop<D, E>(
             break;
         }
         if r == 0 {
-            continue;
-        } // timeout: loop around and re-check flags
+            continue; // timeout: loop around and re-check flags
+        }
 
+        // if r > 0 then at least one bit in `revents` is set
+        if let Err(e) = check_poll_revents(pfd.revents) {
+            error_callback(e);
+            break;
+        }
+
+        // POLLOUT must be set
         match (&fd).write(&buf[filled..]) {
             Ok(n) => {
                 filled += n;
@@ -321,7 +334,8 @@ pub(super) fn output_loop<D, E>(
     }
 }
 
-/// The loop for reading and writing duplex data [TODO]
+/// The loop for reading and writing duplex data
+/// [TODO] Combine into a single polling FD so whatever is ready first can be handled.
 pub(super) fn duplex_loop<D, E>(
     fd: File,
     ctl: Arc<Control>,
@@ -372,7 +386,13 @@ pub(super) fn duplex_loop<D, E>(
             if r == 0 {
                 continue;
             }
+            // if r > 0 then at least one bit in `revents` is set
+            if let Err(e) = check_poll_revents(pfd.revents) {
+                error_callback(e);
+                break;
+            }
 
+            // POLLOUT must be set
             match (&fd).write(&out_buf[primed..]) {
                 Ok(n) => primed += n,
                 Err(e) => {
@@ -427,23 +447,32 @@ pub(super) fn duplex_loop<D, E>(
                 return;
             }
             if r == 0 {
-                continue;
-            } // timeout: outer loop re-checks pause/stop next pass
+                continue; // timeout: outer loop re-checks pause/stop next pass
+            }
+            // if r > 0 then at least one bit in `revents` is set
+            if let Err(e) = check_poll_revents(pfd.revents) {
+                error_callback(e);
+                break;
+            }
 
+            // POLLIN must be set
             match (&fd).read(&mut in_buf[in_filled..]) {
                 Ok(0) => {
-                    error_callback(error_from_io(std::io::Error::from(
-                        std::io::ErrorKind::UnexpectedEof,
-                    ))); // [TODO]
+                    error_callback(Error::with_message(
+                        ErrorKind::DeviceNotAvailable,
+                        "Device disconnected unexpectedly"
+                    ));
                     return;
                 }
                 Ok(n) => in_filled += n,
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock { continue; }
+                    if e.kind() == std::io::ErrorKind::Interrupted { continue; }
+
+                    // fatal error: callback, bail.
                     error_callback(error_from_io(e));
                     return;
-                } // fatal error: callback, bail.
+                }
             }
         }
 
@@ -510,7 +539,13 @@ pub(super) fn duplex_loop<D, E>(
             if r == 0 {
                 continue;
             }
+            // if r > 0 then at least one bit in `revents` is set
+            if let Err(e) = check_poll_revents(pfd.revents) {
+                error_callback(e);
+                break;
+            }
 
+            // POLLOUT must be set
             match (&fd).write(&out_buf[written..]) {
                 Ok(n) => written += n,
                 Err(e) => {
@@ -528,6 +563,46 @@ pub(super) fn duplex_loop<D, E>(
             }
         }
     }
+}
+
+/// If there is an error from a pfd, decide what to do, and return
+/// that error. If r > 0 then at least one bit in `revents` is set.
+/// 
+/// `POLLERR`/`POLLHUP`/`POLLNVAL` are reported regardless of what
+/// is put in `events`, so they can, and will, fire on their own,
+/// so they're checked first.
+fn check_poll_revents(revents: libc::c_short) -> Result<(), Error> {
+    if revents & libc::POLLNVAL != 0 {
+        // fd isn't open, this shouldn't really be possible, if this ever occurs,
+        // something is deeply wrong.
+        return Err(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "Poll: Invalid file descriptor",
+        ));
+    }
+    if revents & libc::POLLERR != 0 {
+        // Device reported some mysterious error:
+        return Err(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "Poll: Device reported an error",
+        ));
+    }
+    if revents & libc::POLLHUP != 0 {
+        // This seems to be common when, for example, a USB device gets yanked out,
+        // the fd stays open but the poll claims its been hung up.
+        //
+        // Fatal so once again, we let the user know and then bail.
+        return Err(Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            "Poll: Device hung up (disconnected?)",
+        ));
+    }
+
+    // No error bits set, given poll returned > 0, and
+    // revents only contains requested bits plus any error bits,
+    // at least one of the requested events fired, so hand back gladly.
+    // aka POLLIN and/or POLLOUT are set (if they were beforehand)
+    Ok(())
 }
 
 /// The driver may round the rate by a Hz or so (e.g. 48000 -> 47999).
