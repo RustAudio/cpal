@@ -72,12 +72,8 @@ impl StreamTrait for Stream {
         Ok(()) // join happens in Drop; poll timeout bounds it to <= 50 ms
     }
 
-    // infalliable
     fn buffer_size(&self) -> Result<FrameCount, Error> {
         Ok(self.reported_buffer_size)
-        // I'm unsure how to handle Duplex streams for now,
-        // as OSS does not enforce that input/output buffers
-        // have the same amount of frames.
     }
 
     // Returns the current time using the same clock
