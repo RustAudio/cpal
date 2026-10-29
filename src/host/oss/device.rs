@@ -143,13 +143,8 @@ impl DeviceTrait for Device {
     // with `SupportedStreamConfigRange::cmp_default_heuristics`.
     fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
         if self.supports_input() {
-            let mut formats: Vec<_> = self.supported_input_configs()?.collect();
-
-            formats.sort_by(|a, b| a.cmp_default_heuristics(b));
-
-            formats
-                .into_iter()
-                .next_back()
+            self.supported_input_configs()?
+                .max_by(|a, b| a.cmp_default_heuristics(b))
                 .map(|f| {
                     f.try_with_standard_sample_rate()
                         .unwrap_or_else(|| f.with_max_sample_rate())
@@ -164,13 +159,8 @@ impl DeviceTrait for Device {
     // with `SupportedStreamConfigRange::cmp_default_heuristics`.
     fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
         if self.supports_output() {
-            let mut formats: Vec<_> = self.supported_output_configs()?.collect();
-
-            formats.sort_by(|a, b| a.cmp_default_heuristics(b));
-
-            formats
-                .into_iter()
-                .next_back()
+            self.supported_output_configs()?
+                .max_by(|a, b| a.cmp_default_heuristics(b))
                 .map(|f| {
                     f.try_with_standard_sample_rate()
                         .unwrap_or_else(|| f.with_max_sample_rate())
