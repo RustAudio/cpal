@@ -14,7 +14,7 @@
 //! The source of truth for much of this file is /usr/include/sys/soundcard.h from
 //! FreeBSD-15.1-RELEASE
 
-use libc::{c_char, c_int, c_uint, c_ulong};
+use libc::{c_int, c_ulong};
 use std::fs::File;
 use std::os::fd::AsRawFd;
 
@@ -91,7 +91,7 @@ pub const PCM_CAP_OUTPUT: c_int = 1 << 17;
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug)]
 pub struct AudioBufInfo {
-    // | Output:          | Input:                  |
+    //                        | Output:          | Input:                  |
     pub fragments: c_int,  // | Fragments free   | Fragments ready to read |
     pub fragstotal: c_int, // |      Total fragments in the buffer         |
     pub fragsize: c_int,   // |           bytes per fragment               |
