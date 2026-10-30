@@ -15,8 +15,6 @@ pub(crate) mod com;
 #[cfg(target_os = "android")]
 pub(crate) mod aaudio;
 
-#[cfg(any(target_os = "android", test))]
-pub(crate) mod aaudio_tuning;
 
 #[cfg(any(
     target_os = "linux",
