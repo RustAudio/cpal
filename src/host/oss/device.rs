@@ -100,8 +100,6 @@ impl DeviceTrait for Device {
 
     /// Whether or whether not the driver reports true native duplex for this device.
     /// Any failure to open or query means returns false.
-    ///
-    /// [NOTE]: This currently does not cache the result, and performs a syscall everytime.
     fn supports_duplex(&self) -> bool {
         let Ok(fd) = open_dsp(&self.path, Mode::ReadWrite) else {
             return false;
@@ -110,7 +108,6 @@ impl DeviceTrait for Device {
             return false;
         };
         caps & syscall::PCM_CAP_DUPLEX != 0
-        // [TODO]: make self.direction mutable (with only &self?) and set here
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
