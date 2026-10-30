@@ -71,6 +71,7 @@ pub(super) fn open_dsp(path: &str, mode: Mode) -> std::io::Result<File> {
 const PROBE_RATES: &[i32] = &[
     8000, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 192000,
 ];
+// [TODO]: Actually clip to device's min/max channel counts
 const PROBE_CHANNELS: &[i32] = &[1, 2, 4, 6, 8];
 
 /// Probes a DSP devices for its supported configs by poking at it with various common configs.
