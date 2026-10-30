@@ -347,12 +347,15 @@ fn process_duplex(
 ) -> Result<(), Error> {
     let mut frames_read = 0;
     while frames_read < stream.period_size {
-        match stream
+        // Bind the result first: an IO in a match scrutinee lives across the arms, and
+        // alsa allows only one IO per PCM, so recover_duplex() -> begin_duplex_playback()
+        // would panic creating a second IO on the playback PCM.
+        let result = stream
             .capture
             .handle
             .io_bytes()
-            .readi(&mut capture_buffer[frames_read * stream.capture.frame_size..])
-        {
+            .readi(&mut capture_buffer[frames_read * stream.capture.frame_size..]);
+        match result {
             Ok(n) => frames_read += n,
             Err(err) if err.errno() == libc::EAGAIN && frames_read == 0 => return Ok(()),
             Err(_) if matches!(stream.capture.handle.state(), alsa::pcm::State::Suspended) => {
@@ -429,12 +432,14 @@ fn process_duplex(
 
     let mut frames_written = 0;
     while frames_written < stream.period_size {
-        match stream
+        // Bind the result first, as for capture above: recover_duplex() must not run
+        // while this PCM's IO is still alive.
+        let result = stream
             .playback
             .handle
             .io_bytes()
-            .writei(&playback_buffer[frames_written * stream.playback.frame_size..])
-        {
+            .writei(&playback_buffer[frames_written * stream.playback.frame_size..]);
+        match result {
             Ok(n) => frames_written += n,
             Err(err) if err.errno() == libc::EAGAIN && frames_written == 0 => return Ok(()),
             Err(_) if matches!(stream.playback.handle.state(), alsa::pcm::State::Suspended) => {
