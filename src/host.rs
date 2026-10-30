@@ -15,12 +15,7 @@ pub(crate) mod com;
 #[cfg(target_os = "android")]
 pub(crate) mod aaudio;
 
-#[cfg(any(
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd"
-))]
+#[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "netbsd"))]
 pub(crate) mod alsa;
 
 #[cfg(all(windows, feature = "asio"))]
@@ -73,6 +68,9 @@ pub(crate) mod pipewire;
 ))]
 pub(crate) mod pulseaudio;
 
+#[cfg(target_os = "freebsd")]
+pub(crate) mod oss;
+
 #[cfg(windows)]
 pub(crate) mod wasapi;
 
@@ -110,12 +108,7 @@ pub(crate) mod latch;
 /// Mutex-guarded bool with Condvar for cross-thread signaling.
 ///
 /// The bool tracks whether the notified side has acknowledged the signal.
-#[cfg(any(
-    target_os = "linux",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-))]
+#[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "netbsd",))]
 pub(crate) type Notify = (std::sync::Mutex<bool>, std::sync::Condvar);
 
 /// Shared error-callback type that hands the callback across thread boundaries.
@@ -225,7 +218,6 @@ pub(crate) use error_emit::try_emit_error;
 #[cfg(any(
     target_os = "linux",
     target_os = "dragonfly",
-    target_os = "freebsd",
     target_os = "netbsd",
     target_vendor = "apple",
     all(target_os = "windows", any(feature = "asio", feature = "jack")),
