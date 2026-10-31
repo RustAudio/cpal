@@ -1,6 +1,7 @@
 //! Web Audio backend implementation.
 //!
 //! Default backend on WebAssembly.
+//! Audio callbacks abort on panic because user callbacks need not be unwind-safe.
 
 #[cfg(target_feature = "atomics")]
 use std::sync::atomic::AtomicU64;
@@ -396,7 +397,7 @@ impl DeviceTrait for Device {
                     let current_time_bits_cb = current_time_bits.clone();
 
                     let on_audio_process =
-                        Closure::wrap(Box::new(move |event: AudioProcessingEvent| {
+                        Closure::wrap_aborting(Box::new(move |event: AudioProcessingEvent| {
                             let now = ctx_cb.current_time();
                             #[cfg(target_feature = "atomics")]
                             current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
@@ -698,7 +699,7 @@ impl DeviceTrait for Device {
                 on_ended_closure
                     .write()
                     .unwrap()
-                    .replace(Closure::wrap(Box::new(move || {
+                    .replace(Closure::wrap_aborting(Box::new(move || {
                         let now = ctx_handle.current_time();
 
                         // Keep the shared clock up to date so Stream::now() has a fresh value.
@@ -1102,7 +1103,7 @@ impl DeviceTrait for Device {
                     };
 
                     let on_audio_process =
-                        Closure::wrap(Box::new(move |event: AudioProcessingEvent| {
+                        Closure::wrap_aborting(Box::new(move |event: AudioProcessingEvent| {
                             let now = ctx_cb.current_time();
                             #[cfg(target_feature = "atomics")]
                             current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
