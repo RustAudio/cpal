@@ -6,6 +6,7 @@ use crate::{
     CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind, SampleFormat, StreamConfig,
     SupportedStreamConfig, SupportedStreamConfigRange,
+    duplex::validate_duplex_config,
     host::{latch::Latch, oss::stream},
     traits::DeviceTrait,
     validate_stream_config,
@@ -284,7 +285,7 @@ impl DeviceTrait for Device {
         D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
         E: FnMut(Error) + Send + 'static,
     {
-        validate_duplex_stream_config(&config)?;
+        validate_duplex_config(&config)?;
         let sample_format = if input_sample_format == output_sample_format {
             input_sample_format
         } else {
@@ -329,22 +330,6 @@ impl DeviceTrait for Device {
             latch: Latch::new(),
         })
     }
-}
-
-fn validate_duplex_stream_config(config: &DuplexStreamConfig) -> Result<(), Error> {
-    let input = StreamConfig {
-        channels: config.input_channels,
-        sample_rate: config.sample_rate,
-        buffer_size: config.buffer_size,
-    };
-    validate_stream_config(&input)?;
-
-    let output = StreamConfig {
-        channels: config.output_channels,
-        sample_rate: config.sample_rate,
-        buffer_size: config.buffer_size,
-    };
-    validate_stream_config(&output)
 }
 
 /// Return the default device.
