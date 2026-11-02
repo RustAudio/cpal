@@ -20,13 +20,15 @@
 
 use std::{
     fs::{File, OpenOptions},
+    io,
     os::unix::fs::OpenOptionsExt,
+    time::{Duration, Instant},
 };
 
-use crate::{SampleFormat, SupportedBufferSize, SupportedStreamConfigRange};
+use crate::{Error, ErrorKind, SampleFormat, SupportedBufferSize, SupportedStreamConfigRange};
 
 use super::{
-    formats,
+    error_from_io, formats,
     stream::rate_close_enough,
     syscall::{
         self, AudioBufInfo, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETOSPACE, ioctl_int, ioctl_ptr,
@@ -40,19 +42,72 @@ pub enum Mode {
     ReadWrite,
 }
 
+impl Mode {
+    pub fn r(&self) -> bool {
+        matches!(self, Mode::Read | Mode::ReadWrite)
+    }
+
+    pub fn w(&self) -> bool {
+        matches!(self, Mode::Write | Mode::ReadWrite)
+    }
+}
+
 /// Open a dsp file for ioctl
 pub(super) fn open_dsp(path: &str, mode: Mode) -> std::io::Result<File> {
-    let (r, w) = match mode {
-        // [TODO]: Mode.r(), Mode.w()
-        Mode::Read => (true, false),
-        Mode::Write => (false, true),
-        Mode::ReadWrite => (true, true),
-    };
     OpenOptions::new()
-        .read(r)
-        .write(w)
+        .read(mode.r())
+        .write(mode.w())
         .custom_flags(libc::O_NONBLOCK)
         .open(path)
+}
+
+/// A controlled blocking open of a dsp file for ioctl, with a given timeout.
+///
+/// This does *not* park the thread, it uses `O_NONBLOCK`, and retries, that way
+/// a short lived OS thread is not spawned.
+pub(super) fn blocking_open_dsp(
+    path: &str,
+    mode: Mode,
+    timeout: Option<Duration>,
+) -> Result<File, Error> {
+    // dispath away to open_dsp if no timeout is given, this keeps
+    // device.rs' build_*_streams cleaner and avoids a match.
+    let Some(timeout) = timeout else {
+        return open_dsp(path, mode).map_err(error_from_io);
+    };
+
+    let mut opts = OpenOptions::new();
+    opts.read(mode.r())
+        .write(mode.w())
+        .custom_flags(libc::O_NONBLOCK);
+
+    let start = Instant::now();
+    loop {
+        match opts.open(path) {
+            Ok(f) => {
+                return Ok(f);
+            }
+            Err(e) => {
+                if matches!(e.raw_os_error(), Some(libc::EBUSY) | Some(libc::EAGAIN)) {
+                    let elapsed = start.elapsed();
+                    if elapsed >= timeout {
+                        return Err(Error::with_message(
+                            ErrorKind::ResourceExhausted,
+                            "timed out waiting for dsp device to become available",
+                        ));
+                    }
+                    let remaining = timeout - elapsed;
+                    std::thread::sleep(remaining.min(Duration::from_millis(10)));
+                } else {
+                    // libc::EINTR
+                    if e.kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error_from_io(e));
+                }
+            }
+        }
+    }
 }
 
 /// Common sample rates used to probe a device with.

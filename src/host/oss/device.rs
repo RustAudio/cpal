@@ -13,7 +13,7 @@ use crate::{
 
 use super::{
     DEFAULT_DSP_PATH, SNDSTAT_PATH, error_from_io,
-    probe::{Mode, open_dsp, probe_configs},
+    probe::{Mode, blocking_open_dsp, open_dsp, probe_configs},
     stream::Control,
     syscall::{self, ioctl_int},
 };
@@ -190,7 +190,7 @@ impl DeviceTrait for Device {
         validate_stream_config(&config)?;
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
-        let fd = open_dsp(&self.path, Mode::Read).map_err(error_from_io)?; // diff from output
+        let fd = blocking_open_dsp(&self.path, Mode::Read, timeout)?; // diff from output
         let (period_bytes, buf_size) = stream::configure(&fd, &config, sample_format, true)?;
 
         let control = Arc::new(Control::default());
@@ -238,7 +238,7 @@ impl DeviceTrait for Device {
         validate_stream_config(&config)?;
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
-        let fd = open_dsp(&self.path, Mode::Write).map_err(error_from_io)?;
+        let fd = blocking_open_dsp(&self.path, Mode::Write, timeout)?;
         let (period_bytes, buf_size) = stream::configure(&fd, &config, sample_format, false)?;
 
         let control = Arc::new(Control::default());
@@ -297,7 +297,7 @@ impl DeviceTrait for Device {
         };
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
-        let fd = open_dsp(&self.path, Mode::ReadWrite).map_err(error_from_io)?;
+        let fd = blocking_open_dsp(&self.path, Mode::ReadWrite, timeout)?;
         let (in_period_bytes, out_period_bytes, buf_size) =
             stream::configure_duplex(&fd, &config, sample_format)?;
 
