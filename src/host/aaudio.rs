@@ -519,7 +519,8 @@ where
                         buffer_size = buffer_capacity;
                     }
 
-                    if stream.set_buffer_size_in_frames(buffer_size).is_ok() {
+                    let _ = stream.set_buffer_size_in_frames(buffer_size);
+                    if stream.buffer_size_in_frames() >= buffer_size {
                         tuning_for_callback
                             .mixer_bursts
                             .store(new_mixer_bursts, Ordering::Relaxed);
