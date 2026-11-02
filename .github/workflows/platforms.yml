@@ -479,6 +479,16 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: ${{ env.MSRV_WASM }}
 
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - name: Run WebAudio browser tests
+        run: wasm-pack test --headless --chrome --features wasm-bindgen --test webaudio_build_errors
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.MSRV_WASM }}
+
   # WebAssembly - AudioWorklet
   wasm-audioworklet:
     runs-on: ubuntu-latest
