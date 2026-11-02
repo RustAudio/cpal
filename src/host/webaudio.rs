@@ -613,6 +613,7 @@ impl DeviceTrait for Device {
             let destination = ctx.destination();
 
             if config.channels as u32 > destination.max_channel_count() {
+                let _ = ctx.close();
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!(
@@ -684,6 +685,7 @@ impl DeviceTrait for Device {
                         config.sample_rate as f32,
                     )
                     .map_err(|_| {
+                        let _ = ctx.close();
                         Error::with_message(
                             ErrorKind::UnsupportedConfig,
                             "Failed to create audio buffer",
@@ -1005,6 +1007,7 @@ impl DeviceTrait for Device {
 
             let destination = ctx.destination();
             if config.output_channels as u32 > destination.max_channel_count() {
+                let _ = ctx.close();
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!(

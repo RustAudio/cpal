@@ -618,6 +618,7 @@ impl DeviceTrait for Device {
                 .map(|v| v as u64);
 
         if config.channels as u32 > destination.max_channel_count() {
+            let _ = audio_context.close();
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
@@ -839,6 +840,7 @@ impl DeviceTrait for Device {
 
         let destination = audio_context.destination();
         if output_channels > destination.max_channel_count() {
+            let _ = audio_context.close();
             return Err(Error::with_message(
                 ErrorKind::UnsupportedConfig,
                 format!(
