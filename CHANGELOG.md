@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PipeWire**: Removing a device now reports `DeviceNotAvailable` on streams using it.
 - **PipeWire**: The host is now detected when `PIPEWIRE_RUNTIME_DIR`/`XDG_RUNTIME_DIR` are unset but the socket exists at `/run/pipewire`.
 - **PipeWire**: Dropping a stream no longer risks crashing the process with `SIGXCPU` if it was real-time promoted.
+- **PulseAudio**: Input streams with `BufferSize::Fixed` no longer drop audio or stop after the first callback.
 - **WASAPI**: Device enumeration no longer panics if the COM enumerator fails to initialize.
 - **WASAPI**: Revert "Default device changes no longer report `DeviceChanged`" as it was misinformed.
 - **WASAPI**: Output streams now start with real audio immediately instead of undefined content in the render buffer.
