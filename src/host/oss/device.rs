@@ -27,13 +27,11 @@ pub struct Device {
     pub(super) direction: DeviceDirection,
 }
 
-// Every single host seems to have this exact same Display code
 impl Display for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Instead of directly using self.path here, I'm going to leave it as is, for when I get round to
-        // proper device names.
-        let desc = self.description().map_err(|_| fmt::Error)?;
-        f.write_str(desc.name())
+        // This is the equivalent of calling Display on the DeviceDescription,
+        // (as we don't set manufacturer, device/interface type etc), but infallible.
+        write!(f, "{}", self.path)
     }
 }
 
