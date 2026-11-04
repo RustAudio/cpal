@@ -4,6 +4,8 @@ use std::fmt::{self, Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use std::vec;
+use parking_lot::Mutex;
+use tap::Pipe;
 
 type SupportedConfigs = vec::IntoIter<SupportedStreamConfigRange>;
 
@@ -116,26 +118,58 @@ impl DeviceTrait for Device {
     }
 }
 
-pub struct Stream;
+pub struct Stream(Mutex<StreamInner>);
 
+impl From<StreamInner> for Stream {
+    fn from(value: StreamInner) -> Self {
+        value
+            .pipe(Mutex::new)
+            .pipe(Self)
+    }
+}
 impl StreamTrait for Stream {
     fn start(&self) -> Result<(), Error> {
-        todo!()
+        self.0.lock().start()
     }
 
     fn pause(&self) -> Result<(), Error> {
-        todo!()
+        self.0.lock().pause()
     }
 
     fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
-        todo!()
+        self.0.lock().stop(timeout)
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        todo!()
+        self.0.lock().buffer_size()
     }
 
     fn now(&self) -> StreamInstant {
+        self.0.lock().now()
+    }
+}
+
+struct StreamInner {
+}
+
+impl StreamInner {
+    pub fn start(&mut self) -> Result<(), Error> {
+        todo!()
+    }
+
+    pub fn pause(&mut self) -> Result<(), Error> {
+        todo!()
+    }
+
+    pub fn stop(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
+        todo!()
+    }
+
+    pub fn buffer_size(&self) -> Result<FrameCount, Error> {
+        todo!()
+    }
+
+    pub fn now(&mut self) -> StreamInstant {
         todo!()
     }
 }
