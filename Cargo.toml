@@ -80,6 +80,10 @@ pulseaudio = [
   "dep:portable-atomic",
 ]
 
+# New WASAPI backend using WinRT
+# Platform: Windows
+wasapi-new = []
+
 # WebAssembly backend using wasm-bindgen
 # Enables the Web Audio API backend for browser-based audio
 # Required for any WebAssembly audio support

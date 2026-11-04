@@ -76,6 +76,10 @@ pub(crate) mod pulseaudio;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 
+#[rustfmt::skip]
+#[cfg(all(windows, feature = "wasapi-new"))]
+pub(crate) mod wasapi_new;
+
 #[cfg(all(
     target_arch = "wasm32",
     any(target_os = "emscripten", target_os = "unknown"),
