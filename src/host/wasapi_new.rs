@@ -8,7 +8,10 @@ use parking_lot::Mutex;
 use tap::Pipe;
 use windows::Devices::Enumeration::DeviceInformation;
 
+use self::utils::CpalError;
+
 mod device;
+mod utils;
 
 type SupportedConfigs = vec::IntoIter<SupportedStreamConfigRange>;
 
@@ -19,7 +22,7 @@ impl Host {
         clippy::unnecessary_wraps,
         reason = "required by the `impl_platform_host` macro"
     )]
-    pub const fn new() -> Result<Self, Error> {
+    pub const fn new() -> Result<Self, CpalError> {
         Ok(Self)
     }
 }
@@ -32,7 +35,7 @@ impl HostTrait for Host {
         true
     }
 
-    fn devices(&self) -> Result<Self::Devices, Error> {
+    fn devices(&self) -> Result<Self::Devices, CpalError> {
         device::all()?
             .into_iter()
             .pipe(Ok)
@@ -70,27 +73,27 @@ impl DeviceTrait for Device {
     type SupportedOutputConfigs = SupportedConfigs;
     type Stream = Stream;
 
-    fn description(&self) -> Result<DeviceDescription, Error> {
+    fn description(&self) -> Result<DeviceDescription, CpalError> {
         todo!()
     }
 
-    fn id(&self) -> Result<DeviceId, Error> {
+    fn id(&self) -> Result<DeviceId, CpalError> {
         todo!()
     }
 
-    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, Error> {
+    fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, CpalError> {
         todo!()
     }
 
-    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, Error> {
+    fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, CpalError> {
         todo!()
     }
 
-    fn default_input_config(&self) -> Result<SupportedStreamConfig, Error> {
+    fn default_input_config(&self) -> Result<SupportedStreamConfig, CpalError> {
         todo!()
     }
 
-    fn default_output_config(&self) -> Result<SupportedStreamConfig, Error> {
+    fn default_output_config(&self) -> Result<SupportedStreamConfig, CpalError> {
         todo!()
     }
 
@@ -101,10 +104,10 @@ impl DeviceTrait for Device {
         data_cb : DataCallback,
         error_cb: ErrorCallback,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, Error>
+    ) -> Result<Self::Stream, CpalError>
     where
         DataCallback : FnMut(&Data, &CallbackInfo) + Send + 'static,
-        ErrorCallback: FnMut(Error) + Send + 'static
+        ErrorCallback: FnMut(CpalError) + Send + 'static
     {
         todo!()
     }
@@ -116,10 +119,10 @@ impl DeviceTrait for Device {
         data_cb: DataCallback,
         error_cb: ErrorCallback,
         _timeout: Option<Duration>,
-    ) -> Result<Self::Stream, Error>
+    ) -> Result<Self::Stream, CpalError>
     where
         DataCallback: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
-        ErrorCallback: FnMut(Error) + Send + 'static,
+        ErrorCallback: FnMut(CpalError) + Send + 'static,
     {
         todo!()
     }
@@ -135,19 +138,19 @@ impl From<StreamInner> for Stream {
     }
 }
 impl StreamTrait for Stream {
-    fn start(&self) -> Result<(), Error> {
+    fn start(&self) -> Result<(), CpalError> {
         self.0.lock().start()
     }
 
-    fn pause(&self) -> Result<(), Error> {
+    fn pause(&self) -> Result<(), CpalError> {
         self.0.lock().pause()
     }
 
-    fn stop(&self, timeout: Option<Duration>) -> Result<(), Error> {
+    fn stop(&self, timeout: Option<Duration>) -> Result<(), CpalError> {
         self.0.lock().stop(timeout)
     }
 
-    fn buffer_size(&self) -> Result<FrameCount, Error> {
+    fn buffer_size(&self) -> Result<FrameCount, CpalError> {
         self.0.lock().buffer_size()
     }
 
@@ -160,19 +163,19 @@ struct StreamInner {
 }
 
 impl StreamInner {
-    pub fn start(&mut self) -> Result<(), Error> {
+    pub fn start(&mut self) -> Result<(), CpalError> {
         todo!()
     }
 
-    pub fn pause(&mut self) -> Result<(), Error> {
+    pub fn pause(&mut self) -> Result<(), CpalError> {
         todo!()
     }
 
-    pub fn stop(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
+    pub fn stop(&mut self, timeout: Option<Duration>) -> Result<(), CpalError> {
         todo!()
     }
 
-    pub fn buffer_size(&self) -> Result<FrameCount, Error> {
+    pub fn buffer_size(&self) -> Result<FrameCount, CpalError> {
         todo!()
     }
 
