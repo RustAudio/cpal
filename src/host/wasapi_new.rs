@@ -6,6 +6,9 @@ use std::time::Duration;
 use std::vec;
 use parking_lot::Mutex;
 use tap::Pipe;
+use windows::Devices::Enumeration::DeviceInformation;
+
+mod device;
 
 type SupportedConfigs = vec::IntoIter<SupportedStreamConfigRange>;
 
@@ -30,20 +33,24 @@ impl HostTrait for Host {
     }
 
     fn devices(&self) -> Result<Self::Devices, Error> {
-        todo!()
+        device::all()?
+            .into_iter()
+            .pipe(Ok)
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        todo!()
+        device::default::<true>().ok()
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        todo!()
+        device::default::<false>().ok()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
+    info: DeviceInformation,
+    direction: DeviceDirection,
 }
 
 impl Hash for Device {
