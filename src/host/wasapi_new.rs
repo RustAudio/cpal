@@ -71,9 +71,28 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn description(&self) -> Result<DeviceDescription, CpalError> {
+        let name = self.info.Name()?.to_string_lossy();
+        let reader = device::PropertyReader(self.info.Properties()?);
+        let (device_type, interface_type) = reader.types()?;
+        let mut builder = DeviceDescriptionBuilder
+            ::new(name.clone())
+            .driver(name)
+            .direction(self.direction)
+            .device_type(device_type)
+            .interface_type(interface_type);
+        if let Some(physical_location) = reader.physical_location()? {
+            builder = builder.address(physical_location);
+        }
+        Ok(builder.build())
     }
 
     fn id(&self) -> Result<DeviceId, CpalError> {
+        self.info
+            .Id()?
+            .to_string_lossy()
+            .into_boxed_str()
+            .pipe(|id| DeviceId(HostId::WasapiNew, id))
+            .pipe(Ok)
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, CpalError> {
