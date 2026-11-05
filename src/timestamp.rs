@@ -58,7 +58,7 @@ pub struct StreamTimestamp {
 ///
 /// | Guarantee | Hosts |
 /// | --------- | ----- |
-/// | Same-cycle | AAudio, ALSA, PipeWire, WASAPI (capture) |
+/// | Same-cycle | AAudio, ALSA, PipeWire, OSS, WASAPI (capture) |
 /// | Next-cycle | CoreAudio |
 /// | No ordering guarantee | ASIO, JACK |
 /// | No reporting | PulseAudio, iOS, WebAudio, AudioWorklet |

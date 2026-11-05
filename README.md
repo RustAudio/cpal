@@ -19,6 +19,7 @@ For higher-level audio playback and capture, consider [Rodio](https://github.com
 | Platform | Default Backend | Optional Backends |
 | -------- | --------------- | ----------------- |
 | Android | AAudio | - |
+| FreeBSD | OSS | JACK, PipeWire, PulseAudio |
 | BSD | ALSA | JACK, PipeWire, PulseAudio |
 | iOS | CoreAudio | - |
 | Linux | ALSA | JACK, PipeWire, PulseAudio |
@@ -49,6 +50,7 @@ The minimum Rust version (MSRV) and minimum operating system / runtime version b
 | CoreAudio | tvOS | nightly | — |
 | CoreAudio | visionOS | 1.85 | — |
 | JACK | Linux, BSD, macOS, Windows | 1.85 | — |
+| OSS | FreeBSD | 1.85 | — |
 | PipeWire | Linux, BSD | 1.85 | PipeWire 0.3.53 |
 | PulseAudio | Linux, BSD | 1.88 | — |
 | WASAPI / ASIO | Windows | 1.85 | Windows 10 |
