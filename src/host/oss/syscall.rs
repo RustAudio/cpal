@@ -54,11 +54,12 @@ const CMD_SETFMT: u8 = 5;
 const CMD_CHANNELS: u8 = 6;
 const CMD_SETFRAGMENT: u8 = 10;
 const CMD_GETFMTS: u8 = 11;
+const CMD_GETOSPACE: u8 = 12;
+const CMD_GETISPACE: u8 = 13;
 const CMD_GETCAPS: u8 = 15;
 const CMD_TRIGGER: u8 = 16; // `GETTRIGGER` and `SETTRIGGER` share it, just with opposite directions
 const CMD_GETODELAY: u8 = 23;
-const CMD_GETOSPACE: u8 = 12;
-const CMD_GETISPACE: u8 = 13;
+const CMD_GETERROR: u8 = 25;
 
 // FreeBSD ioctl encoding: IOC_OUT=0x4000_0000, IOC_INOUT=0xC000_0000,
 // (size << 16) | (group << 8) | number. Group is 'P' (0x50), size is 4 (int).
@@ -80,6 +81,7 @@ pub const SNDCTL_DSP_GETODELAY: c_ulong = ior::<c_int>(DSP, CMD_GETODELAY);
 
 pub const SNDCTL_DSP_GETOSPACE: c_ulong = ior::<AudioBufInfo>(DSP, CMD_GETOSPACE);
 pub const SNDCTL_DSP_GETISPACE: c_ulong = ior::<AudioBufInfo>(DSP, CMD_GETISPACE);
+pub const SNDCTL_DSP_GETERROR: c_ulong = ior::<AudioErrInfo>(DSP, CMD_GETERROR);
 
 // Capability Flags
 pub const PCM_CAP_DUPLEX: c_int = 1 << 8;
@@ -96,6 +98,23 @@ pub struct AudioBufInfo {
     pub fragstotal: c_int, // |      Total fragments in the buffer         |
     pub fragsize: c_int,   // |           bytes per fragment               |
     pub bytes: c_int,      // | Bytes free       | Bytes ready to read     |
+}
+
+/// FFI Mirror of OSS' `audio_err_info`
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+pub struct AudioErrInfo {
+    pub play_underruns: libc::c_int,
+    pub rec_overruns: libc::c_int,
+    pub play_ptradjust: libc::c_uint,
+    pub rec_ptradjust: libc::c_uint,
+    pub play_errorcount: libc::c_int,
+    pub rec_errorcount: libc::c_int,
+    pub play_lasterror: libc::c_int,
+    pub rec_lasterror: libc::c_int,
+    pub play_errorparm: libc::c_long,
+    pub rec_errorparm: libc::c_long,
+    pub filler: [libc::c_int; 16],
 }
 
 pub(super) fn ioctl_int(f: &File, req: c_ulong, val: libc::c_int) -> std::io::Result<libc::c_int> {

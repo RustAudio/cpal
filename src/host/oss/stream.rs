@@ -34,6 +34,7 @@ use crate::{
 
 use super::{
     clock, error_from_io, formats,
+    probe::get_xruns,
     syscall::{self, AudioBufInfo, ioctl_int, ioctl_ptr},
 };
 
@@ -199,13 +200,15 @@ pub(super) fn input_loop<D, E>(
                     let data = unsafe {
                         Data::from_parts(buf.as_mut_ptr() as *mut (), samples, sample_format)
                     };
+
+                    let (_, overruns) = get_xruns(&fd).unwrap_or((0, 0));
                     let info = CallbackInfo::new(
                         StreamTimestamp {
                             callback: callback_ts,
                             device: device_ts,
                         },
-                        false,
-                    ); // [TODO]: Report xruns
+                        overruns > 0,
+                    );
 
                     data_callback(&data, &info);
                 }
@@ -270,14 +273,15 @@ pub(super) fn output_loop<D, E>(
             let samples = period_bytes / sample_format.sample_size();
             let mut data =
                 unsafe { Data::from_parts(buf.as_mut_ptr() as *mut (), samples, sample_format) };
+
+            let (underruns, _) = get_xruns(&fd).unwrap_or((0, 0));
             let info = CallbackInfo::new(
                 StreamTimestamp {
                     callback: callback_ts,
                     device: device_ts,
                 },
-                false,
-            ); // [TODO] report xruns
-            // [TODO] add documentation to when OSS xruns are reported relative to the callback
+                underruns > 0,
+            );
             data_callback(&mut data, &info);
         }
 
@@ -491,21 +495,21 @@ pub(super) fn duplex_loop<D, E>(
         let mut out_data = unsafe {
             Data::from_parts(out_buf.as_mut_ptr() as *mut (), out_samples, sample_format)
         };
+        let (underruns, overruns) = get_xruns(&fd).unwrap_or((0, 0));
         let info = DuplexCallbackInfo::new(
-            // [TODO]: report xruns
             CallbackInfo::new(
                 StreamTimestamp {
                     callback: callback_ts,
                     device: device_ts,
                 },
-                false,
+                overruns > 0,
             ),
             CallbackInfo::new(
                 StreamTimestamp {
                     callback: callback_ts,
                     device: device_ts,
                 },
-                false,
+                underruns > 0,
             ),
         );
 

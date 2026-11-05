@@ -31,7 +31,8 @@ use super::{
     error_from_io, formats,
     stream::rate_close_enough,
     syscall::{
-        self, AudioBufInfo, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETOSPACE, ioctl_int, ioctl_ptr,
+        self, AudioBufInfo, AudioErrInfo, SNDCTL_DSP_GETERROR, SNDCTL_DSP_GETISPACE,
+        SNDCTL_DSP_GETOSPACE, ioctl_int, ioctl_ptr,
     },
 };
 
@@ -232,4 +233,20 @@ fn query_buffer_frames(
 
     let frames = total_bytes / frame_size;
     u32::try_from(frames).ok().filter(|&n| n > 0)
+}
+
+/// Reads and clears the xrun counters, returning `(playback underruns, capture overruns)`
+/// since the last call.
+///
+/// Only call this from the thread that owns the stream, or two callers will steal each
+/// other's counts.
+///
+/// This is cheap enough to call busily.
+pub(super) fn get_xruns(f: &File) -> std::io::Result<(u32, u32)> {
+    let mut info = AudioErrInfo::default();
+    ioctl_ptr(f, SNDCTL_DSP_GETERROR, &mut info)?;
+    Ok((
+        info.play_underruns.max(0) as u32,
+        info.rec_overruns.max(0) as u32,
+    ))
 }
