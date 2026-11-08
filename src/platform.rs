@@ -976,6 +976,12 @@ mod platform_impl {
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
+        #[cfg(feature = "wasapi-new")]
+        return WasapiNewHost::new()
+            .expect("the default host should always be available")
+            .into();
+
+        #[cfg(not(feature = "wasapi-new"))]
         WasapiHost::new()
             .expect("the default host should always be available")
             .into()
