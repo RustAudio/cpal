@@ -224,20 +224,34 @@ impl Device {
 
         let audio_client2 = Arc::clone(&audio_client);
         let stream_state2 = Arc::clone(&stream_state);
-        thread::spawn(move || {
-            _ = processing::run_loop(
-                &buffer_event,
-                &audio_client2,
-                &processor,
-                &stream_state2,
-                &mut scratch,
-                &mut data_cb,
-                fn_process,
-                sample_format,
-                config.channels as _,
-            )
-            .map_err(error_cb);
-        });
+        
+        let dir = match direction {
+            Direction::Capture => "in",
+            Direction::Render => "out",
+        };
+
+        thread::Builder::new()
+            .name(format!("cpal_wasapi_{dir}"))
+            .spawn(move || {
+                _ = processing::run_loop(
+                    &buffer_event,
+                    &audio_client2,
+                    &processor,
+                    &stream_state2,
+                    &mut scratch,
+                    &mut data_cb,
+                    fn_process,
+                    sample_format,
+                    config.channels as _,
+                )
+                .map_err(error_cb);
+            })
+            .map_err(|e| {
+                Error::with_message(
+                    ErrorKind::ResourceExhausted,
+                    format!("Failed to create WASAPI {dir}put worker thread: {e}"),
+                )
+            })?;
 
         StreamInner {
             total_frames,
