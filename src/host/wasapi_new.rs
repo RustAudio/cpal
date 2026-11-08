@@ -1,14 +1,21 @@
+use self::utils::*;
+use crate::ErrorKind::{BackendError, ResourceExhausted};
 use crate::traits::*;
 use crate::*;
+use itertools::Itertools;
 use std::fmt::{self, Debug, Display};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::time::Duration;
-use std::vec;
+use std::{thread, vec};
 use parking_lot::Mutex;
 use tap::Pipe;
+use wasapi::{
+    AudioClient, AudioClock, Device as MMDevice, DeviceEnumerator, Direction, SampleType,
+    ShareMode, StreamMode, WaveFormat,
+};
 use windows::Devices::Enumeration::DeviceInformation;
-
-use self::utils::CpalError;
+use windows_core::Interface;
 
 mod device;
 mod utils;
@@ -68,6 +75,107 @@ impl Display for Device {
     }
 }
 
+impl Device {
+    fn mm_device(&self) -> Result<MMDevice, CpalError> {
+        let enumerator = DeviceEnumerator::new()?;
+
+        self.info
+            .Id()?
+            .to_string_lossy()
+            .split('#')
+            .nth(2)
+            .ok_or(CpalError::with_message(BackendError, "malformed device id encountered"))?
+            .pipe(|id| enumerator.get_device(id))?
+            .pipe(Ok)
+    }
+
+    fn default_config<const INPUT: bool>(&self) -> Result<SupportedStreamConfig, CpalError> {
+        let mm_device = self.mm_device()?;
+        validate_direction::<INPUT>(&mm_device)?;
+
+        mm_device
+            .get_iaudioclient()?
+            .get_mixformat()?
+            .try_into()
+    }
+
+    fn supported_configs<const INPUT: bool>(&self) -> Result<SupportedConfigs, CpalError> {
+        use SampleFormat::*;
+
+        let mm_device = self.mm_device()?;
+        validate_direction::<INPUT>(&mm_device)?;
+
+        let client = mm_device.get_iaudioclient()?;
+
+        mm_device
+            .get_data_ranges()?
+            .into_iter()
+            .flat_map(move |range| 
+                COMMON_SAMPLE_RATES
+                .iter()
+                .copied()
+                .skip_while(move |rate| *rate < range.min_samplerate)
+                .take_while(move |rate| *rate <= range.max_samplerate)
+                .flat_map(move |sample_rate|
+                    (1..=range.max_channels)
+                    .flat_map(move |channel_count|
+                        [I8, I16, I24, I32, F32]
+                        .into_iter()
+                        .filter(move |format|
+                            range
+                            .sample_type()
+                            .is_none_or(|ty|
+                                (ty == SampleType::Int)
+                                    == format.is_int()
+                            )
+                        )
+                        .map(move |format| (format, format.sample_size() * 8))
+                        .skip_while(move |(_format, store_bits)| range.min_bits_per_sample >  *store_bits as u32)
+                        .take_while(move |(_format, store_bits)| range.max_bits_per_sample >= *store_bits as u32)
+                        .map(move |(format, store_bits)| WaveFormat::new(
+                            store_bits,
+                            format.bits_per_sample() as _,
+                            SampleType::Int,
+                            sample_rate as _,
+                            channel_count as _,
+                            None
+                        ))
+                    )
+                )
+            )
+            .unique() // DataRanges can overlap
+            .filter_map(|waveformat|
+                client
+                .is_supported(&waveformat, ShareMode::Shared)
+                .map(|ret| ret.unwrap_or(waveformat))
+                .ok()
+            )
+            .unique() // `.is_supported()` might have reported the same "closest match" multiple times
+            .filter_map(|waveformat| SupportedStreamConfig::try_from(waveformat).ok()) // this will most likely never fail anyway
+            .map(|config| {
+                let format = config.sample_format();
+                let channels = config.channels();
+                let rate = config.sample_rate();
+                
+                ((format, channels), rate)
+            })
+            .into_group_map()
+            .into_iter()
+            .map(|((sample_format, channels), rates)|
+                SupportedStreamConfigRange {
+                    channels,
+                    min_sample_rate: rates.iter().copied().min().unwrap(),
+                    max_sample_rate: rates.iter().copied().max().unwrap(),
+                    buffer_size: SupportedBufferSize::default(),
+                    sample_format,
+                }
+            )
+        .collect::<Vec<_>>()
+            .into_iter()
+            .pipe(Ok)
+    }
+}
+
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedConfigs;
     type SupportedOutputConfigs = SupportedConfigs;
@@ -99,19 +207,19 @@ impl DeviceTrait for Device {
     }
 
     fn supported_input_configs(&self) -> Result<Self::SupportedInputConfigs, CpalError> {
-        todo!()
+        self.supported_configs::<true>()
     }
 
     fn supported_output_configs(&self) -> Result<Self::SupportedOutputConfigs, CpalError> {
-        todo!()
+        self.supported_configs::<false>()
     }
 
     fn default_input_config(&self) -> Result<SupportedStreamConfig, CpalError> {
-        todo!()
+        self.default_config::<true>()
     }
 
     fn default_output_config(&self) -> Result<SupportedStreamConfig, CpalError> {
-        todo!()
+        self.default_config::<false>()
     }
 
     fn build_input_stream_raw<DataCallback, ErrorCallback>(
