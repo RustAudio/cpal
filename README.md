@@ -52,7 +52,7 @@ The minimum Rust version (MSRV) and minimum operating system / runtime version b
 | PipeWire | Linux, BSD | 1.85 | PipeWire 0.3.53 |
 | PulseAudio | Linux, BSD | 1.88 | — |
 | WASAPI / ASIO | Windows | 1.85 | Windows 10 |
-| New WASAPI (`-F wasapi-new`) | Windows | 1.85 | Windows 10 |
+| New WASAPI (`-F wasapi-new`) | Windows | 1.95 | Windows 10 |
 | WASM (`wasm32-unknown-unknown`) | WebAssembly | 1.85 | — |
 | WASM (`wasm32-unknown-emscripten`) | WebAssembly | 1.85 | Emscripten 6.0.3, wasm-bindgen 0.2.127 |
 | WASM (`audioworklet`) | WebAssembly | nightly | — |
