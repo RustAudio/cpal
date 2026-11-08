@@ -67,13 +67,18 @@ pub struct Device {
 
 impl Hash for Device {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        todo!()
+        self.info.as_raw().hash(state);
+        self.direction.hash(state);
     }
 }
 
 impl Display for Device {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        if let Ok(name) = self.info.Name() {
+            Display::fmt(&name, formatter)
+        } else {
+            Display::fmt("(device name lookup failed)", formatter)
+        }
     }
 }
 
@@ -340,6 +345,7 @@ impl DeviceTrait for Device {
     }
 }
 
+#[derive(Debug)]
 pub struct Stream(Mutex<StreamInner>);
 
 impl From<StreamInner> for Stream {
