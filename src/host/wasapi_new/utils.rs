@@ -1,12 +1,14 @@
 use crate::ErrorKind::{BackendError, UnsupportedOperation};
 use crate::{DeviceDirection, SampleFormat, StreamConfig, SupportedBufferSize, SupportedStreamConfig};
-use std::alloc::{Layout, alloc_zeroed, dealloc};
-use std::fmt::Debug;
-use std::mem::transmute;
-use std::ops::{Deref, DerefMut};
-use std::slice;
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::time::Duration;
+use std::{
+    alloc::{Layout, alloc_zeroed, dealloc},
+    sync::atomic::{AtomicU8, Ordering},
+    ops::{Deref, DerefMut},
+    time::Duration,
+    mem::transmute,
+    fmt::Debug,
+    slice,
+};
 use tap::Pipe;
 use wasapi::{Direction, SampleType, WaveFormat};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};

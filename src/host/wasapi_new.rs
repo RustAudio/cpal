@@ -3,12 +3,15 @@ use self::utils::*;
 use crate::ErrorKind::{BackendError, ResourceExhausted};
 use crate::traits::*;
 use crate::*;
+use std::{
+    fmt::{self, Debug, Display},
+    hash::{Hash, Hasher},
+    time::Duration,
+    sync::Arc,
+    thread,
+    vec,
+};
 use itertools::Itertools;
-use std::fmt::{self, Debug, Display};
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-use std::time::Duration;
-use std::{thread, vec};
 use parking_lot::Mutex;
 use tap::Pipe;
 use wasapi::{
@@ -18,8 +21,8 @@ use wasapi::{
 use windows::Devices::Enumeration::DeviceInformation;
 use windows_core::Interface;
 
-mod device;
 mod processing;
+mod device;
 mod utils;
 
 type SupportedConfigs = vec::IntoIter<SupportedStreamConfigRange>;
@@ -398,7 +401,7 @@ struct StreamInner {
     audio_client : Arc<SendSync<AudioClient>>,
     audio_clock  : Arc<SendSync<AudioClock>>,
     stream_state : Arc<WaitableStreamState>,
-    last_hns    : u64
+    last_hns     : u64
 }
 
 unsafe impl Send for StreamInner {}
