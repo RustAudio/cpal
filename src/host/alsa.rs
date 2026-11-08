@@ -165,12 +165,8 @@ impl Drop for AlsaContext {
 const DEFAULT_DEVICE: &str = "default";
 const DEFAULT_PERIODS: alsa::pcm::Frames = 2;
 
-// Ring depth, in periods, for `BufferSize::Fixed`. Playback still starts after
-// `DEFAULT_PERIODS`, so start-up latency is unchanged; the third period is
-// slack for the callback. With only two, snd-usb-audio in low-latency mode
-// (the default since Linux 5.15) runs behind as soon as the callback does any
-// work: a Scarlett 2i2 at 128 frames consumed ~36k frames/s at 48 kHz with
-// 300 us of work per callback, and 48k with three periods.
+// Ring depth for `BufferSize::Fixed`; playback still starts at `DEFAULT_PERIODS`.
+// With two, snd-usb-audio's low-latency mode falls behind once the callback does work.
 const FIXED_BUFFER_PERIODS: alsa::pcm::Frames = 3;
 
 const POLL_INFINITE: i32 = -1; // "block until an event arrives"
