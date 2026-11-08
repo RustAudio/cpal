@@ -1,3 +1,4 @@
+use self::processing::FnProcess;
 use self::utils::*;
 use crate::ErrorKind::{BackendError, ResourceExhausted};
 use crate::traits::*;
@@ -18,6 +19,7 @@ use windows::Devices::Enumeration::DeviceInformation;
 use windows_core::Interface;
 
 mod device;
+mod processing;
 mod utils;
 
 type SupportedConfigs = vec::IntoIter<SupportedStreamConfigRange>;
@@ -174,6 +176,75 @@ impl Device {
             .into_iter()
             .pipe(Ok)
     }
+
+    #[expect(clippy::too_many_arguments, reason = "3 of these only exist due to certain language features not yet being stable (see comments)")]
+    fn build_stream_inner<Processor, DataCallback, ErrorCallback>(
+        &self,
+        config          : StreamConfig,
+        sample_format   : SampleFormat,
+        mut data_cb     : DataCallback,
+        error_cb        : ErrorCallback,
+        direction       : Direction, // const generics when?
+        fn_new_processor: fn(&AudioClient) -> Result<Processor, WasapiRsError>, // unique function ZSTs when?
+        fn_process      : FnProcess<Processor, DataCallback> // unique function ZSTs when?
+    ) -> Result<Stream, CpalError>
+    where
+        Processor    : 'static,
+        DataCallback : Send + 'static,
+        ErrorCallback: FnMut(Error) + Send + 'static
+    {
+        let mm_device = self.mm_device()?;
+        let mut audio_client = mm_device.get_iaudioclient()?;
+
+        let waveformat = create_waveformat(config, sample_format)?;
+        let period_frames = match config.buffer_size {
+            BufferSize::Fixed(n) => n,
+            BufferSize::Default => audio_client.get_shared_mode_engine_period(&waveformat)?.default
+        };
+
+        audio_client.initialize_client(
+            &waveformat,
+            direction,
+            StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: 0 },
+            None
+        )?;
+
+        let processor    = audio_client.pipe_ref(fn_new_processor)?.pipe(SendSync);
+        let audio_client = audio_client.pipe(SendSync).pipe(Arc::new);
+        let audio_clock  = audio_client.get_audioclock()?.pipe(SendSync).pipe(Arc::new);
+        let buffer_event = audio_client.set_get_eventhandle()?.pipe(SendSync);
+        let total_frames = audio_client.get_buffer_size()?;
+        let mut scratch  = ScratchBuffer::new(total_frames as usize * config.channels as usize, sample_format);
+        let stream_state = WaitableStreamState::new()?.pipe(Arc::new);
+
+        let audio_client2 = Arc::clone(&audio_client);
+        let stream_state2 = Arc::clone(&stream_state);
+        thread::spawn(move || {
+            _ = processing::run_loop(
+                &buffer_event,
+                &audio_client2,
+                &processor,
+                &stream_state2,
+                &mut scratch,
+                &mut data_cb,
+                fn_process,
+                sample_format,
+                config.channels as _,
+            )
+            .map_err(error_cb);
+        });
+
+        StreamInner {
+            total_frames,
+            period_frames,
+            audio_client,
+            audio_clock,
+            stream_state,
+            last_hns: u64::MIN,
+        }
+        .pipe(Stream::from)
+        .pipe(Ok)
+    }
 }
 
 impl DeviceTrait for Device {
@@ -234,7 +305,15 @@ impl DeviceTrait for Device {
         DataCallback : FnMut(&Data, &CallbackInfo) + Send + 'static,
         ErrorCallback: FnMut(CpalError) + Send + 'static
     {
-        todo!()
+        self.build_stream_inner(
+            config,
+            format,
+            data_cb,
+            error_cb,
+            Direction::Capture,
+            AudioClient::get_audiocaptureclient,
+            processing::capture
+        )
     }
 
     fn build_output_stream_raw<DataCallback, ErrorCallback>(
@@ -249,7 +328,15 @@ impl DeviceTrait for Device {
         DataCallback: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         ErrorCallback: FnMut(CpalError) + Send + 'static,
     {
-        todo!()
+        self.build_stream_inner(
+            config,
+            format,
+            data_cb,
+            error_cb,
+            Direction::Render,
+            AudioClient::get_audiorenderclient,
+            processing::render
+        )
     }
 }
 
@@ -285,26 +372,86 @@ impl StreamTrait for Stream {
 }
 
 struct StreamInner {
+    total_frames : u32,
+    period_frames: u32,
+    audio_client : Arc<SendSync<AudioClient>>,
+    audio_clock  : Arc<SendSync<AudioClock>>,
+    stream_state : Arc<WaitableStreamState>,
+    last_hns    : u64
+}
+
+unsafe impl Send for StreamInner {}
+
+impl Debug for StreamInner {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        todo!() // https://github.com/HEnquist/wasapi-rs/pull/86
+    }
 }
 
 impl StreamInner {
     pub fn start(&mut self) -> Result<(), CpalError> {
-        todo!()
+        if self.stream_state.get() == StreamState::Halted {
+            self.audio_client.start_stream()?;
+        }
+
+        self.stream_state.set(StreamState::Running, true)?;
+        
+        Ok(())
     }
 
     pub fn pause(&mut self) -> Result<(), CpalError> {
-        todo!()
+        if self.stream_state.get() != StreamState::Halted {
+            self.audio_client.stop_stream()?;
+        }
+
+        self.stream_state.set(StreamState::Halted, true)?;
+        
+        Ok(())
     }
 
     pub fn stop(&mut self, timeout: Option<Duration>) -> Result<(), CpalError> {
-        todo!()
+        if self.stream_state.get() == StreamState::Halted {
+            return Ok(());
+        }
+
+        self.stream_state.set(StreamState::Draining, false)?;
+
+        let wait_success = self
+            .stream_state
+            .event()
+            .wait_single(timeout)?;
+        
+        self.audio_client.stop_stream()?;
+        self.audio_client.reset_stream()?;
+        
+        // FIXME: use `bool::ok_or()` once MSRV has risen to 1.98
+        if !wait_success {
+            return Err(CpalError::with_message(ResourceExhausted, "timeout expired"))
+        }
+        
+        Ok(())
     }
 
     pub fn buffer_size(&self) -> Result<FrameCount, CpalError> {
-        todo!()
+        self.audio_client
+            .get_current_padding()?
+            .pipe(|padding| self.total_frames - padding + self.period_frames)
+            .pipe(Ok)
     }
 
     pub fn now(&mut self) -> StreamInstant {
-        todo!()
+        self.last_hns = self
+            .audio_clock
+            .get_position()
+            .map_or(u64::MIN, |(_pos, hns)| hns)
+            .max(self.last_hns);
+
+        StreamInstant::from_nanos(self.last_hns * 100)
+    }
+}
+
+impl Drop for StreamInner {
+    fn drop(&mut self) {
+        _ = self.stream_state.set(StreamState::Exit, false);
     }
 }
