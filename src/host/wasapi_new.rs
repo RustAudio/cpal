@@ -377,6 +377,7 @@ impl StreamTrait for Stream {
     }
 }
 
+#[derive(Debug)]
 struct StreamInner {
     total_frames : u32,
     period_frames: u32,
@@ -387,12 +388,6 @@ struct StreamInner {
 }
 
 unsafe impl Send for StreamInner {}
-
-impl Debug for StreamInner {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!() // https://github.com/HEnquist/wasapi-rs/pull/86
-    }
-}
 
 impl StreamInner {
     pub fn start(&mut self) -> Result<(), CpalError> {
