@@ -1,7 +1,10 @@
 use super::{Device, utils::WindowsError};
-use crate::{DeviceDirection, DeviceType, InterfaceType};
+use crate::{DeviceType, InterfaceType};
 use itertools::Itertools;
+use std::hash::Hash;
 use tap::Pipe;
+use wasapi::Direction;
+use windows::Win32::System::Com::{CoTaskMemFree, StringFromIID};
 use windows::{
     Devices::Enumeration::DeviceInformation,
     Foundation::IPropertyValue,
@@ -11,6 +14,34 @@ use windows::{
 };
 use windows_collections::{IIterable, IMapView};
 use windows_core::{Array, HSTRING, IInspectable, Interface, h};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Kind {
+    Default,
+    Specific(DeviceInformation)
+}
+
+impl Hash for Kind {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        core::mem::discriminant(self).hash(state);
+        if let Self::Specific(info) = self {
+            info.as_raw().hash(state);
+        }
+    }
+}
+
+pub fn default_id(direction: Direction) -> Result<HSTRING, WindowsError> {
+    let guid = match direction {
+        Direction::Render  => DEVINTERFACE_AUDIO_RENDER,
+        Direction::Capture => DEVINTERFACE_AUDIO_CAPTURE,
+    };
+    unsafe {
+        let pwstr = StringFromIID(&guid)?;
+        let hstring = pwstr.to_hstring();
+        CoTaskMemFree(Some(pwstr.as_ptr().cast()));
+        Ok(hstring)
+    }
+}
 
 pub fn format_aqs(PROPERTYKEY { fmtid, pid }: &PROPERTYKEY) -> HSTRING {
     format!("{{{fmtid:?}}} {pid}").into()
@@ -45,26 +76,28 @@ fn all_in_direction<const INPUT: bool>(extra_props: &IIterable<HSTRING>) -> Resu
         ::FindAllAsyncAqsFilterAndAdditionalProperties(&fn_get_selector()?, extra_props)?
         .join()?
         .into_iter()
-        .map(|info| Device { info, direction: direction::<INPUT>() })
+        .map(|info| Device { kind: Kind::Specific(info), direction: direction::<INPUT>() })
         .pipe(Ok)
 }
 
-pub fn default<const INPUT: bool>() -> Result<Device, WindowsError> {
-    let extra_properties = extra_properties();
 
-    let fn_get_id =
-        if INPUT { MediaDevice::GetDefaultAudioCaptureId }
-        else     { MediaDevice::GetDefaultAudioRenderId };
+pub fn current_default_id<const INPUT: bool>() -> Result<HSTRING, WindowsError> {
+    let role = AudioDeviceRole::Default;
 
-    fn_get_id(AudioDeviceRole::Default)?
-        .pipe_ref(|id| DeviceInformation::CreateFromIdAsyncAdditionalProperties(id, &extra_properties))?
-        .join()
-        .map(|info| Device { info, direction: direction::<INPUT>() })
+    if INPUT { MediaDevice::GetDefaultAudioCaptureId(role) }
+    else     { MediaDevice::GetDefaultAudioRenderId(role) }
 }
 
-const fn direction<const INPUT: bool>() -> DeviceDirection {
-    if INPUT { DeviceDirection::Input }
-    else     { DeviceDirection::Output }
+pub fn current_default_info<const INPUT: bool>() -> Result<DeviceInformation, WindowsError> {
+    let default_device_id = current_default_id::<INPUT>()?;
+    let extra_properties  = extra_properties();
+
+    DeviceInformation::CreateFromIdAsyncAdditionalProperties(&default_device_id, &extra_properties)?.join()
+}
+
+pub const fn direction<const INPUT: bool>() -> Direction {
+    if INPUT { Direction::Capture }
+    else     { Direction::Render }
 }
 
 const PHYSICAL_DEVICE_LOCATION: &HSTRING = h!("System.Devices.PhysicalDeviceLocation");
@@ -116,10 +149,10 @@ impl PropertyReader {
             KSNODETYPE_DISPLAYPORT_INTERFACE          => interface_type = InterfaceType::DisplayPort,
             KSNODETYPE_SPDIF_INTERFACE                => interface_type = InterfaceType::Spdif,
             KSNODETYPE_HDMI_INTERFACE                 => interface_type = InterfaceType::Hdmi,
-            
+
             KSNODETYPE_AUDIO_LOOPBACK                 |
             KSNODETYPE_AUDIO_ENGINE                   => interface_type = InterfaceType::Virtual,
-    
+
             KSNODETYPE_ANALOG_CONNECTOR               |
             KSNODETYPE_LINE_CONNECTOR                 |
             KSNODETYPE_PHONE_LINE                     |
@@ -127,21 +160,21 @@ impl PropertyReader {
             KSNODETYPE_DAC                            => interface_type = InterfaceType::Line,
 
             KSNODETYPE_DIGITAL_AUDIO_INTERFACE        => device_type    = DeviceType::Dock,
+
             KSNODETYPE_HEADPHONES                     => device_type    = DeviceType::Headphones,
-            
+
             KSNODETYPE_TV_TUNER_AUDIO                 |
             KSNODETYPE_CABLE_TUNER_AUDIO              => device_type    = DeviceType::Tuner,
 
             KSNODETYPE_HEADSET                        |
             KSNODETYPE_HEAD_MOUNTED_DISPLAY_AUDIO     => device_type    = DeviceType::Headset,
-            
-            
+
             KSNODETYPE_TELEPHONY_UNDEFINED            |
             KSNODETYPE_DOWN_LINE_PHONE                |
             KSNODETYPE_TELEPHONY_BIDI                 |
             KSNODETYPE_TELEPHONE                      |
             KSNODETYPE_HANDSET                        => device_type    = DeviceType::Handset,
-            
+
             KSNODETYPE_OMNI_DIRECTIONAL_MICROPHONE    |
             KSNODETYPE_PROCESSING_MICROPHONE_ARRAY    |
             KSNODETYPE_PERSONAL_MICROPHONE            |

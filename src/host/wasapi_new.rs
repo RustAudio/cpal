@@ -1,11 +1,14 @@
+use self::device::default_id;
+use self::device::Kind::Specific;
 use self::processing::FnProcess;
 use self::utils::*;
-use crate::ErrorKind::{BackendError, ResourceExhausted};
+use crate::ErrorKind::{BackendError, ResourceExhausted, UnsupportedOperation};
 use crate::traits::*;
 use crate::*;
+use std::borrow::Cow;
 use std::{
     fmt::{self, Debug, Display},
-    hash::{Hash, Hasher},
+    hash::Hash,
     time::Duration,
     sync::Arc,
     thread,
@@ -15,11 +18,10 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use tap::Pipe;
 use wasapi::{
-    AudioClient, AudioClock, Device as MMDevice, DeviceEnumerator, Direction, SampleType,
-    ShareMode, StreamMode, WaveFormat,
+    AudioClient, AudioClock, DeviceEnumerator, Direction, SampleType, ShareMode, StreamMode, WaveFormat,
 };
 use windows::Devices::Enumeration::DeviceInformation;
-use windows_core::Interface;
+use windows_core::HSTRING;
 
 mod processing;
 mod device;
@@ -36,6 +38,17 @@ impl Host {
     )]
     pub const fn new() -> Result<Self, CpalError> {
         Ok(Self)
+    }
+
+    fn default_device<const INPUT: bool>(&self) -> Option<Device> {
+        if device::current_default_id::<INPUT>().ok()?.is_empty() {
+            return None;
+        }
+        Device {
+            kind: device::Kind::Default,
+            direction: device::direction::<INPUT>()
+        }
+        .pipe(Some)
     }
 }
 
@@ -54,30 +67,35 @@ impl HostTrait for Host {
     }
 
     fn default_input_device(&self) -> Option<Self::Device> {
-        device::default::<true>().ok()
+        self.default_device::<true>()
     }
 
     fn default_output_device(&self) -> Option<Self::Device> {
-        device::default::<false>().ok()
+        self.default_device::<false>()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
-    info: DeviceInformation,
-    direction: DeviceDirection,
+    kind: device::Kind,
+    direction: Direction,
 }
 
 impl Hash for Device {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.info.as_raw().hash(state);
-        self.direction.hash(state);
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.kind.hash(state);
+        std::mem::discriminant(&self.direction).hash(state);
     }
 }
 
 impl Display for Device {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Ok(name) = self.info.Name() {
+        let Specific(ref info) = self.kind
+        else {
+            return Display::fmt("Default", formatter);
+        };
+
+        if let Ok(name) = info.Name() {
             Display::fmt(&name, formatter)
         } else {
             Display::fmt("(device name lookup failed)", formatter)
@@ -86,25 +104,43 @@ impl Display for Device {
 }
 
 impl Device {
-    fn mm_device(&self) -> Result<MMDevice, CpalError> {
-        let enumerator = DeviceEnumerator::new()?;
+    fn info(&self) -> Result<Cow<'_, DeviceInformation>, WindowsError> {
+        if let Specific(ref info) = self.kind {
+            return Cow::Borrowed(info).pipe(Ok);
+        }
 
-        self.info
-            .Id()?
-            .to_string_lossy()
-            .split('#')
-            .nth(2)
-            .ok_or(CpalError::with_message(BackendError, "malformed device id encountered"))?
-            .pipe(|id| enumerator.get_device(id))?
-            .pipe(Ok)
+        match self.direction {
+            Direction::Render  => device::current_default_info::<true >(),
+            Direction::Capture => device::current_default_info::<false>()
+        }
+        .map(Cow::Owned)
+    }
+
+    fn native_id(&self) -> Result<HSTRING, WindowsError> {
+        match self.kind {
+            device::Kind::Default            => default_id(self.direction),
+            device::Kind::Specific(ref info) => info.Id()
+        }
+    }
+
+    fn activate(&self, timeout: Option<Duration>) -> Result<AudioClient, WindowsError> {
+        self.native_id()
+            .and_then(|id| activate_audio_interface(&id, timeout))
+            .map(|client| AudioClient::from_iaudioclient(client, self.direction))
+    }
+
+    fn validate_direction<const INPUT: bool>(&self) -> Result<(), CpalError> {
+        if self.direction == Direction::Capture && !INPUT {
+            return CpalError::with_message(UnsupportedOperation, "cannot render on a capture device").pipe(Err);
+        }
+
+        Ok(())
     }
 
     fn default_config<const INPUT: bool>(&self) -> Result<SupportedStreamConfig, CpalError> {
-        let mm_device = self.mm_device()?;
-        validate_direction::<INPUT>(&mm_device)?;
+        self.validate_direction::<INPUT>()?;
 
-        mm_device
-            .get_iaudioclient()?
+        self.activate(None)?
             .get_mixformat()?
             .try_into()
     }
@@ -112,15 +148,19 @@ impl Device {
     fn supported_configs<const INPUT: bool>(&self) -> Result<SupportedConfigs, CpalError> {
         use SampleFormat::*;
 
-        let mm_device = self.mm_device()?;
-        validate_direction::<INPUT>(&mm_device)?;
+        self.validate_direction::<INPUT>()?;
+        let client = self.activate(None)?;
 
-        let client = mm_device.get_iaudioclient()?;
-
-        mm_device
+        self.info()?
+            .Id()?
+            .to_string_lossy()
+            .split('#')
+            .nth(2)
+            .ok_or(CpalError::with_message(BackendError, "malformed device id encountered"))?
+            .pipe(|id| DeviceEnumerator::new()?.get_device(id))?
             .get_data_ranges()?
             .into_iter()
-            .flat_map(move |range| 
+            .flat_map(move |range|
                 COMMON_SAMPLE_RATES
                 .iter()
                 .copied()
@@ -166,7 +206,7 @@ impl Device {
                 let format = config.sample_format();
                 let channels = config.channels();
                 let rate = config.sample_rate();
-                
+
                 ((format, channels), rate)
             })
             .into_group_map()
@@ -180,7 +220,7 @@ impl Device {
                     sample_format,
                 }
             )
-        .collect::<Vec<_>>()
+            .collect::<Vec<_>>()
             .into_iter()
             .pipe(Ok)
     }
@@ -192,6 +232,7 @@ impl Device {
         sample_format   : SampleFormat,
         mut data_cb     : DataCallback,
         error_cb        : ErrorCallback,
+        timeout         : Option<Duration>,
         direction       : Direction, // const generics when?
         fn_new_processor: fn(&AudioClient) -> Result<Processor, WasapiRsError>, // unique function ZSTs when?
         fn_process      : FnProcess<Processor, DataCallback> // unique function ZSTs when?
@@ -201,8 +242,7 @@ impl Device {
         DataCallback : Send + 'static,
         ErrorCallback: FnMut(Error) + Send + 'static
     {
-        let mm_device = self.mm_device()?;
-        let mut audio_client = mm_device.get_iaudioclient()?;
+        let mut audio_client = self.activate(timeout)?;
 
         let waveformat = create_waveformat(config, sample_format)?;
         let period_frames = match config.buffer_size {
@@ -227,7 +267,7 @@ impl Device {
 
         let audio_client2 = Arc::clone(&audio_client);
         let stream_state2 = Arc::clone(&stream_state);
-        
+
         let dir = match direction {
             Direction::Capture => "in",
             Direction::Render => "out",
@@ -275,23 +315,28 @@ impl DeviceTrait for Device {
     type Stream = Stream;
 
     fn description(&self) -> Result<DeviceDescription, CpalError> {
-        let name = self.info.Name()?.to_string_lossy();
-        let reader = device::PropertyReader(self.info.Properties()?);
+        let info = self.info()?;
+        let name = info.Name()?.to_string_lossy();
+
+        let reader = device::PropertyReader(info.Properties()?);
         let (device_type, interface_type) = reader.types()?;
+
         let mut builder = DeviceDescriptionBuilder
             ::new(name.clone())
             .driver(name)
-            .direction(self.direction)
+            .direction(self.direction.into())
             .device_type(device_type)
             .interface_type(interface_type);
+
         if let Some(physical_location) = reader.physical_location()? {
             builder = builder.address(physical_location);
         }
+
         Ok(builder.build())
     }
 
     fn id(&self) -> Result<DeviceId, CpalError> {
-        self.info
+        self.info()?
             .Id()?
             .to_string_lossy()
             .into_boxed_str()
@@ -321,7 +366,7 @@ impl DeviceTrait for Device {
         format  : SampleFormat,
         data_cb : DataCallback,
         error_cb: ErrorCallback,
-        _timeout: Option<Duration>,
+        timeout : Option<Duration>,
     ) -> Result<Self::Stream, CpalError>
     where
         DataCallback : FnMut(&Data, &CallbackInfo) + Send + 'static,
@@ -332,6 +377,7 @@ impl DeviceTrait for Device {
             format,
             data_cb,
             error_cb,
+            timeout,
             Direction::Capture,
             AudioClient::get_audiocaptureclient,
             processing::capture
@@ -344,7 +390,7 @@ impl DeviceTrait for Device {
         format: SampleFormat,
         data_cb: DataCallback,
         error_cb: ErrorCallback,
-        _timeout: Option<Duration>,
+        timeout : Option<Duration>,
     ) -> Result<Self::Stream, CpalError>
     where
         DataCallback: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
@@ -355,6 +401,7 @@ impl DeviceTrait for Device {
             format,
             data_cb,
             error_cb,
+            timeout,
             Direction::Render,
             AudioClient::get_audiorenderclient,
             processing::render
@@ -413,7 +460,7 @@ impl StreamInner {
         }
 
         self.stream_state.set(StreamState::Running, true)?;
-        
+
         Ok(())
     }
 
@@ -423,7 +470,7 @@ impl StreamInner {
         }
 
         self.stream_state.set(StreamState::Halted, true)?;
-        
+
         Ok(())
     }
 
@@ -438,15 +485,15 @@ impl StreamInner {
             .stream_state
             .event()
             .wait_single(timeout)?;
-        
+
         self.audio_client.stop_stream()?;
         self.audio_client.reset_stream()?;
-        
+
         // FIXME: use `bool::ok_or()` once MSRV has risen to 1.98
         if !wait_success {
             return Err(CpalError::with_message(ResourceExhausted, "timeout expired"))
         }
-        
+
         Ok(())
     }
 

@@ -64,7 +64,7 @@ fn wait_event(
 
     let events = [
         buffer_event.as_handle(),
-        *state_event.as_raw()
+        state_event.as_raw()
     ];
 
     Event::wait_multiple(&events, timeout)

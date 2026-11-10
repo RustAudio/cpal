@@ -1,5 +1,6 @@
-use crate::ErrorKind::{BackendError, UnsupportedOperation};
+use crate::ErrorKind::BackendError;
 use crate::{DeviceDirection, SampleFormat, StreamConfig, SupportedBufferSize, SupportedStreamConfig};
+use std::mem::MaybeUninit;
 use std::{
     alloc::{Layout, alloc_zeroed, dealloc},
     sync::atomic::{AtomicU8, Ordering},
@@ -10,9 +11,11 @@ use std::{
     slice,
 };
 use tap::Pipe;
-use wasapi::{Direction, SampleType, WaveFormat};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use wasapi::{Direction, IAudioClient, SampleType, WaveFormat};
+use windows::Win32::Foundation::{CloseHandle, E_POINTER, HANDLE, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::Media::Audio::{ActivateAudioInterfaceAsync, IActivateAudioInterfaceAsyncOperation, IActivateAudioInterfaceCompletionHandler, IActivateAudioInterfaceCompletionHandler_Impl};
 use windows::Win32::System::Threading::{CreateEventW, INFINITE, SetEvent, WaitForMultipleObjects, WaitForSingleObject};
+use windows_core::{Interface, PCWSTR, Param, Ref, implement};
 
 pub type CpalError     = crate::Error;
 pub type WasapiRsError = wasapi::WasapiError;
@@ -81,11 +84,11 @@ unsafe impl Sync for Event {}
 
 impl Event {
     pub fn new() -> Result<Self, WindowsError> {
-        unsafe { CreateEventW(None, false, true, None) }.map(Self)
+        unsafe { CreateEventW(None, false, false, None) }.map(Self)
     }
 
-    pub const fn as_raw(&self) -> &HANDLE {
-        &self.0
+    pub const fn as_raw(&self) -> HANDLE {
+        self.0
     }
 
     pub fn set_signaled(&self) -> Result<(), WindowsError> {
@@ -146,6 +149,7 @@ impl WaitableStreamState {
         .pipe(Ok)
     }
 
+    #[must_use]
     pub fn get(&self) -> StreamState {
         unsafe { transmute(self.atomic.load(Ordering::Relaxed)) }
     }
@@ -200,17 +204,6 @@ impl TryFrom<WaveFormat> for SupportedStreamConfig {
     }
 }
 
-pub fn validate_direction<const INPUT: bool>(mm_device: &wasapi::Device) -> Result<(), CpalError> {
-    let is_input = mm_device.get_direction() == Direction::Capture;
-    
-    // FIXME: use `bool::ok_or()` once MSRV has risen to 1.98
-    if INPUT != is_input {
-        return Err(CpalError::with_message(UnsupportedOperation, "This device only operates in the other direction"))
-    }
-    
-    Ok(())
-}
-
 pub fn create_waveformat(config: StreamConfig, format: SampleFormat) -> Result<WaveFormat, WasapiRsError> {
     let sample_type =
         if      format.is_int()   { SampleType::Int }
@@ -245,5 +238,35 @@ impl<T> Deref for SendSync<T> {
 impl<T> DerefMut for SendSync<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+pub fn activate_audio_interface(id: impl Param<PCWSTR>, timeout: Option<Duration>) -> Result<IAudioClient, WindowsError> {
+    let event = Event::new()?;
+
+    let operation = event
+        .as_raw()
+        .pipe(CompletionHandler)
+        .pipe(IActivateAudioInterfaceCompletionHandler::from)
+        .pipe(|handler| unsafe { ActivateAudioInterfaceAsync(id, &IAudioClient::IID, None, &handler) })?;
+
+    event.wait_single(timeout)?;
+
+    let mut hresult  = MaybeUninit::uninit();
+    let mut iunknown = MaybeUninit::uninit();
+
+    unsafe {
+        operation.GetActivateResult(hresult.as_mut_ptr(), iunknown.as_mut_ptr())?;
+        hresult .assume_init().ok()?;
+        iunknown.assume_init().ok_or(E_POINTER)?.cast()
+    }
+}
+
+#[implement(IActivateAudioInterfaceCompletionHandler)]
+struct CompletionHandler(HANDLE);
+
+impl IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler_Impl {
+    fn ActivateCompleted(&self, _activateoperation: Ref<IActivateAudioInterfaceAsyncOperation>) -> windows_core::Result<()> {
+        unsafe { SetEvent(self.0) }
     }
 }
