@@ -12,14 +12,14 @@ use windows::{
 use windows_collections::{IIterable, IMapView};
 use windows_core::{Array, HSTRING, IInspectable, Interface, h};
 
-pub fn to_aqs(PROPERTYKEY { fmtid, pid }: &PROPERTYKEY) -> HSTRING {
+pub fn format_aqs(PROPERTYKEY { fmtid, pid }: &PROPERTYKEY) -> HSTRING {
     format!("{{{fmtid:?}}} {pid}").into()
 }
 
 fn extra_properties() -> IIterable<HSTRING> {
     vec![
-        to_aqs(&PKEY_AudioEndpoint_FormFactor),
-        to_aqs(&PKEY_AudioEndpoint_JackSubType),
+        format_aqs(&PKEY_AudioEndpoint_FormFactor),
+        format_aqs(&PKEY_AudioEndpoint_JackSubType),
     ]
     .into()
 }
@@ -75,7 +75,7 @@ impl PropertyReader {
     pub fn types(&self) -> Result<(DeviceType, InterfaceType), WindowsError> {
         let form_factor = self
             .0
-            .Lookup(&to_aqs(&PKEY_AudioEndpoint_FormFactor))?
+            .Lookup(&format_aqs(&PKEY_AudioEndpoint_FormFactor))?
             .cast::<IPropertyValue>()?
             .GetInt32()?
             .pipe(EndpointFormFactor);
@@ -102,7 +102,7 @@ impl PropertyReader {
 
         let jack_sub_type = self
             .0
-            .Lookup(&to_aqs(&PKEY_AudioEndpoint_JackSubType))?
+            .Lookup(&format_aqs(&PKEY_AudioEndpoint_JackSubType))?
             .cast::<IPropertyValue>()?
             .GetString()?
             .to_string_lossy()
