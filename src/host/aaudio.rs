@@ -772,7 +772,8 @@ impl Eq for Device {}
 
 impl fmt::Display for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let desc = self.description().map_err(|_| fmt::Error)?;
+        // description() is infallable in this implementation.
+        let desc = self.description().unwrap();
         f.write_str(desc.name())
     }
 }
