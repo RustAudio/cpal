@@ -100,8 +100,11 @@ impl std::hash::Hash for Device {
 
 impl fmt::Display for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let desc = DeviceTrait::description(self).map_err(|_| fmt::Error)?;
-        f.write_str(desc.name())
+        if let Ok(desc) = DeviceTrait::description(self) {
+            f.write_str(desc.name())
+        } else {
+            f.write_str("UNKNOWN DEVICE")
+        }
     }
 }
 
