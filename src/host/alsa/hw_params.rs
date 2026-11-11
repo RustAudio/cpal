@@ -1,4 +1,4 @@
-use super::DEFAULT_PERIODS;
+use super::{DEFAULT_PERIODS, FIXED_BUFFER_PERIODS};
 use crate::{
     BufferSize, ChannelCount, Error, ErrorKind, FrameCount, SampleFormat, StreamConfig,
     SupportedBufferSize,
@@ -20,10 +20,10 @@ pub(super) fn supported_period_size_range(
         return SupportedBufferSize::Unknown;
     };
     let min_frames = min.max(1);
-    // cpal double-buffers (ring = DEFAULT_PERIODS * period), so the achievable
-    // period maximum is also bounded by max_buffer / DEFAULT_PERIODS.
+    // the ring is FIXED_BUFFER_PERIODS * period, so the achievable period
+    // maximum is also bounded by max_buffer / FIXED_BUFFER_PERIODS.
     let effective_max = match p.get_buffer_size_max() {
-        Ok(max_buf) if max_buf > 0 => max.min(max_buf / DEFAULT_PERIODS),
+        Ok(max_buf) if max_buf > 0 => max.min(max_buf / FIXED_BUFFER_PERIODS),
         _ => max,
     };
     if effective_max >= min_frames {
@@ -46,9 +46,10 @@ pub(super) fn set_hw_params_from_format(
 ) -> Result<alsa::pcm::HwParams<'_>, Error> {
     let hw_params = init_hw_params(pcm_handle, config, sample_format)?;
 
-    // When BufferSize::Fixed(x) is specified, we configure double-buffering with
-    // buffer_size = 2x and period_size = x. This provides consistent low-latency
-    // behavior across different ALSA implementations and hardware.
+    // When BufferSize::Fixed(x) is specified, we configure period_size = x and
+    // buffer_size = FIXED_BUFFER_PERIODS * x (start threshold: DEFAULT_PERIODS).
+    // This provides consistent low-latency behavior across different ALSA
+    // implementations and hardware.
     if let BufferSize::Fixed(period_size) = config.buffer_size {
         let period_size = period_size as alsa::pcm::Frames;
 
@@ -67,10 +68,10 @@ pub(super) fn set_hw_params_from_format(
             }
         }
 
-        let buffer_size = DEFAULT_PERIODS * period_size;
+        let buffer_size = FIXED_BUFFER_PERIODS * period_size;
         if let Ok(max_buffer) = hw_params.get_buffer_size_max() {
             if max_buffer > 0 && buffer_size > max_buffer {
-                let effective_max = max_buffer / DEFAULT_PERIODS;
+                let effective_max = max_buffer / FIXED_BUFFER_PERIODS;
                 return Err(Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     format!(
