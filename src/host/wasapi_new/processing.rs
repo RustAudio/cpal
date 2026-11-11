@@ -2,6 +2,7 @@ use super::utils::StreamState::*;
 use super::utils::*;
 use crate::host::equilibrium::fill_equilibrium;
 use crate::*;
+use std::io;
 use std::mem::MaybeUninit;
 use std::time::Duration;
 use tap::Pipe;
@@ -69,6 +70,8 @@ fn wait_event(
 
     Event::wait_multiple(&events, timeout)
 }
+
+pub type FnNewProcessor<Processor> = fn(&AudioClient) -> Result<Processor, WasapiRsError>;
 
 pub type FnProcess<Processor, DataCallback> = fn(
     audio_client : &AudioClient,
@@ -154,4 +157,11 @@ fn now_hns() -> u64 {
     };
 
     hns as _
+}
+
+pub fn make_spawn_error(io_error: io::Error) -> CpalError {
+    Error::with_message(
+        ErrorKind::ResourceExhausted,
+        format!("Failed to spawn processing thread: {io_error:?}"),
+    )
 }

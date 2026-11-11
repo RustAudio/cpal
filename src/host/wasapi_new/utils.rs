@@ -1,6 +1,7 @@
-use crate::ErrorKind::BackendError;
+use crate::ErrorKind::{BackendError, DeviceChanged};
 use crate::{DeviceDirection, SampleFormat, StreamConfig, SupportedBufferSize, SupportedStreamConfig};
 use std::mem::MaybeUninit;
+use std::sync::Arc;
 use std::{
     alloc::{Layout, alloc_zeroed, dealloc},
     sync::atomic::{AtomicU8, Ordering},
@@ -10,8 +11,11 @@ use std::{
     fmt::Debug,
     slice,
 };
+use parking_lot::Mutex;
 use tap::Pipe;
 use wasapi::{Direction, IAudioClient, SampleType, WaveFormat};
+use windows::Foundation::TypedEventHandler;
+use windows::Media::Devices::MediaDevice;
 use windows::Win32::Foundation::{CloseHandle, E_POINTER, HANDLE, WAIT_EVENT, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::Media::Audio::{ActivateAudioInterfaceAsync, IActivateAudioInterfaceAsyncOperation, IActivateAudioInterfaceCompletionHandler, IActivateAudioInterfaceCompletionHandler_Impl};
 use windows::Win32::System::Threading::{CreateEventW, INFINITE, SetEvent, WaitForMultipleObjects, WaitForSingleObject};
@@ -268,5 +272,55 @@ struct CompletionHandler(HANDLE);
 impl IActivateAudioInterfaceCompletionHandler_Impl for CompletionHandler_Impl {
     fn ActivateCompleted(&self, _activateoperation: Ref<IActivateAudioInterfaceAsyncOperation>) -> windows_core::Result<()> {
         unsafe { SetEvent(self.0) }
+    }
+}
+
+pub struct ThreadSafeErrorCb<ErrorCb>(Mutex<ErrorCb>);
+
+impl<ErrorCb: FnMut(CpalError) + Send + 'static> ThreadSafeErrorCb<ErrorCb> {
+    pub fn new(error_cb: ErrorCb) -> Self {
+        error_cb
+            .pipe(Mutex::new)
+            .pipe(Self)
+    }
+
+    pub fn invoke(&self, error: CpalError) {
+        self.0.lock()(error);
+    }
+}
+
+pub struct DefaultDeviceMonitor<const INPUT: bool>(i64);
+
+impl<const INPUT: bool> DefaultDeviceMonitor<INPUT> {
+    pub fn new<ErrorCb: FnMut(CpalError) + Send + 'static>(error_cb: Arc<ThreadSafeErrorCb<ErrorCb>>) -> Result<Self, WindowsError> {
+        let error = CpalError::new(DeviceChanged);
+
+        // deduplicating this requires an infuriating amount of boilerplate
+        if INPUT {
+            let closure = move |_sender: Ref<_>, _args: Ref<_>| {
+                error_cb.invoke(error.clone());
+                Ok(())
+            };
+            let handler = TypedEventHandler::new(closure);
+            MediaDevice::DefaultAudioCaptureDeviceChanged(&handler)
+        } else {
+            let closure = move |_sender: Ref<_>, _args: Ref<_>| {
+                error_cb.invoke(error.clone());
+                Ok(())
+            };
+            let handler = TypedEventHandler::new(closure);
+            MediaDevice::DefaultAudioRenderDeviceChanged(&handler)
+        }
+        .map(Self)
+    }
+}
+
+impl<const INPUT: bool> Drop for DefaultDeviceMonitor<INPUT> {
+    fn drop(&mut self) {
+        let fn_unregister =
+            if INPUT { MediaDevice::RemoveDefaultAudioRenderDeviceChanged }
+            else     { MediaDevice::RemoveDefaultAudioCaptureDeviceChanged };
+
+        _ = fn_unregister(self.0);
     }
 }

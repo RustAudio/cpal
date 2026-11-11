@@ -1,6 +1,6 @@
 use self::device::default_id;
 use self::device::Kind::Specific;
-use self::processing::FnProcess;
+use self::processing::{FnNewProcessor, FnProcess, make_spawn_error};
 use self::utils::*;
 use crate::ErrorKind::{BackendError, ResourceExhausted, UnsupportedOperation};
 use crate::traits::*;
@@ -228,17 +228,16 @@ impl Device {
             .pipe(Ok)
     }
 
-    #[expect(clippy::too_many_arguments, reason = "3 of these only exist due to certain language features not yet being stable (see comments)")]
-    fn build_stream_inner<Processor, DataCallback, ErrorCallback>(
+    #[expect(clippy::too_many_arguments, reason = "the 2 fn pointers could be replaced with generics once unique function ZSTs are stabilized")]
+    fn build_stream_inner<Processor, DataCallback, ErrorCallback, const INPUT: bool>(
         &self,
-        config          : StreamConfig,
-        sample_format   : SampleFormat,
-        mut data_cb     : DataCallback,
-        mut error_cb    : ErrorCallback,
-        timeout         : Option<Duration>,
-        direction       : Direction, // const generics when?
-        fn_new_processor: fn(&AudioClient) -> Result<Processor, WasapiRsError>, // unique function ZSTs when?
-        fn_process      : FnProcess<Processor, DataCallback> // unique function ZSTs when?
+        config       : StreamConfig,
+        sample_format: SampleFormat,
+        mut data_cb  : DataCallback,
+        error_cb     : ErrorCallback,
+        timeout      : Option<Duration>,
+        fn_new_proc  : FnNewProcessor<Processor>,
+        fn_process   : FnProcess<Processor, DataCallback>
     ) -> Result<Stream, CpalError>
     where
         Processor    : 'static,
@@ -255,34 +254,38 @@ impl Device {
 
         audio_client.initialize_client(
             &waveformat,
-            direction,
+            device::direction::<INPUT>(),
             StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: 0 },
             None
         )?;
 
-        let processor    = audio_client.pipe_ref(fn_new_processor)?.pipe(SendSync);
-        let audio_client = audio_client.pipe(SendSync).pipe(Arc::new);
-        let audio_clock  = audio_client.get_audioclock()?.pipe(SendSync).pipe(Arc::new);
-        let buffer_event = audio_client.set_get_eventhandle()?.pipe(SendSync);
-        let total_frames = audio_client.get_buffer_size()?;
-        let mut scratch  = ScratchBuffer::new(total_frames as usize * config.channels as usize, sample_format);
-        let stream_state = WaitableStreamState::new()?.pipe(Arc::new);
-
+        let processor     = audio_client.pipe_ref(fn_new_proc)?.pipe(SendSync);
+        let audio_client  = audio_client                       .pipe(SendSync).pipe(Arc::new);
+        let audio_clock   = audio_client.get_audioclock()?     .pipe(SendSync).pipe(Arc::new);
+        let buffer_event  = audio_client.set_get_eventhandle()?.pipe(SendSync);
+        let total_frames  = audio_client.get_buffer_size()?;
+        let sample_count  = total_frames as usize * config.channels as usize;
+        let mut scratch   = ScratchBuffer::new(sample_count, sample_format);
+        let stream_state  = WaitableStreamState::new()?     .pipe(Arc::new);
+        let safe_err_cb   = ThreadSafeErrorCb::new(error_cb).pipe(Arc::new);
+        let safe_err_cb2  = Arc::clone(&safe_err_cb);
         let audio_client2 = Arc::clone(&audio_client);
         let stream_state2 = Arc::clone(&stream_state);
 
-        let dir = match direction {
-            Direction::Capture => "in",
-            Direction::Render => "out",
+        let monitor = match self.kind {
+            device::Kind::Default     => Some(DefaultDeviceMonitor::<INPUT>::new(safe_err_cb2)?),
+            device::Kind::Specific(_) => None
         };
 
         thread::Builder::new()
-            .name(format!("cpal_wasapi_{dir}"))
+            .name("cpal_wasapi_proc".to_owned())
             .spawn(move || {
+                let _monitor = monitor; // RAII guard
+
                 #[cfg(feature = "realtime")]
                 let _rt_guard = boost_current_thread_priority(period_frames, config.sample_rate)
-                    .map_err(&mut error_cb);
-                
+                    .map_err(|error| safe_err_cb.invoke(error));
+
                 _ = processing::run_loop(
                     &buffer_event,
                     &audio_client2,
@@ -294,14 +297,9 @@ impl Device {
                     sample_format,
                     config.channels as _,
                 )
-                .map_err(error_cb);
+                .map_err(|error| safe_err_cb.invoke(error));
             })
-            .map_err(|e| {
-                Error::with_message(
-                    ErrorKind::ResourceExhausted,
-                    format!("Failed to create WASAPI {dir}put worker thread: {e}"),
-                )
-            })?;
+            .map_err(make_spawn_error)?;
 
         StreamInner {
             total_frames,
@@ -379,13 +377,12 @@ impl DeviceTrait for Device {
         DataCallback : FnMut(&Data, &CallbackInfo) + Send + 'static,
         ErrorCallback: FnMut(CpalError) + Send + 'static
     {
-        self.build_stream_inner(
+        self.build_stream_inner::<_, _, _, true>(
             config,
             format,
             data_cb,
             error_cb,
             timeout,
-            Direction::Capture,
             AudioClient::get_audiocaptureclient,
             processing::capture
         )
@@ -403,13 +400,12 @@ impl DeviceTrait for Device {
         DataCallback: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
         ErrorCallback: FnMut(CpalError) + Send + 'static,
     {
-        self.build_stream_inner(
+        self.build_stream_inner::<_, _, _, false>(
             config,
             format,
             data_cb,
             error_cb,
             timeout,
-            Direction::Render,
             AudioClient::get_audiorenderclient,
             processing::render
         )
