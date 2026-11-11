@@ -24,6 +24,9 @@ use crate::{
     traits::StreamTrait,
 };
 
+#[cfg(feature = "realtime")]
+use crate::host::boost_current_thread_priority;
+
 /// Returns the current default audio endpoint for `flow`, or `None` if none exists.
 ///
 /// Used by `OnDeviceStateChanged` and `OnDeviceRemoved` to cover the edge case where the
@@ -794,38 +797,6 @@ fn run_output(
                 run_ctxt.stream.playback_state = PlaybackState::Playing;
             }
         }
-    }
-}
-
-/// Holds the MMCSS registration made by `audio_thread_priority` and reverts it on drop.
-#[cfg(feature = "realtime")]
-#[derive(Default)]
-struct RtPriority(Option<audio_thread_priority::RtPriorityHandle>);
-
-#[cfg(feature = "realtime")]
-impl Drop for RtPriority {
-    fn drop(&mut self) {
-        if let Some(handle) = self.0.take() {
-            // Nothing useful to do if reverting fails while the thread is exiting.
-            let _ = audio_thread_priority::demote_current_thread_from_real_time(handle);
-        }
-    }
-}
-
-/// Attempts to elevate the current thread to real-time or high-priority scheduling.
-#[cfg(feature = "realtime")]
-fn boost_current_thread_priority(
-    period_frames: FrameCount,
-    sample_rate: SampleRate,
-) -> Result<RtPriority, Error> {
-    match audio_thread_priority::promote_current_thread_to_real_time(period_frames, sample_rate) {
-        Ok(handle) => Ok(RtPriority(Some(handle))),
-        Err(_) => unsafe {
-            let thread_handle = Threading::GetCurrentThread();
-            Threading::SetThreadPriority(thread_handle, Threading::THREAD_PRIORITY_TIME_CRITICAL)
-                .map(|()| RtPriority::default())
-                .context("Failed to promote audio thread to real-time priority")
-        },
     }
 }
 

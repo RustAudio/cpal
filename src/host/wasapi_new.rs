@@ -23,6 +23,9 @@ use wasapi::{
 use windows::Devices::Enumeration::DeviceInformation;
 use windows_core::HSTRING;
 
+#[cfg(feature = "realtime")]
+use super::boost_current_thread_priority;
+
 mod processing;
 mod device;
 mod utils;
@@ -231,7 +234,7 @@ impl Device {
         config          : StreamConfig,
         sample_format   : SampleFormat,
         mut data_cb     : DataCallback,
-        error_cb        : ErrorCallback,
+        mut error_cb    : ErrorCallback,
         timeout         : Option<Duration>,
         direction       : Direction, // const generics when?
         fn_new_processor: fn(&AudioClient) -> Result<Processor, WasapiRsError>, // unique function ZSTs when?
@@ -276,6 +279,10 @@ impl Device {
         thread::Builder::new()
             .name(format!("cpal_wasapi_{dir}"))
             .spawn(move || {
+                #[cfg(feature = "realtime")]
+                let _rt_guard = boost_current_thread_priority(period_frames, config.sample_rate)
+                    .map_err(&mut error_cb);
+                
                 _ = processing::run_loop(
                     &buffer_event,
                     &audio_client2,
