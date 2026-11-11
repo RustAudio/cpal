@@ -479,6 +479,17 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: ${{ env.MSRV_WASM }}
 
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - name: Run WebAudio browser tests
+        run: wasm-pack test --headless --chrome --features wasm-bindgen --test webaudio
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.MSRV_WASM }}
+          WASM_BINDGEN_TEST_WEBDRIVER_JSON: tests/webdriver.json
+
   # WebAssembly - AudioWorklet
   wasm-audioworklet:
     runs-on: ubuntu-latest
@@ -515,6 +526,27 @@ jobs:
         run: trunk build
         env:
           RUSTUP_TOOLCHAIN: nightly
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - name: Run WebAudio browser tests (atomics)
+        run: wasm-pack test --headless --chrome --features audioworklet --test webaudio -Z build-std=std,panic_abort
+        env:
+          RUSTUP_TOOLCHAIN: nightly
+          WASM_BINDGEN_TEST_WEBDRIVER_JSON: tests/webdriver.json
+          RUSTFLAGS: >-
+            -C target-feature=+atomics,+bulk-memory,+mutable-globals
+            -C link-arg=--shared-memory
+            -C link-arg=--max-memory=1073741824
+            -C link-arg=--import-memory
+            -C link-arg=--export=__wasm_init_tls
+            -C link-arg=--export=__tls_size
+            -C link-arg=--export=__tls_align
+            -C link-arg=--export=__tls_base
+            -C link-arg=--export=__heap_base
 
   # WebAssembly - Emscripten (WebAudio host)
   wasm-emscripten:

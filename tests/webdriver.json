@@ -1,0 +1,5 @@
+{
+  "goog:chromeOptions": {
+    "args": ["--autoplay-policy=no-user-gesture-required"]
+  }
+}

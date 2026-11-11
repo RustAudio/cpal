@@ -111,6 +111,9 @@ hound = "3.5"
 ringbuf = "0.4"
 clap = { version = "4.6", features = ["derive"] }
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
 # `windows` and `windows-core` must be the same minor version.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-core = "0.62"
@@ -212,6 +215,7 @@ web-sys = { version = "0.3", features = [
   "AudioContextOptions",
   "AudioBuffer",
   "AudioBufferSourceNode",
+  "AudioScheduledSourceNode",
   "AudioNode",
   "AudioDestinationNode",
   "Window",
