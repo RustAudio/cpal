@@ -477,6 +477,11 @@ jobs:
       - name: Check all features (no atomics)
         run: cargo +${{ env.MSRV_WASM }} check --workspace --all-features --verbose --target ${{ env.TARGET }}
 
+      - name: Check wasm-bindgen with panic unwinding
+        env:
+          RUSTFLAGS: -C panic=unwind
+        run: cargo +${{ env.MSRV_WASM }} check --lib --features wasm-bindgen --verbose --target ${{ env.TARGET }}
+
       - name: Build webaudio example
         working-directory: ./examples/webaudio
         run: trunk build
@@ -516,6 +521,11 @@ jobs:
 
       - name: Check all features
         run: cargo +nightly check --workspace --all-features --verbose -Z build-std=std,panic_abort --target ${{ env.TARGET }}
+
+      - name: Check audioworklet with panic unwinding
+        env:
+          RUSTFLAGS: -C target-feature=+atomics,+bulk-memory,+mutable-globals -C panic=unwind
+        run: cargo +nightly check --lib --features audioworklet --verbose -Z build-std=std,panic_unwind --target ${{ env.TARGET }}
 
       - name: Build audioworklet example
         working-directory: ./examples/audioworklet

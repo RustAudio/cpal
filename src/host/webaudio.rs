@@ -1,7 +1,6 @@
 //! Web Audio backend implementation.
 //!
 //! Default backend on WebAssembly.
-//! Audio callbacks abort on panic because user callbacks need not be unwind-safe.
 
 extern crate js_sys;
 extern crate wasm_bindgen;
@@ -300,6 +299,10 @@ impl DeviceTrait for Device {
     /// calls made before permission is granted return `Ok` immediately: they resume/suspend the
     /// already-created [`AudioContext`], and the capture graph starts delivering callbacks as soon
     /// as it connects, in step with whatever run state the context is already in.
+    ///
+    /// # Callback panics
+    ///
+    /// Audio data callbacks abort if they panic, even when built with `panic=unwind`.
     fn build_input_stream_raw<D, E>(
         &self,
         config: StreamConfig,
@@ -563,6 +566,10 @@ impl DeviceTrait for Device {
     }
 
     /// Create an output stream.
+    ///
+    /// # Callback panics
+    ///
+    /// Audio data callbacks abort if they panic, even when built with `panic=unwind`.
     fn build_output_stream_raw<D, E>(
         &self,
         config: StreamConfig,
@@ -972,6 +979,10 @@ impl DeviceTrait for Device {
     /// Behaves like [`build_input_stream_raw`](Self::build_input_stream_raw): this returns `Ok`
     /// once the [`AudioContext`] exists, before the browser has granted or denied microphone
     /// access. Failures after that point are delivered to `error_callback`.
+    ///
+    /// # Callback panics
+    ///
+    /// Audio data callbacks abort if they panic, even when built with `panic=unwind`.
     fn build_duplex_stream_raw<D, E>(
         &self,
         config: DuplexStreamConfig,
