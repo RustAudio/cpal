@@ -294,6 +294,10 @@ impl DeviceTrait for Device {
     /// calls made before permission is granted return `Ok` immediately: they resume/suspend the
     /// already-created [`AudioContext`], and the capture graph starts delivering callbacks as soon
     /// as it connects, in step with whatever run state the context is already in.
+    ///
+    /// # Callback panics
+    ///
+    /// Audio data callbacks abort if they panic, even when built with `panic=unwind`.
     fn build_input_stream_raw<D, E>(
         &self,
         config: StreamConfig,
@@ -396,7 +400,7 @@ impl DeviceTrait for Device {
                     let current_time_bits_cb = current_time_bits.clone();
 
                     let on_audio_process =
-                        Closure::wrap(Box::new(move |event: AudioProcessingEvent| {
+                        Closure::wrap_aborting(Box::new(move |event: AudioProcessingEvent| {
                             let now = ctx_cb.current_time();
                             #[cfg(target_feature = "atomics")]
                             current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
@@ -557,6 +561,10 @@ impl DeviceTrait for Device {
     }
 
     /// Create an output stream.
+    ///
+    /// # Callback panics
+    ///
+    /// Audio data callbacks abort if they panic, even when built with `panic=unwind`.
     fn build_output_stream_raw<D, E>(
         &self,
         config: StreamConfig,
@@ -698,7 +706,7 @@ impl DeviceTrait for Device {
                 on_ended_closure
                     .write()
                     .unwrap()
-                    .replace(Closure::wrap(Box::new(move || {
+                    .replace(Closure::wrap_aborting(Box::new(move || {
                         let now = ctx_handle.current_time();
 
                         // Keep the shared clock up to date so Stream::now() has a fresh value.
@@ -966,6 +974,10 @@ impl DeviceTrait for Device {
     /// Behaves like [`build_input_stream_raw`](Self::build_input_stream_raw): this returns `Ok`
     /// once the [`AudioContext`] exists, before the browser has granted or denied microphone
     /// access. Failures after that point are delivered to `error_callback`.
+    ///
+    /// # Callback panics
+    ///
+    /// Audio data callbacks abort if they panic, even when built with `panic=unwind`.
     fn build_duplex_stream_raw<D, E>(
         &self,
         config: DuplexStreamConfig,
@@ -1102,7 +1114,7 @@ impl DeviceTrait for Device {
                     };
 
                     let on_audio_process =
-                        Closure::wrap(Box::new(move |event: AudioProcessingEvent| {
+                        Closure::wrap_aborting(Box::new(move |event: AudioProcessingEvent| {
                             let now = ctx_cb.current_time();
                             #[cfg(target_feature = "atomics")]
                             current_time_bits_cb.store(now.to_bits(), Ordering::Relaxed);
