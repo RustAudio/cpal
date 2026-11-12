@@ -16,6 +16,10 @@ inputs:
     description: The MSRV for Pipewire backend (optional, Linux only)
     required: false
     default: ''
+  asio-new-msrv:
+    description: The MSRV for the asio-new feature (optional, Windows only)
+    required: false
+    default: ''
 
 outputs:
   all-features:
@@ -33,6 +37,7 @@ runs:
         JACK_MSRV="${{ inputs.jack-msrv }}"
         PULSEAUDIO_MSRV="${{ inputs.pulseaudio-msrv }}"
         PIPEWIRE_MSRV="${{ inputs.pipewire-msrv }}"
+        ASIO_NEW_MSRV="${{ inputs.asio-new-msrv }}"
         # Use sort -V to find the maximum version
         VERSIONS="$PLATFORM_MSRV $JACK_MSRV"
         if [ -n "$PULSEAUDIO_MSRV" ]; then
@@ -41,6 +46,9 @@ runs:
         if [ -n "$PIPEWIRE_MSRV" ]; then
           VERSIONS="$VERSIONS $PIPEWIRE_MSRV"
         fi
+        if [ -n "$ASIO_NEW_MSRV" ]; then
+          VERSIONS="$VERSIONS $ASIO_NEW_MSRV"
+        fi
         MAX_MSRV=$(printf '%s\n' $VERSIONS | sort -V | tail -n1)
         echo "all-features=$MAX_MSRV" >> $GITHUB_OUTPUT
-        echo "Platform MSRV: $PLATFORM_MSRV, JACK MSRV: $JACK_MSRV, PulseAudio MSRV: $PULSEAUDIO_MSRV, PIPEWIRE_MSRV: $PIPEWIRE_MSRV, Using for --all-features: $MAX_MSRV"
+        echo "Platform MSRV: $PLATFORM_MSRV, JACK MSRV: $JACK_MSRV, PulseAudio MSRV: $PULSEAUDIO_MSRV, PIPEWIRE_MSRV: $PIPEWIRE_MSRV, ASIO-new MSRV: $ASIO_NEW_MSRV, Using for --all-features: $MAX_MSRV"
