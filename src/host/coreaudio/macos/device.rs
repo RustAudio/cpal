@@ -723,7 +723,12 @@ impl Device {
         )
         .is_ok_and(|asbd| (asbd.mSampleRate - config.sample_rate as f64).abs() < 1.0)
         {
-            set_sample_rate(self.audio_device_id, config.sample_rate, deadline)?;
+            match set_sample_rate(self.audio_device_id, config.sample_rate, deadline) {
+                Ok(()) => {}
+                // Device can't run at this rate: let the AudioUnit convert.
+                Err(e) if e.kind() == ErrorKind::UnsupportedConfig => {}
+                Err(e) => return Err(e),
+            }
         }
 
         let mode = if self.is_default_output {
