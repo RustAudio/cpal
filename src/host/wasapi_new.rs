@@ -1,6 +1,6 @@
 use self::device::default_id;
 use self::device::Kind::Specific;
-use self::processing::{FnNewProcessor, FnProcess, make_spawn_error};
+use self::processing::{FnNewProcessor, FnProcess, make_spawn_error, thread_name};
 use self::utils::*;
 use crate::ErrorKind::{BackendError, ResourceExhausted, UnsupportedOperation};
 use crate::traits::*;
@@ -278,7 +278,7 @@ impl Device {
         };
 
         thread::Builder::new()
-            .name("cpal_wasapi_proc".to_owned())
+            .name(thread_name::<INPUT>().into())
             .spawn(move || {
                 let _monitor = monitor; // RAII guard
 

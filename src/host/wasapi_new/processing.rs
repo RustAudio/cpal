@@ -9,6 +9,11 @@ use tap::Pipe;
 use wasapi::{AudioCaptureClient, AudioClient, AudioRenderClient, Handle};
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 
+pub const fn thread_name<const INPUT: bool>() -> &'static str {
+    if INPUT { "cpal_wasapi_in" }
+    else     { "cpal_wasapi_out" }
+}
+
 #[expect(clippy::too_many_arguments, reason = "this is basically just the capture context of the thread spawn closure written out")]
 pub fn run_loop<Processor, DataCallback>(
     buffer_event : &Handle,
