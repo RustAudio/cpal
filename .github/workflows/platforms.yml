@@ -32,6 +32,7 @@ env:
   MSRV_PULSEAUDIO: "1.88"
   MSRV_WASM: "1.85"
   MSRV_WINDOWS: "1.85"
+  MSRV_WASAPI_NEW: "1.95"
 
   PACKAGES_LINUX: libasound2-dev libdbus-1-dev libjack-jackd2-dev libpipewire-0.3-dev
 
@@ -245,6 +246,7 @@ jobs:
         with:
           platform-msrv: ${{ env.MSRV_WINDOWS }}
           jack-msrv: ${{ env.MSRV_JACK }}
+          wasapi-new-msrv: ${{ env.MSRV_WASAPI_NEW }}
 
       - name: Install Rust MSRV (${{ env.MSRV_WINDOWS }})
         uses: dtolnay/rust-toolchain@master

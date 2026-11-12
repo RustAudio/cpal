@@ -76,6 +76,10 @@ pub(crate) mod pulseaudio;
 #[cfg(windows)]
 pub(crate) mod wasapi;
 
+#[rustfmt::skip]
+#[cfg(all(windows, feature = "wasapi-new"))]
+pub(crate) mod wasapi_new;
+
 #[cfg(all(
     target_arch = "wasm32",
     any(target_os = "emscripten", target_os = "unknown"),
@@ -450,5 +454,40 @@ pub(crate) fn stop_tracks(media_stream: &web_sys::MediaStream) {
         if let Ok(track) = track.dyn_into::<web_sys::MediaStreamTrack>() {
             track.stop();
         }
+    }
+}
+
+/// Holds the MMCSS registration made by `audio_thread_priority` and reverts it on drop.
+#[cfg(all(windows, feature = "realtime"))]
+#[derive(Default)]
+struct RtPriority(Option<audio_thread_priority::RtPriorityHandle>);
+
+#[cfg(all(windows, feature = "realtime"))]
+impl Drop for RtPriority {
+    fn drop(&mut self) {
+        if let Some(handle) = self.0.take() {
+            // Nothing useful to do if reverting fails while the thread is exiting.
+            let _ = audio_thread_priority::demote_current_thread_from_real_time(handle);
+        }
+    }
+}
+
+/// Attempts to elevate the current thread to real-time or high-priority scheduling.
+#[cfg(all(windows, feature = "realtime"))]
+fn boost_current_thread_priority(
+    period_frames: crate::FrameCount,
+    sample_rate: crate::SampleRate,
+) -> Result<RtPriority, crate::Error> {
+    use crate::ResultExt;
+    use windows::Win32::System::Threading;
+
+    match audio_thread_priority::promote_current_thread_to_real_time(period_frames, sample_rate) {
+        Ok(handle) => Ok(RtPriority(Some(handle))),
+        Err(_) => unsafe {
+            let thread_handle = Threading::GetCurrentThread();
+            Threading::SetThreadPriority(thread_handle, Threading::THREAD_PRIORITY_TIME_CRITICAL)
+                .map(|()| RtPriority::default())
+                .context("Failed to promote audio thread to real-time priority")
+        },
     }
 }
