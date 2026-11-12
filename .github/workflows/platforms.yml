@@ -32,7 +32,7 @@ env:
   MSRV_PULSEAUDIO: "1.88"
   MSRV_WASM: "1.85"
   MSRV_WINDOWS: "1.85"
-  MSRV_ASIO_NEW: "1.95" # required by `windows-bindgen`
+  MSRV_ASIO_NEW: "1.100"
 
   PACKAGES_LINUX: libasound2-dev libdbus-1-dev libjack-jackd2-dev libpipewire-0.3-dev
 
