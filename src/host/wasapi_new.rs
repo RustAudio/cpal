@@ -93,15 +93,23 @@ impl Hash for Device {
 
 impl Display for Device {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Specific(ref info) = self.kind
-        else {
-            return Display::fmt("Default", formatter);
-        };
-
-        if let Ok(name) = info.Name() {
-            Display::fmt(&name, formatter)
-        } else {
-            Display::fmt("(device name lookup failed)", formatter)
+        match self.kind {
+            device::Kind::Default => {
+                let is_input = self.direction == Direction::Capture;
+                let prefix   = if is_input { "In" } else { "Out" };
+                Display::fmt(prefix, formatter)?;
+                Display::fmt("put", formatter)
+            },
+            device::Kind::Specific(ref info) => {
+                match info.Name() {
+                    Ok(hstring) => Display::fmt(&hstring, formatter),
+                    Err(error) => {
+                        Display::fmt("(name lookup failed - ", formatter)?;
+                        Display::fmt(&error, formatter)?;
+                        Display::fmt(")", formatter)
+                    }
+                }
+            }
         }
     }
 }
