@@ -30,9 +30,8 @@ pub struct Device {
 
 impl Display for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // This is the equivalent of calling Display on the DeviceDescription,
-        // (as we don't set manufacturer, device/interface type etc), but infallible.
-        write!(f, "{}", self.path)
+        // Falls back to the path if the description is not available, which should never happen in practice.
+        write!(f, "{}", self.description().map(|d| d.name().to_string()).unwrap_or(self.path.clone()))
     }
 }
 
@@ -61,13 +60,39 @@ impl Iterator for SupportedConfigsIter {
     }
 }
 
+fn get_device_info(path: &str) -> Result<syscall::OssAudioInfo, Error> {
+    let fd = open_dsp(path, Mode::Read).map_err(|e| {
+        Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            format!("Failed to open device {path} for info: {e}"),
+        )
+    })?;
+
+    let mut audio_info = syscall::OssAudioInfo::zeroed();
+    syscall::ioctl_ptr(&fd, syscall::SNDCTL_AUDIOINFO, &mut audio_info).map_err(|e| {
+        Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            format!("Failed to query device {path} for info: {e}"),
+        )
+    }).map(|_| audio_info)
+}
+
 impl DeviceTrait for Device {
     type SupportedInputConfigs = SupportedConfigsIter;
     type SupportedOutputConfigs = SupportedConfigsIter;
     type Stream = super::Stream;
 
     fn description(&self) -> Result<DeviceDescription, Error> {
-        let name = self.desc.as_ref().unwrap_or(&self.path);
+        // infallible, in this order:
+        // audioinfo name
+        // desc from sndstat
+        // path
+        let name = get_device_info(&self.path)
+            .ok()
+            .and_then(|info| info.name())
+            .or_else(|| self.desc.clone())
+            .unwrap_or_else(|| self.path.clone());
+
         let builder = DeviceDescriptionBuilder::new(name)
             .address(&self.path)
             .direction(self.direction);
@@ -76,11 +101,15 @@ impl DeviceTrait for Device {
         Ok(builder.build())
     }
 
-    // [TODO]: Strip /dev/ from each path
     fn id(&self) -> Result<crate::DeviceId, Error> {
-        // I don't think this is persistent between changing devices
-        // infalliable though
-        Ok(crate::DeviceId::new(crate::HostId::Oss, self.path.clone()))
+        let handle = get_device_info(&self.path)?.handle().ok_or_else(|| {
+            Error::with_message(
+                ErrorKind::DeviceNotAvailable,
+                format!("Failed to query device {} for id: handle didn't null-terminate", self.path),
+            )
+        })?;
+
+        Ok(crate::DeviceId::new(crate::HostId::Oss, handle))
     }
 
     fn supports_input(&self) -> bool {
