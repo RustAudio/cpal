@@ -69,6 +69,7 @@ fn get_device_info(path: &str) -> Result<syscall::OssAudioInfo, Error> {
     })?;
 
     let mut audio_info = syscall::OssAudioInfo::zeroed();
+    audio_info.dev = -1; // use the current fd's device
     syscall::ioctl_ptr(&fd, syscall::SNDCTL_AUDIOINFO, &mut audio_info).map_err(|e| {
         Error::with_message(
             ErrorKind::DeviceNotAvailable,
