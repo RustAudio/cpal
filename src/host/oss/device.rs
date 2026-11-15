@@ -60,7 +60,7 @@ impl Iterator for SupportedConfigsIter {
     }
 }
 
-fn get_device_info(path: &str) -> Result<syscall::OssAudioInfo, Error> {
+fn get_device_name(path: &str) -> Result<String, Error> {
     let fd = open_dsp(path, Mode::Read).map_err(|e| {
         Error::with_message(
             ErrorKind::DeviceNotAvailable,
@@ -68,14 +68,20 @@ fn get_device_info(path: &str) -> Result<syscall::OssAudioInfo, Error> {
         )
     })?;
 
-    let mut audio_info = syscall::OssAudioInfo::zeroed();
-    audio_info.dev = -1; // use the current fd's device
+    let mut audio_info = syscall::OssAudioInfo::current_fd();
     syscall::ioctl_ptr(&fd, syscall::SNDCTL_AUDIOINFO, &mut audio_info).map_err(|e| {
         Error::with_message(
             ErrorKind::DeviceNotAvailable,
             format!("Failed to query device {path} for info: {e}"),
         )
-    }).map(|_| audio_info)
+    });
+
+    audio_info.name().ok_or_else(|| {
+        Error::with_message(
+            ErrorKind::DeviceNotAvailable,
+            format!("Device {path} reported no name"),
+        )
+    })
 }
 
 impl DeviceTrait for Device {
@@ -88,11 +94,10 @@ impl DeviceTrait for Device {
         // audioinfo name
         // desc from sndstat
         // path
-        let name = get_device_info(&self.path)
-            .ok()
-            .and_then(|info| info.name())
-            .or_else(|| self.desc.clone())
-            .unwrap_or_else(|| self.path.clone());
+        let name = get_device_name(&self.path)
+            .unwrap_or_else(|_|
+                self.desc.clone().unwrap_or_else(|| self.path.clone())
+            );
 
         let builder = DeviceDescriptionBuilder::new(name)
             .address(&self.path)
@@ -103,14 +108,9 @@ impl DeviceTrait for Device {
     }
 
     fn id(&self) -> Result<crate::DeviceId, Error> {
-        let handle = get_device_info(&self.path)?.handle().ok_or_else(|| {
-            Error::with_message(
-                ErrorKind::DeviceNotAvailable,
-                format!("Failed to query device {} for id: handle didn't null-terminate", self.path),
-            )
-        })?;
-
-        Ok(crate::DeviceId::new(crate::HostId::Oss, handle))
+        // FreeBSD has no persistent device IDs unfortunately.
+        // They simply leave the OSS spec for handle empty.
+        Ok(crate::DeviceId::new(crate::HostId::Oss, get_device_name(&self.path)?))
     }
 
     fn supports_input(&self) -> bool {

@@ -137,6 +137,10 @@ pub struct AudioErrInfo {
     pub filler: [libc::c_int; 16],
 }
 
+/// FFI Mirror of the OSS spec oss_audioinfo from FreeBSD's soundcard.h
+/// 
+/// FreeBSD doesn't fill this all out. Most notably, handle, which is
+/// meant to be the persistent ID.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub(super) struct OssAudioInfo {
@@ -161,7 +165,7 @@ pub(super) struct OssAudioInfo {
     pub _max_channels: c_int,
     pub _binding: c_int,
     pub _rate_source: c_int,
-    pub handle: [c_char; 32],
+    pub _handle: [c_char; 32],
     pub _nrates: c_uint,
     pub _rates: [c_uint; 20],
     pub _song_name: [c_char; 64],
@@ -178,13 +182,14 @@ impl OssAudioInfo {
         // SAFETY: all bit patterns of all-zero bytes are valid for this POD type.
         unsafe { std::mem::zeroed() }
     }
+    pub fn current_fd() -> Self {
+        let mut info = Self::zeroed();
+        info.dev = -1;
+        info
+    }
 
     pub fn name(&self) -> Option<String> {
         c_array_to_string(&self.name)
-    }
-
-    pub fn handle(&self) -> Option<String> {
-        c_array_to_string(&self.handle)
     }
 }
 
