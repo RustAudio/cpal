@@ -62,13 +62,15 @@ pub(super) fn ioctl_ptr<T>(f: &File, req: c_ulong, arg: &mut T) -> std::io::Resu
 }
 
 // OSS DSP ioctls
-const DSP: u8 = b'P'; // group for all SNDCTL_DSP_* requests
+const DSP: u8 = b'P';   // group for all SNDCTL_DSP_* requests
+const OSSV4: u8 = b'X'; // group for newer requests like (some) SNDCTL_*
 
 // command numbers within the group
 const CMD_SPEED: u8 = 2;
 const CMD_GETBLKSIZE: u8 = 4; // ! obselete
 const CMD_SETFMT: u8 = 5;
 const CMD_CHANNELS: u8 = 6;
+const CMD_AUDIOINFO: u8 = 7;
 const CMD_SETFRAGMENT: u8 = 10;
 const CMD_GETFMTS: u8 = 11;
 const CMD_GETOSPACE: u8 = 12;
@@ -77,7 +79,6 @@ const CMD_GETCAPS: u8 = 15;
 const CMD_TRIGGER: u8 = 16; // `GETTRIGGER` and `SETTRIGGER` share it, just with opposite directions
 const CMD_GETODELAY: u8 = 23;
 const CMD_GETERROR: u8 = 25;
-const CMD_AUDIOINFO: u8 = 25; // same value as GETERROR, but called with rw not just r
 
 // FreeBSD ioctl encoding: IOC_OUT=0x4000_0000, IOC_INOUT=0xC000_0000,
 // (size << 16) | (group << 8) | number. Group is 'P' (0x50), size is 4 (int).
@@ -99,8 +100,8 @@ pub const SNDCTL_DSP_GETTRIGGER: c_ulong = ior::<c_int>(DSP, CMD_TRIGGER);
 pub const SNDCTL_DSP_SETTRIGGER: c_ulong = iow::<c_int>(DSP, CMD_TRIGGER);
 pub const SNDCTL_DSP_GETOSPACE: c_ulong = ior::<AudioBufInfo>(DSP, CMD_GETOSPACE);
 pub const SNDCTL_DSP_GETISPACE: c_ulong = ior::<AudioBufInfo>(DSP, CMD_GETISPACE);
-pub const SNDCTL_AUDIOINFO: c_ulong = iowr::<OssAudioInfo>(DSP, CMD_AUDIOINFO);
 
+pub const SNDCTL_AUDIOINFO: c_ulong = iowr::<OssAudioInfo>(OSSV4, CMD_AUDIOINFO);
 
 // Capability Flags
 pub const PCM_CAP_DUPLEX: c_int = 1 << 8;
