@@ -1,6 +1,8 @@
-use super::syscall::{ioctl_int, ioctl_ptr, AudioBufInfo, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETODELAY};
-use std::{fs::File, time::Duration};
+use super::syscall::{
+    AudioBufInfo, SNDCTL_DSP_GETISPACE, SNDCTL_DSP_GETODELAY, ioctl_int, ioctl_ptr,
+};
 use crate::StreamInstant;
+use std::{fs::File, time::Duration};
 
 /// Returns the current time using the global stream clock.
 ///

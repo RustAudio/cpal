@@ -14,9 +14,9 @@
 //! The source of truth for much of this file is /usr/include/sys/soundcard.h from
 //! FreeBSD-15.1-RELEASE
 
-use libc::{c_int, c_uint, c_ulong, c_char};
-use std::os::fd::AsRawFd;
+use libc::{c_char, c_int, c_uint, c_ulong};
 use std::fs::File;
+use std::os::fd::AsRawFd;
 
 const IOC_VOID: c_ulong = 1 << 29;
 const IOC_OUT: c_ulong = 1 << 30;
@@ -62,7 +62,7 @@ pub(super) fn ioctl_ptr<T>(f: &File, req: c_ulong, arg: &mut T) -> std::io::Resu
 }
 
 // OSS DSP ioctls
-const DSP: u8 = b'P';   // group for all SNDCTL_DSP_* requests
+const DSP: u8 = b'P'; // group for all SNDCTL_DSP_* requests
 const OSSV4: u8 = b'X'; // group for newer requests like (some) SNDCTL_*
 
 // command numbers within the group
@@ -138,7 +138,7 @@ pub struct AudioErrInfo {
 }
 
 /// FFI Mirror of the OSS spec oss_audioinfo from FreeBSD's soundcard.h
-/// 
+///
 /// FreeBSD doesn't fill this all out. Most notably, handle, which is
 /// meant to be the persistent ID.
 #[repr(C)]

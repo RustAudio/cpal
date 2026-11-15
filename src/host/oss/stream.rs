@@ -139,7 +139,8 @@ pub(super) fn input_loop<D, E>(
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
 
-    let bytes_per_sec = config.sample_rate as u64 * config.channels as u64 * sample_format.sample_size() as u64;
+    let bytes_per_sec =
+        config.sample_rate as u64 * config.channels as u64 * sample_format.sample_size() as u64;
 
     loop {
         if ctl.stop.load(Ordering::Acquire) {
@@ -252,7 +253,8 @@ pub(super) fn output_loop<D, E>(
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
 
-    let bytes_per_sec = config.sample_rate as u64 * config.channels as u64 * sample_format.sample_size() as u64;
+    let bytes_per_sec =
+        config.sample_rate as u64 * config.channels as u64 * sample_format.sample_size() as u64;
 
     loop {
         if ctl.stop.load(Ordering::Acquire) {
@@ -364,8 +366,12 @@ pub(super) fn duplex_loop<D, E>(
     let mut in_filled = 0;
     let mut out_buf = vec![0u8; out_period_bytes];
 
-    let input_bytes_per_sec = config.sample_rate as u64 * config.input_channels as u64 * sample_format.sample_size() as u64;
-    let output_bytes_per_sec = config.sample_rate as u64 * config.output_channels as u64 * sample_format.sample_size() as u64;
+    let input_bytes_per_sec = config.sample_rate as u64
+        * config.input_channels as u64
+        * sample_format.sample_size() as u64;
+    let output_bytes_per_sec = config.sample_rate as u64
+        * config.output_channels as u64
+        * sample_format.sample_size() as u64;
 
     // Prime the playback ring with one period of silence. Otherwise the first
     // read + callback delays the first write and the device underruns immediately.

@@ -31,7 +31,13 @@ pub struct Device {
 impl Display for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Falls back to the path if the description is not available, which should never happen in practice.
-        write!(f, "{}", self.description().map(|d| d.name().to_string()).unwrap_or(self.path.clone()))
+        write!(
+            f,
+            "{}",
+            self.description()
+                .map(|d| d.name().to_string())
+                .unwrap_or(self.path.clone())
+        )
     }
 }
 
@@ -95,9 +101,7 @@ impl DeviceTrait for Device {
         // desc from sndstat
         // path
         let name = get_device_name(&self.path)
-            .unwrap_or_else(|_|
-                self.desc.clone().unwrap_or_else(|| self.path.clone())
-            );
+            .unwrap_or_else(|_| self.desc.clone().unwrap_or_else(|| self.path.clone()));
 
         let builder = DeviceDescriptionBuilder::new(name)
             .address(&self.path)
@@ -110,7 +114,10 @@ impl DeviceTrait for Device {
     fn id(&self) -> Result<crate::DeviceId, Error> {
         // FreeBSD has no persistent device IDs unfortunately.
         // They simply leave the OSS spec for handle empty.
-        Ok(crate::DeviceId::new(crate::HostId::Oss, get_device_name(&self.path)?))
+        Ok(crate::DeviceId::new(
+            crate::HostId::Oss,
+            get_device_name(&self.path)?,
+        ))
     }
 
     fn supports_input(&self) -> bool {
