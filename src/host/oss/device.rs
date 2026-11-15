@@ -189,14 +189,14 @@ impl DeviceTrait for Device {
         validate_stream_config(&config)?;
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
-        let fd = blocking_open_dsp(&self.path, Mode::Read, timeout)?; // diff from output
+        let fd = blocking_open_dsp(&self.path, Mode::Read, timeout)?;
         let (period_bytes, buf_size) = stream::configure(&fd, &config, sample_format, true)?;
 
         let control = Arc::new(Control::default());
         let worker_ctl = control.clone();
 
         let worker = std::thread::Builder::new()
-            .name("cpal_oss_in".into()) // diff from output
+            .name("cpal_oss_in".into())
             .spawn(move || {
                 stream::input_loop(
                     fd,
@@ -205,7 +205,8 @@ impl DeviceTrait for Device {
                     data_callback,
                     error_callback,
                     sample_format,
-                ); // diff from output
+                    config,
+                );
             })
             .map_err(|e| {
                 Error::with_message(
@@ -253,6 +254,7 @@ impl DeviceTrait for Device {
                     data_callback,
                     error_callback,
                     sample_format,
+                    config,
                 );
             })
             .map_err(|e| {
@@ -297,6 +299,7 @@ impl DeviceTrait for Device {
 
         // Open and configure first, before dispatching to the worker thread, so errors can be returned here
         let fd = blocking_open_dsp(&self.path, Mode::ReadWrite, timeout)?;
+        // [RESEARCH] Should these be allowed to differ?
         let (in_period_bytes, out_period_bytes, buf_size) =
             stream::configure_duplex(&fd, &config, sample_format)?;
 
@@ -314,6 +317,7 @@ impl DeviceTrait for Device {
                     data_callback,
                     error_callback,
                     sample_format,
+                    config,
                 );
             })
             .map_err(|e| {

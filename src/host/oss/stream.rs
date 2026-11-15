@@ -126,6 +126,7 @@ pub(super) fn input_loop<D, E>(
     mut data_callback: D,
     mut error_callback: E,
     sample_format: SampleFormat,
+    config: StreamConfig,
 ) where
     D: FnMut(&Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
@@ -137,6 +138,8 @@ pub(super) fn input_loop<D, E>(
 
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
+
+    let bytes_per_sec = config.sample_rate as u64 * config.channels as u64 * sample_format.sample_size() as u64;
 
     loop {
         if ctl.stop.load(Ordering::Acquire) {
@@ -192,7 +195,7 @@ pub(super) fn input_loop<D, E>(
                     filled = 0;
 
                     let callback_ts = clock::now();
-                    let device_ts = clock::now(); // [TODO] - delay
+                    let device_ts = clock::device_timestamp(&fd, callback_ts, bytes_per_sec, true);
 
                     let samples = period_bytes / sample_format.sample_size();
                     // SAFETY: `buf` is valid for `period_bytes`, and the callback only
@@ -236,6 +239,7 @@ pub(super) fn output_loop<D, E>(
     mut data_callback: D,
     mut error_callback: E,
     sample_format: SampleFormat,
+    config: StreamConfig,
 ) where
     D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
@@ -247,6 +251,8 @@ pub(super) fn output_loop<D, E>(
 
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
+
+    let bytes_per_sec = config.sample_rate as u64 * config.channels as u64 * sample_format.sample_size() as u64;
 
     loop {
         if ctl.stop.load(Ordering::Acquire) {
@@ -266,7 +272,7 @@ pub(super) fn output_loop<D, E>(
 
         if filled == 0 {
             let callback_ts = clock::now();
-            let device_ts = clock::now(); // [TODO] + delay;
+            let device_ts = clock::device_timestamp(&fd, callback_ts, bytes_per_sec, false);
             fill_equilibrium(&mut buf, sample_format);
 
             // [TODO] safety note
@@ -344,6 +350,7 @@ pub(super) fn duplex_loop<D, E>(
     mut data_callback: D,
     mut error_callback: E,
     sample_format: SampleFormat,
+    config: DuplexStreamConfig,
 ) where
     D: FnMut(&Data, &mut Data, &DuplexCallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
@@ -356,6 +363,9 @@ pub(super) fn duplex_loop<D, E>(
     let mut in_buf = vec![0u8; in_period_bytes];
     let mut in_filled = 0;
     let mut out_buf = vec![0u8; out_period_bytes];
+
+    let input_bytes_per_sec = config.sample_rate as u64 * config.input_channels as u64 * sample_format.sample_size() as u64;
+    let output_bytes_per_sec = config.sample_rate as u64 * config.output_channels as u64 * sample_format.sample_size() as u64;
 
     // Prime the playback ring with one period of silence. Otherwise the first
     // read + callback delays the first write and the device underruns immediately.
@@ -482,7 +492,8 @@ pub(super) fn duplex_loop<D, E>(
 
         // user callback populates the output period
         let callback_ts = clock::now();
-        let device_ts = clock::now(); // [TODO] - delay
+        let capture_ts = clock::device_timestamp(&fd, callback_ts, input_bytes_per_sec, true);
+        let render_ts = clock::device_timestamp(&fd, callback_ts, output_bytes_per_sec, false);
         fill_equilibrium(&mut out_buf, sample_format);
 
         let in_samples = in_period_bytes / sample_format.sample_size();
@@ -500,14 +511,14 @@ pub(super) fn duplex_loop<D, E>(
             CallbackInfo::new(
                 StreamTimestamp {
                     callback: callback_ts,
-                    device: device_ts,
+                    device: capture_ts,
                 },
                 overruns > 0,
             ),
             CallbackInfo::new(
                 StreamTimestamp {
                     callback: callback_ts,
-                    device: device_ts,
+                    device: render_ts,
                 },
                 underruns > 0,
             ),
