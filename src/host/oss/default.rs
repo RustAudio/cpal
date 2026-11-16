@@ -1,23 +1,32 @@
 //! Handles default device monitoring for OSS.
-//! 
+//!
 //! The default device is stored in `hw.snd.default_unit` and is an intiger dsp number
 //! This needs to exist because `/dev/dsp` is effectively a symlink for the real `dspX` where
 //! X is `hw.snd.default_unit`, it does not dynamically auto-reroute in the background on device
 //! change. cpal promises dynamic default role devices, thus this adheres to that.
-//! 
+//!
 //! Polling would be crude, wastefull, and delayed. As linking can be cumbersome, I instead monitor
 //! devd events manually in a single blocking worker thread, shared globally between streams. In the event
 //! listening for devd events fails (ran inside a jail, devd not running, socket err, etc), we fall back
 //! to polling, meaning default device monitoring is (practically) infallible, with only a slight delay (at
 //! worst).
-//! 
+//!
 //! The worker thread exists in the background only when there is atleast one default in/out stream active.
-//! 
+//!
 //! FreeBSD has no concept of default input/output seperate by role, there is simpy a 'default device'.
-//! 
+//!
 //! This took lots of work to get working perfectly ;)
-use libc::{c_int, connect, recv, sockaddr_un, sa_family_t, socklen_t, socket, AF_UNIX, SOCK_SEQPACKET, sysctlbyname};
-use std::{ffi::CString, mem, os::fd::{AsRawFd, FromRawFd, OwnedFd}, ptr, sync::atomic::{AtomicI32, Ordering}};
+use libc::{
+    AF_UNIX, SOCK_SEQPACKET, c_int, connect, recv, sa_family_t, sockaddr_un, socket, socklen_t,
+    sysctlbyname,
+};
+use std::{
+    ffi::CString,
+    mem,
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
+    ptr,
+    sync::atomic::{AtomicI32, Ordering},
+};
 
 // It's possible that DEVD isn't running, or the process is ran from inside a Jail
 //
@@ -57,7 +66,8 @@ fn monitor() -> Result<(), ()> {
             sockfd.as_raw_fd(),
             &addr as *const sockaddr_un as *const _,
             addr_len,
-        ) < 0 {
+        ) < 0
+        {
             return Err(());
         }
 
@@ -105,7 +115,6 @@ fn monitor() -> Result<(), ()> {
                 // From https://lists.freebsd.org/archives/dev-commits-src-branches/2026-March/028282.html, thanks Christos :)
                 println!("Audio device topology changed:\n{msg}");
                 // You can now parse `cdev=dspN` out of the message if needed.
-
             }
         }
     }
@@ -115,7 +124,7 @@ fn monitor() -> Result<(), ()> {
 // in which any errors are swallowed
 fn polling_fallback() {
     let name = CString::new(DEFAULT_UNIT_SYSCTL).unwrap();
-    
+
     loop {
         // `sysctl hw.snd.default_unit`: gives the human-readable full OID line
         // `sysctl -n hw.snd.default_unti`: gives just the raw intiger (way better for parsing)
