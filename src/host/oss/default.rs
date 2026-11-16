@@ -35,7 +35,7 @@ use std::{
 const DEVD_PIPE: &str = "/var/run/devd.seqpacket.pipe";
 const DEFAULT_UNIT_SYSCTL: &str = "hw.snd.default_unit";
 
-// `snd_unit` is declared as a standard 32-bit C intiger (int) in the kernel
+// `snd_unit` is declared as a standard 32-bit C integer (int) in the kernel
 // it is set to -1 before and audio hardware has attached, and if there is no
 // default loaded
 static LAST_DEFAULT: AtomicI32 = AtomicI32::new(-1);
@@ -47,7 +47,7 @@ fn monitor() -> Result<(), ()> {
             return Err(());
         }
         // the socket is now valid:
-        // Wrap the socket in an `OwnedFd` to avoid leaking the fd on every early return (easier and better practise than manual closing)
+        // Wrap the socket in an `OwnedFd` to avoid leaking the fd on every early return (easier and better practice than manual closing)
         let sockfd = unsafe { OwnedFd::from_raw_fd(raw_sock_fd) };
 
         let mut addr: sockaddr_un = mem::zeroed();
@@ -90,13 +90,13 @@ fn monitor() -> Result<(), ()> {
             {
                 // Having a look through the FreeBSD source (C), I managed to find that
                 // type=IN is set if the device has >0 recording channels and type=OUT
-                // if >0 playback channels, whether it is possible that a output device
-                // is set as default but has 0play and 0rec channels, I don't know, but
-                // that is an exotic and bizarre situation anyways
+                // if >0 playback channels, whether it is possible that a device is
+                // set as default but has 0play and 0rec channels, I don't know, but
+                // that is an exotic and bizarre situation anyway
 
                 // Due to the way FreeBSD sysctl works, changing `hw.snd.default_unit`
                 // from 0 -> 0 still counts as a change, to avoid needlessly restarting
-                // streams (which would be incorrect anyways), we check a running current
+                // streams (which would be incorrect anyway), we check a running current
                 // vs last just to be safe.
 
                 // There is the option to either manually recheck sysctl `hw.snd.default_unit`,
