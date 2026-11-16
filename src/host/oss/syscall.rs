@@ -11,7 +11,7 @@
 //! - **group:** (8 bits) The driver family. OSS DSP requests use `'P'` (0x50).
 //! - **command:** (8 bits) The specific command within the group.
 //!
-//! The source of truth for much of this file is /usr/include/sys/soundcard.h from
+//! The source of truth for much of this file is `/usr/include/sys/soundcard.h` from 
 //! FreeBSD-15.1-RELEASE
 
 use libc::{c_char, c_int, c_uint, c_ulong};

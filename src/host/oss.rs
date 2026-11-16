@@ -14,6 +14,7 @@ pub use self::device::{Device, Devices};
 pub use self::stream::Stream;
 
 mod clock;
+mod default;
 mod device;
 mod formats;
 mod probe;
