@@ -616,7 +616,7 @@ impl Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
                         "Unexpected audio property scope",
-                    ))
+                    ));
                 }
             }
             let buffer_size = get_io_buffer_frame_size_range(self.audio_device_id)?;
@@ -715,7 +715,7 @@ impl Device {
                         return Err(Error::with_message(
                             ErrorKind::UnsupportedConfig,
                             "Audio format is not linear PCM",
-                        ))
+                        ));
                     }
                 };
                 let maybe_sample_format =
@@ -730,7 +730,7 @@ impl Device {
                         return Err(Error::with_message(
                             ErrorKind::UnsupportedConfig,
                             "Sample format is not supported; supported formats are F32 and I16",
-                        ))
+                        ));
                     }
                 }
             };
@@ -742,7 +742,7 @@ impl Device {
                     return Err(Error::with_message(
                         ErrorKind::UnsupportedOperation,
                         "Unexpected audio property scope",
-                    ))
+                    ));
                 }
             }
             let buffer_size = get_io_buffer_frame_size_range(self.audio_device_id)?;
@@ -931,7 +931,12 @@ impl Device {
         )
         .is_ok_and(|asbd| (asbd.mSampleRate - config.sample_rate as f64).abs() < 1.0)
         {
-            set_sample_rate(self.audio_device_id, config.sample_rate, timeout)?;
+            match set_sample_rate(self.audio_device_id, config.sample_rate, timeout) {
+                Ok(()) => {}
+                // Device can't run at this rate: let the AudioUnit convert.
+                Err(e) if e.kind() == ErrorKind::UnsupportedConfig => {}
+                Err(e) => return Err(e),
+            }
         }
 
         let mode = if self.is_default_output {
