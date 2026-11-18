@@ -906,7 +906,7 @@ pub(crate) fn validate_stream_config(config: &StreamConfig) -> Result<(), Error>
 }
 
 // If a backend does not provide an API for retrieving supported formats, we query it with a bunch
-// of commonly used rates. This is always the case for WASAPI and is sometimes the case for ALSA.
+// of commonly used rates. This is always the case for WASAPI, OSS, and sometimes ALSA.
 #[allow(dead_code)]
 pub(crate) const COMMON_SAMPLE_RATES: &[SampleRate] = &[
     // Standard PCM rates and DSD sample rates through DSD512
