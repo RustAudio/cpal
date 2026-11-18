@@ -5,11 +5,8 @@ use std::{fmt, fmt::Display, fs, io, sync::Arc, vec};
 use crate::{
     CallbackInfo, Data, DeviceDescription, DeviceDescriptionBuilder, DeviceDirection,
     DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind, SampleFormat, StreamConfig,
-    SupportedStreamConfig, SupportedStreamConfigRange,
-    duplex::validate_duplex_config,
-    host::{latch::Latch, oss::stream},
-    traits::DeviceTrait,
-    validate_stream_config,
+    SupportedStreamConfig, SupportedStreamConfigRange, duplex::validate_duplex_config,
+    host::oss::stream, traits::DeviceTrait, validate_stream_config,
 };
 
 use super::{
@@ -75,12 +72,12 @@ fn get_device_name(path: &str) -> Result<String, Error> {
     })?;
 
     let mut audio_info = syscall::OssAudioInfo::current_fd();
-    syscall::ioctl_ptr(&fd, syscall::SNDCTL_AUDIOINFO, &mut audio_info).map_err(|e| {
-        Error::with_message(
+    if let Err(e) = syscall::ioctl_ptr(&fd, syscall::SNDCTL_AUDIOINFO, &mut audio_info) {
+        return Err(Error::with_message(
             ErrorKind::DeviceNotAvailable,
             format!("Failed to query device {path} for info: {e}"),
-        )
-    });
+        ));
+    };
 
     audio_info.name().ok_or_else(|| {
         Error::with_message(
@@ -229,8 +226,9 @@ impl DeviceTrait for Device {
         let fd = blocking_open_dsp(&self.path, Mode::Read, timeout)?;
         let (period_bytes, buf_size) = stream::configure(&fd, &config, sample_format, true)?;
 
-        let control = Arc::new(Control::default());
+        let control = Arc::new(Control::new(buf_size));
         let worker_ctl = control.clone();
+        let dynamic = self.path == DEFAULT_DSP_PATH;
 
         let worker = std::thread::Builder::new()
             .name("cpal_oss_in".into())
@@ -243,6 +241,7 @@ impl DeviceTrait for Device {
                     error_callback,
                     sample_format,
                     config,
+                    dynamic,
                 );
             })
             .map_err(|e| {
@@ -253,10 +252,8 @@ impl DeviceTrait for Device {
             })?;
 
         Ok(super::Stream {
-            reported_buffer_size: buf_size,
             control,
             worker: Some(worker),
-            latch: Latch::new(),
         })
     }
 
@@ -278,8 +275,9 @@ impl DeviceTrait for Device {
         let fd = blocking_open_dsp(&self.path, Mode::Write, timeout)?;
         let (period_bytes, buf_size) = stream::configure(&fd, &config, sample_format, false)?;
 
-        let control = Arc::new(Control::default());
+        let control = Arc::new(Control::new(buf_size));
         let worker_ctl = control.clone();
+        let dynamic = self.path == DEFAULT_DSP_PATH;
 
         let worker = std::thread::Builder::new()
             .name("cpal_oss_out".into())
@@ -292,6 +290,7 @@ impl DeviceTrait for Device {
                     error_callback,
                     sample_format,
                     config,
+                    dynamic,
                 );
             })
             .map_err(|e| {
@@ -302,10 +301,8 @@ impl DeviceTrait for Device {
             })?;
 
         Ok(super::Stream {
-            reported_buffer_size: buf_size,
             control,
             worker: Some(worker),
-            latch: Latch::new(),
         })
     }
 
@@ -340,7 +337,7 @@ impl DeviceTrait for Device {
         let (in_period_bytes, out_period_bytes, buf_size) =
             stream::configure_duplex(&fd, &config, sample_format)?;
 
-        let control = Arc::new(Control::default());
+        let control = Arc::new(Control::new(buf_size));
         let worker_ctl = control.clone();
 
         let worker = std::thread::Builder::new()
@@ -365,10 +362,8 @@ impl DeviceTrait for Device {
             })?;
 
         Ok(super::Stream {
-            reported_buffer_size: buf_size,
             control,
             worker: Some(worker),
-            latch: Latch::new(),
         })
     }
 }
@@ -408,7 +403,10 @@ pub struct Devices {
 
 impl Devices {
     /// If the file is missing, assume OSS is unavailable, as /dev/sndstat is created by sound(4) on creationg
-    /// do not assume no devices, as that forms a valid sndstat file
+    /// do not assume no devices, as that forms a valid sndstat file.
+    ///
+    /// In practise as it is part of the kernel, it is extremely unlikely this is ever missing, except on exotic
+    /// kernels (I love that word)
     ///
     /// [TODO]: Remove this and use `ossinfo`
     /// [NOTE]: This is formally obsolete now, and exists for compatability.

@@ -12,6 +12,9 @@
 //! worst).
 //!
 //! The worker thread exists in the background only when there is atleast one default in/out stream active.
+//! It does not handle deduplication, as I was originally going to have it do, it is simpler to have each
+//! worker thread simply change a running current vs last seen. Duplication can definitely happen, with the
+//! monitor, FreeBSD's sysctls count 0 -> 0 a change, and with the polling fallback, it duplicates every 500ms
 //!
 //! FreeBSD has no concept of default input/output seperate by role, there is simpy a 'default device'.
 //!
@@ -38,17 +41,17 @@ const DEFAULT_UNIT_SYSCTL: &str = "hw.snd.default_unit";
 // `snd_unit` is declared as a standard 32-bit C integer (int) in the kernel
 // it is set to -1 before and audio hardware has attached, and if there is no
 // default loaded
-static LAST_DEFAULT: AtomicI32 = AtomicI32::new(-1);
+pub static DEFAULT_UNIT: AtomicI32 = AtomicI32::new(-1);
 
 fn monitor() -> Result<(), ()> {
     unsafe {
-        let raw_sock_fd = unsafe { socket(AF_UNIX, SOCK_SEQPACKET, 0) };
+        let raw_sock_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
         if raw_sock_fd < 0 {
             return Err(());
         }
         // the socket is now valid:
         // Wrap the socket in an `OwnedFd` to avoid leaking the fd on every early return (easier and better practice than manual closing)
-        let sockfd = unsafe { OwnedFd::from_raw_fd(raw_sock_fd) };
+        let sockfd = OwnedFd::from_raw_fd(raw_sock_fd);
 
         let mut addr: sockaddr_un = mem::zeroed();
         addr.sun_family = AF_UNIX as sa_family_t;
@@ -113,8 +116,15 @@ fn monitor() -> Result<(), ()> {
                 //     devctl_notify("SND", "CONN", "OUT", buf);
                 // ```
                 // From https://lists.freebsd.org/archives/dev-commits-src-branches/2026-March/028282.html, thanks Christos :)
-                println!("Audio device topology changed:\n{msg}");
-                // You can now parse `cdev=dspN` out of the message if needed.
+                let Some(snd_unit) = msg
+                    .split_whitespace()
+                    .find_map(|token| token.strip_prefix("cdev=dsp"))
+                    .and_then(|n| n.parse::<i32>().ok())
+                else {
+                    continue; // silently swallow any errors (see above)
+                };
+
+                DEFAULT_UNIT.store(snd_unit, Ordering::Relaxed);
             }
         }
     }
@@ -143,11 +153,7 @@ fn polling_fallback() {
             )
         };
         if r == 0 {
-            // compex might be better theoretically and more 'correct' buts is more ceremony
-            let prev = LAST_DEFAULT.swap(unit, Ordering::Relaxed);
-            if prev != unit {
-                // it's changed!
-            }
+            DEFAULT_UNIT.store(unit, Ordering::Relaxed);
         }
 
         // A reasonable balance between responsiveness and busy-work

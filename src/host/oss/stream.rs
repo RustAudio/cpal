@@ -19,7 +19,7 @@ use std::{
     os::fd::AsRawFd,
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     thread::JoinHandle,
     time::Duration,
@@ -28,23 +28,23 @@ use std::{
 use crate::{
     BufferSize, CallbackInfo, Data, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,
     FrameCount, SampleFormat, StreamConfig, StreamInstant, StreamTimestamp,
-    host::{equilibrium::fill_equilibrium, latch::Latch},
+    host::{equilibrium::fill_equilibrium, oss::DEFAULT_DSP_PATH},
     traits::StreamTrait,
 };
 
 use super::{
-    clock, error_from_io, formats,
-    probe::get_xruns,
+    clock,
+    default::DEFAULT_UNIT,
+    error_from_io, formats,
+    probe::{Mode, get_xruns, open_dsp},
     syscall::{self, AudioBufInfo, ioctl_int, ioctl_ptr},
 };
 
 use libc::c_int;
 
 pub struct Stream {
-    pub(super) reported_buffer_size: FrameCount,
     pub(super) control: Arc<Control>,
     pub(super) worker: Option<JoinHandle<()>>,
-    pub(super) latch: Latch,
 }
 
 unsafe impl Send for Stream {}
@@ -74,7 +74,7 @@ impl StreamTrait for Stream {
     }
 
     fn buffer_size(&self) -> Result<FrameCount, Error> {
-        Ok(self.reported_buffer_size)
+        Ok(self.control.buffer_size_frames.load(Ordering::Relaxed))
     }
 
     // Returns the current time using the same clock
@@ -105,28 +105,31 @@ pub(super) struct Control {
     stop: AtomicBool,
     paused: Mutex<bool>,
     cv: Condvar,
+    buffer_size_frames: AtomicU32,
 }
 
-impl Default for Control {
-    fn default() -> Self {
+impl Control {
+    pub fn new(buffer_size_frames: u32) -> Self {
         Self {
             // explicitely set default values (for some)
             stop: AtomicBool::new(false),
             paused: Mutex::new(true), // Start the stream paused so that the user must first call `stream.start()`
             cv: Condvar::new(),
+            buffer_size_frames: AtomicU32::new(buffer_size_frames),
         }
     }
 }
 
 /// The loop for reading input data
 pub(super) fn input_loop<D, E>(
-    fd: File,
+    mut fd: File,
     ctl: Arc<Control>,
-    period_bytes: usize,
+    original_period_bytes: usize,
     mut data_callback: D,
     mut error_callback: E,
     sample_format: SampleFormat,
     config: StreamConfig,
+    dynamic: bool,
 ) where
     D: FnMut(&Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
@@ -136,11 +139,15 @@ pub(super) fn input_loop<D, E>(
         error_callback(e)
     }
 
+    let mut period_bytes = original_period_bytes;
+
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
 
     let bytes_per_sec =
         config.sample_rate as u64 * config.channels as u64 * sample_format.sample_size() as u64;
+
+    let mut last_seen: i32 = -1;
 
     loop {
         if ctl.stop.load(Ordering::Acquire) {
@@ -156,6 +163,63 @@ pub(super) fn input_loop<D, E>(
         }
         if ctl.stop.load(Ordering::Acquire) {
             break;
+        }
+
+        if dynamic {
+            let current = DEFAULT_UNIT.load(Ordering::Relaxed);
+            // [NOTE] there is a theoretical desync if the default output is changed a microsecond after stream creation,
+            // possible but unlikely, and it's fixed at the next default output change.
+
+            // if current is -1, ignore everything as monitor hasnt published a
+            // real baseline yet: so last_seen stays as-is
+            if current != -1 {
+                if last_seen == -1 {
+                    // first real detection acts as a baseline
+                    last_seen = current;
+                } else if last_seen != current {
+                    // default unit changed: reopen /dev/dsp to pick up the new unit.
+
+                    // should this close the fd manually first before reopening?
+                    fd = match open_dsp(DEFAULT_DSP_PATH, Mode::Read) {
+                        Ok(new_fd) => {
+                            // old fd gets dropped here closing it
+                            error_callback(Error::new(ErrorKind::DeviceChanged));
+                            // [RESEARCH] is it okay per cpal's promises and current hosts to
+                            // emit device changed then stream invalidated? or should I only return
+                            // device changed when its completely okay to go?
+                            new_fd
+                        }
+                        Err(e) => {
+                            error_callback(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                format!("Failed to open the default input device: {e}"),
+                            ));
+                            return;
+                        }
+                    };
+
+                    match super::stream::configure(&fd, &config, sample_format, true) {
+                        Ok((period_size_bytes, buf_size_frames)) => {
+                            period_bytes = period_size_bytes;
+                            ctl.buffer_size_frames
+                                .store(buf_size_frames, Ordering::Relaxed);
+                            buf = vec![0u8; period_bytes];
+                        }
+                        Err(e) => {
+                            error_callback(Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                format!(
+                                    "Default input device auto-rerouting invalidated the stream: {e}"
+                                ),
+                            ));
+                            return;
+                        }
+                    };
+
+                    filled = 0; // discard partial old-device data
+                    last_seen = current; // only commit after successful reopen
+                }
+            }
         }
 
         // wait until the device has data to be read
@@ -234,13 +298,14 @@ pub(super) fn input_loop<D, E>(
 
 /// The loop for writing output data
 pub(super) fn output_loop<D, E>(
-    fd: File,
+    mut fd: File,
     ctl: Arc<Control>,
-    period_bytes: usize,
+    original_period_bytes: usize,
     mut data_callback: D,
     mut error_callback: E,
     sample_format: SampleFormat,
     config: StreamConfig,
+    dynamic: bool,
 ) where
     D: FnMut(&mut Data, &CallbackInfo) + Send + 'static,
     E: FnMut(Error) + Send + 'static,
@@ -250,11 +315,15 @@ pub(super) fn output_loop<D, E>(
         error_callback(e)
     }
 
+    let mut period_bytes = original_period_bytes;
+
     let mut buf = vec![0u8; period_bytes];
     let mut filled = 0;
 
     let bytes_per_sec =
         config.sample_rate as u64 * config.channels as u64 * sample_format.sample_size() as u64;
+
+    let mut last_seen: i32 = -1;
 
     loop {
         if ctl.stop.load(Ordering::Acquire) {
@@ -270,6 +339,64 @@ pub(super) fn output_loop<D, E>(
         }
         if ctl.stop.load(Ordering::Acquire) {
             break;
+        }
+
+        // edited copypasta from input_loop
+        if dynamic {
+            let current = DEFAULT_UNIT.load(Ordering::Relaxed);
+            // [NOTE] there is a theoretical desync if the default output is changed a microsecond after stream creation,
+            // possible but unlikely, and it's fixed at the next default output change.
+
+            // if current is -1, ignore everything as monitor hasnt published a
+            // real baseline yet: so last_seen stays as-is
+            if current != -1 {
+                if last_seen == -1 {
+                    // first real detection acts as a baseline
+                    last_seen = current;
+                } else if last_seen != current {
+                    // default unit changed: reopen /dev/dsp to pick up the new unit.
+
+                    // should this close the fd manually first before reopening?
+                    fd = match open_dsp(DEFAULT_DSP_PATH, Mode::Write) {
+                        Ok(new_fd) => {
+                            // old fd gets dropped here closing it
+                            error_callback(Error::new(ErrorKind::DeviceChanged));
+                            // [RESEARCH] is it okay per cpal's promises and current hosts to
+                            // emit device changed then stream invalidated? or should I only return
+                            // device changed when its completely okay to go?
+                            new_fd
+                        }
+                        Err(e) => {
+                            error_callback(Error::with_message(
+                                ErrorKind::DeviceNotAvailable,
+                                format!("Failed to open the default output device: {e}"),
+                            ));
+                            return;
+                        }
+                    };
+
+                    match super::stream::configure(&fd, &config, sample_format, true) {
+                        Ok((period_size_bytes, buf_size_frames)) => {
+                            period_bytes = period_size_bytes;
+                            ctl.buffer_size_frames
+                                .store(buf_size_frames, Ordering::Relaxed);
+                            buf = vec![0u8; period_bytes];
+                        }
+                        Err(e) => {
+                            error_callback(Error::with_message(
+                                ErrorKind::StreamInvalidated,
+                                format!(
+                                    "Default output device auto-rerouting invalidated the stream: {e}"
+                                ),
+                            ));
+                            return;
+                        }
+                    };
+
+                    filled = 0; // discard partial old-device data
+                    last_seen = current; // only commit after successful reopen
+                }
+            }
         }
 
         if filled == 0 {
