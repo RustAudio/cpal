@@ -82,7 +82,7 @@ pulseaudio = [
 
 # New WASAPI backend using WinRT
 # Platform: Windows
-wasapi-new = ["dep:tap", "dep:parking_lot", "dep:wasapi", "dep:itertools"]
+wasapi-winrt = ["dep:tap", "dep:parking_lot", "dep:wasapi", "dep:itertools"]
 
 # WebAssembly backend using wasm-bindgen
 # Enables the Web Audio API backend for browser-based audio

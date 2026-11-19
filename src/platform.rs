@@ -962,26 +962,26 @@ mod platform_impl {
     #[cfg(feature = "asio")]
     use crate::host::asio::Host as AsioHost;
     use crate::host::wasapi::Host as WasapiHost;
-    #[cfg(feature = "wasapi-new")]
-    use crate::host::wasapi_new::Host as WasapiNewHost;
+    #[cfg(feature = "wasapi-winrt")]
+    use crate::host::wasapi_winrt::Host as WasapiWinrtHost;
 
     impl_platform_host!(
         #[cfg(feature = "asio")] Asio "ASIO" => AsioHost,
         Wasapi "WASAPI" => WasapiHost,
-        #[cfg(feature = "wasapi-new")]
-        WasapiNew "WASAPI_new" => WasapiNewHost,
+        #[cfg(feature = "wasapi-winrt")]
+        WasapiWinrt "WASAPI_winrt" => WasapiWinrtHost,
         #[cfg(feature = "jack")] Jack "JACK" => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
     );
 
     /// The default host for the current compilation target platform.
     pub fn default_host() -> Host {
-        #[cfg(feature = "wasapi-new")]
-        return WasapiNewHost::new()
+        #[cfg(feature = "wasapi-winrt")]
+        return WasapiWinrtHost::new()
             .expect("the default host should always be available")
             .into();
 
-        #[cfg(not(feature = "wasapi-new"))]
+        #[cfg(not(feature = "wasapi-winrt"))]
         WasapiHost::new()
             .expect("the default host should always be available")
             .into()

@@ -310,7 +310,7 @@ impl DeviceTrait for Device {
             .Id()?
             .to_string_lossy()
             .into_boxed_str()
-            .pipe(|id| DeviceId(HostId::WasapiNew, id))
+            .pipe(|id| DeviceId(HostId::WasapiWinrt, id))
             .pipe(Ok)
     }
 
