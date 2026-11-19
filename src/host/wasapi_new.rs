@@ -18,7 +18,7 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use tap::Pipe;
 use wasapi::{
-    AudioClient, AudioClock, DeviceEnumerator, Direction, SampleType, ShareMode, StreamMode, WaveFormat,
+    AudioClient, AudioClock, CapabilityProbe, DeviceEnumerator, Direction, StreamMode,
 };
 use windows::Devices::Enumeration::DeviceInformation;
 use windows_core::HSTRING;
@@ -157,10 +157,7 @@ impl Device {
     }
 
     fn supported_configs<const INPUT: bool>(&self) -> Result<SupportedConfigs, CpalError> {
-        use SampleFormat::*;
-
         self.validate_direction::<INPUT>()?;
-        let client = self.activate(None)?;
 
         self.info()?
             .Id()?
@@ -169,50 +166,10 @@ impl Device {
             .nth(2)
             .ok_or(CpalError::with_message(BackendError, "malformed device id encountered"))?
             .pipe(|id| DeviceEnumerator::new()?.get_device(id))?
-            .get_data_ranges()?
+            .pipe_ref(CapabilityProbe::new)?
+            .supported_formats_all_rates()
             .into_iter()
-            .flat_map(move |range|
-                COMMON_SAMPLE_RATES
-                .iter()
-                .copied()
-                .skip_while(move |rate| *rate < range.min_samplerate)
-                .take_while(move |rate| *rate <= range.max_samplerate)
-                .flat_map(move |sample_rate|
-                    (1..=range.max_channels)
-                    .flat_map(move |channel_count|
-                        [I8, I16, I24, I32, F32]
-                        .into_iter()
-                        .filter(move |format|
-                            range
-                            .sample_type()
-                            .is_none_or(|ty|
-                                (ty == SampleType::Int)
-                                    == format.is_int()
-                            )
-                        )
-                        .map(move |format| (format, format.sample_size() * 8))
-                        .skip_while(move |(_format, store_bits)| range.min_bits_per_sample >  *store_bits as u32)
-                        .take_while(move |(_format, store_bits)| range.max_bits_per_sample >= *store_bits as u32)
-                        .map(move |(format, store_bits)| WaveFormat::new(
-                            store_bits,
-                            format.bits_per_sample() as _,
-                            SampleType::Int,
-                            sample_rate as _,
-                            channel_count as _,
-                            None
-                        ))
-                    )
-                )
-            )
-            .unique() // DataRanges can overlap
-            .filter_map(|waveformat|
-                client
-                .is_supported(&waveformat, ShareMode::Shared)
-                .map(|ret| ret.unwrap_or(waveformat))
-                .ok()
-            )
-            .unique() // `.is_supported()` might have reported the same "closest match" multiple times
-            .filter_map(|waveformat| SupportedStreamConfig::try_from(waveformat).ok()) // this will most likely never fail anyway
+            .filter_map(|waveformat| SupportedStreamConfig::try_from(waveformat).ok()) // conversion fails for formats which cpal cannot represent
             .map(|config| {
                 let format = config.sample_format();
                 let channels = config.channels();
