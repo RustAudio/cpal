@@ -352,9 +352,10 @@ impl std::str::FromStr for DeviceId {
 ///
 /// ## Latency Considerations
 ///
-/// [`BufferSize::Default`] uses the host's default buffer size, which may be
-/// surprisingly large, leading to higher latency. If low latency is desired,
-/// [`BufferSize::Fixed`] should be used with a small value in accordance with
+/// [`BufferSize::Default`] requests no particular size: the stream runs at whatever size the
+/// host currently uses for the device, which may be a size requested earlier rather than the
+/// device's own default. It may be surprisingly large, leading to higher latency. If low
+/// latency is desired, [`BufferSize::Fixed`] should be used with a small value in accordance with
 /// the [`SupportedBufferSize`] range from [`SupportedStreamConfig`].
 ///
 /// Smaller buffer sizes reduce latency but may increase CPU usage and risk audio
