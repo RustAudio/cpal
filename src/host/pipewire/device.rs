@@ -31,8 +31,8 @@ use crate::{
         latch::Latch,
         pipewire::{
             stream::{
-                PwInitGuard, SUPPORTED_FORMATS, StreamCommand, StreamData, watch_default_device,
-                watch_target_node,
+                watch_default_device, watch_target_node, PwInitGuard, StreamCommand, StreamData,
+                SUPPORTED_FORMATS,
             },
             utils::{audio, clock, default, node, DEVICE_ICON_NAME, METADATA_NAME},
         },
