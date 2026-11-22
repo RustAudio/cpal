@@ -394,6 +394,11 @@ impl DeviceTrait for Device {
                     let error_callback_cb = error_callback.clone();
                     #[cfg(target_feature = "atomics")]
                     let current_time_bits_cb = current_time_bits.clone();
+                    #[cfg(target_feature = "atomics")]
+                    let temporary_channel_array_view =
+                        js_sys::Float32Array::new(&js_sys::ArrayBuffer::new(
+                            (std::mem::size_of::<f32>() * buffer_size_frames) as u32,
+                        ));
 
                     let on_audio_process =
                         Closure::wrap(Box::new(move |event: AudioProcessingEvent| {
@@ -418,13 +423,26 @@ impl DeviceTrait for Device {
                             // scratch buffer; the mirror image of the deinterleave loop in
                             // `build_output_stream_raw`.
                             for channel in 0..n_channels {
-                                if input_buffer
+                                #[cfg(not(target_feature = "atomics"))]
+                                let copied = input_buffer.copy_from_channel(
+                                    &mut temporary_channel_buffer,
+                                    channel as i32,
+                                );
+                                // copyFromChannel rejects views on a SharedArrayBuffer, which backs
+                                // WASM memory under atomics, so copy through an unshared view; see
+                                // the copyToChannel workaround in `build_output_stream_raw`.
+                                #[cfg(target_feature = "atomics")]
+                                let copied = input_buffer
+                                    .unchecked_ref::<ExternalArrayAudioBuffer>()
                                     .copy_from_channel(
-                                        &mut temporary_channel_buffer,
+                                        &temporary_channel_array_view,
                                         channel as i32,
                                     )
-                                    .is_err()
-                                {
+                                    .map(|()| {
+                                        temporary_channel_array_view
+                                            .copy_to(&mut temporary_channel_buffer)
+                                    });
+                                if copied.is_err() {
                                     (error_callback_cb.lock().unwrap_or_else(|e| e.into_inner()))(
                                         Error::with_message(
                                             ErrorKind::StreamInvalidated,
@@ -1126,13 +1144,26 @@ impl DeviceTrait for Device {
                             // Deinterleave from the browser's per-channel buffers into our interleaved
                             // scratch buffer.
                             for channel in 0..input_channels {
-                                if input_buffer
+                                #[cfg(not(target_feature = "atomics"))]
+                                let copied = input_buffer.copy_from_channel(
+                                    &mut temporary_channel_buffer,
+                                    channel as i32,
+                                );
+                                // copyFromChannel rejects views on a SharedArrayBuffer, which backs
+                                // WASM memory under atomics, so copy through an unshared view; see
+                                // the copyToChannel workaround in `build_output_stream_raw`.
+                                #[cfg(target_feature = "atomics")]
+                                let copied = input_buffer
+                                    .unchecked_ref::<ExternalArrayAudioBuffer>()
                                     .copy_from_channel(
-                                        &mut temporary_channel_buffer,
+                                        &temporary_channel_array_view,
                                         channel as i32,
                                     )
-                                    .is_err()
-                                {
+                                    .map(|()| {
+                                        temporary_channel_array_view
+                                            .copy_to(&mut temporary_channel_buffer)
+                                    });
+                                if copied.is_err() {
                                     (error_callback_cb.lock().unwrap_or_else(|e| e.into_inner()))(
                                         Error::with_message(
                                             ErrorKind::StreamInvalidated,
@@ -1621,6 +1652,13 @@ unsafe extern "C" {
     pub fn copy_to_channel(
         this: &ExternalArrayAudioBuffer,
         source: &js_sys::Float32Array,
+        channel_number: i32,
+    ) -> Result<(), JsValue>;
+
+    # [wasm_bindgen(catch, method, structural, js_class = "AudioBuffer", js_name = copyFromChannel)]
+    pub fn copy_from_channel(
+        this: &ExternalArrayAudioBuffer,
+        destination: &js_sys::Float32Array,
         channel_number: i32,
     ) -> Result<(), JsValue>;
 }
