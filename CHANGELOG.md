@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CallbackInfo::xrun()` reports buffer over/underruns via the data callback.
 - `DeviceTrait::build_duplex_stream()`, `build_duplex_stream_raw()`, `default_duplex_config()`, and `supports_duplex()` for capture and playback from one device-level callback.
 - **ALSA**: Duplex streams are now supported.
+- **ASIO**: Extension trait for ASIO devices, which allows opening the control panel.
 - **AudioWorklet**: Input and duplex streams are now supported.
 - **JACK**: Duplex streams are now supported.
 - **WebAudio**: Input and duplex streams are now supported.

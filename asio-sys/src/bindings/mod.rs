@@ -981,6 +981,11 @@ impl Driver {
         drop(dcb);
         drop(removed);
     }
+
+    /// Opens the ASIO driver's control panel window.
+    pub fn open_control_panel(&self) -> Result<(), AsioError> {
+        unsafe { asio_result!(ai::ASIOControlPanel()) }
+    }
 }
 
 impl DriverState {
