@@ -436,6 +436,63 @@ pub(crate) fn is_get_user_media_available() -> bool {
     web_sys::window().is_some_and(|w| w.navigator().media_devices().is_ok())
 }
 
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", target_os = "unknown"),
+    feature = "wasm-bindgen"
+))]
+mod audio_context_guard {
+    use std::borrow::Borrow;
+    use std::ops::Deref;
+
+    /// Closes the wrapped [`AudioContext`](web_sys::AudioContext) when dropped.
+    ///
+    /// The WASM stream builders wrap the context right after creating it, so every early return
+    /// closes it without a `close()` call on each error path. The context is closed on drop unless
+    /// [`into_inner`](CloseAudioContextOnDrop::into_inner) is called, which returns it unclosed.
+    ///
+    /// Deliberately not `Clone`: a cloned guard would close the context when the first copy drops.
+    pub struct CloseAudioContextOnDrop<T: Borrow<web_sys::AudioContext>>(Option<T>);
+
+    impl<T: Borrow<web_sys::AudioContext>> CloseAudioContextOnDrop<T> {
+        pub fn new(context: T) -> Self {
+            Self(Some(context))
+        }
+
+        /// Disarms the guard and returns the wrapped context.
+        pub fn into_inner(mut self) -> T {
+            self.0
+                .take()
+                .expect("audio context already taken from guard")
+        }
+    }
+
+    impl<T: Borrow<web_sys::AudioContext>> Deref for CloseAudioContextOnDrop<T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            self.0
+                .as_ref()
+                .expect("audio context already taken from guard")
+        }
+    }
+
+    impl<T: Borrow<web_sys::AudioContext>> Drop for CloseAudioContextOnDrop<T> {
+        fn drop(&mut self) {
+            if let Some(context) = &self.0 {
+                let _ = context.borrow().close();
+            }
+        }
+    }
+}
+
+#[cfg(all(
+    target_arch = "wasm32",
+    any(target_os = "emscripten", target_os = "unknown"),
+    feature = "wasm-bindgen"
+))]
+pub(crate) use audio_context_guard::CloseAudioContextOnDrop;
+
 /// Stops every audio track of `media_stream`, releasing the microphone and turning off the
 /// browser's capture indicator. Dropping a WebAudio graph alone does not do this.
 #[cfg(all(

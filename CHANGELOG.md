@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ASIO**: A device in use by an existing stream is no longer missing from device enumeration.
 - **AudioWorklet**: Fix processor construction failures not being reported to `error_callback`.
 - **AudioWorklet**: Fix dropouts in output streams when the callback buffer grows.
+- **AudioWorklet**: Fix the `AudioContext` being left running when building a stream fails on an unsupported output channel count.
 - **CoreAudio**: Fix the device running at a different sample rate from the stream on hardware that reports a continuous rate range.
 - **CoreAudio**: Fix `supported_configs()` only reporting `F32`, even on hardware that also supports other sample formats.
 - **CoreAudio**: Fix sample rate changes timing out early when the device reports other rates first.
@@ -84,6 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **WASAPI**: Fix `I64` and `F64` incorrectly reported as supported output formats.
 - **WASAPI**: Fix a memory leak when enumerating devices.
 - **WASAPI**: Streams built with the `realtime` feature no longer leak an MMCSS registration when their audio thread exits.
+- **WebAudio**: Fix the `AudioContext` being left running when building a stream fails on an unsupported output channel count or buffer creation.
+- **WebAudio**: Fix the `AudioContext` being left running with atomics when an input or duplex stream fails to get microphone access or to set up its graph.
 
 ## [0.18.2] - 2026-08-16
 

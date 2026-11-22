@@ -24,7 +24,7 @@ use crate::{
     DeviceDirection, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,
     FrameCount, Sample, SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    host::{frames_to_duration, secs_to_nanos},
+    host::{CloseAudioContextOnDrop, frames_to_duration, secs_to_nanos},
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -391,15 +391,14 @@ impl DeviceTrait for Device {
 
         let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
 
-        let ctx = audio_context.clone();
         wasm_bindgen_futures::spawn_local(async move {
+            let ctx = CloseAudioContextOnDrop::new(audio_context);
             let error_callback = Rc::new(RefCell::new(error_callback));
 
             let media_stream = match crate::host::request_microphone().await {
                 Ok(stream) => stream,
                 Err(js_err) => {
                     (error_callback.borrow_mut())(crate::host::get_user_media_error(&js_err));
-                    let _ = audio_context.close();
                     return;
                 }
             };
@@ -507,19 +506,18 @@ impl DeviceTrait for Device {
                     ));
 
                     crate::host::stop_tracks(&media_stream);
-                    let _ = audio_context.close();
                     return;
                 }
             };
 
-            current_time_bits_init.store(audio_context.current_time().to_bits(), Ordering::Relaxed);
+            current_time_bits_init.store(ctx.current_time().to_bits(), Ordering::Relaxed);
 
             // Process play/pause commands from any thread until Stream is dropped.
             // Dropping Stream closes command_tx, which terminates this loop.
             while let Some(cmd) = command_rx.next().await {
                 match cmd {
                     Command::Play => {
-                        if audio_context.resume().is_err() {
+                        if ctx.resume().is_err() {
                             (error_callback.borrow_mut())(Error::with_message(
                                 ErrorKind::DeviceNotAvailable,
                                 "Failed to resume audio context",
@@ -527,7 +525,7 @@ impl DeviceTrait for Device {
                         }
                     }
                     Command::Pause => {
-                        if audio_context.suspend().is_err() {
+                        if ctx.suspend().is_err() {
                             (error_callback.borrow_mut())(Error::with_message(
                                 ErrorKind::DeviceNotAvailable,
                                 "Failed to suspend audio context",
@@ -537,9 +535,8 @@ impl DeviceTrait for Device {
                 }
             }
 
-            // Stream dropped: release the microphone and close the AudioContext.
+            // Stream dropped: release the microphone; the `ctx` guard closes the AudioContext.
             crate::host::stop_tracks(&media_stream);
-            let _ = audio_context.close();
         });
 
         Ok(Self::Stream {
@@ -600,13 +597,14 @@ impl DeviceTrait for Device {
             );
         }
 
-        let audio_context =
+        let audio_context = CloseAudioContextOnDrop::new(
             web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(|_| {
                 Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     "Failed to create audio context",
                 )
-            })?;
+            })?,
+        );
 
         let destination = audio_context.destination();
 
@@ -645,15 +643,17 @@ impl DeviceTrait for Device {
         let latency_nanos = Arc::new(AtomicU64::new(total_latency_nanos(&audio_context)));
         let latency_nanos_cb = latency_nanos.clone();
 
-        let ctx = audio_context.clone();
+        // The task captures the `audio_context` guard, which closes the AudioContext on exit.
         wasm_bindgen_futures::spawn_local(async move {
             let error_callback = Rc::new(RefCell::new(error_callback));
             let error_callback_setup = error_callback.clone();
 
-            let result: Result<(), JsValue> = async move {
+            let result: Result<(), JsValue> = async {
                 let mod_url = dependent_module!("audioworklet/worklet.js")?;
-                wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
-                    .await?;
+                wasm_bindgen_futures::JsFuture::from(
+                    audio_context.audio_worklet()?.add_module(&mod_url)?,
+                )
+                .await?;
 
                 let options = web_sys::AudioWorkletNodeOptions::new();
 
@@ -693,7 +693,7 @@ impl DeviceTrait for Device {
                     .into(),
                 )));
                 let audio_worklet_node = web_sys::AudioWorkletNode::new_with_options(
-                    &ctx,
+                    &audio_context,
                     OUTPUT_PROCESSOR_NAME,
                     &options,
                 )?;
@@ -723,9 +723,8 @@ impl DeviceTrait for Device {
                     message,
                 ));
 
-                // Close AudioContext and exit; dropping command_rx closes the channel,
-                // so subsequent play()/pause() calls return HostUnavailable.
-                let _ = audio_context.close();
+                // The `audio_context` guard closes the AudioContext; dropping command_rx closes the
+                // channel, so subsequent play()/pause() calls return HostUnavailable.
                 return;
             }
 
@@ -775,9 +774,6 @@ impl DeviceTrait for Device {
                     }
                 }
             }
-
-            // Stream dropped: close the AudioContext on the main thread.
-            let _ = audio_context.close();
         });
 
         Ok(Self::Stream {
@@ -829,13 +825,14 @@ impl DeviceTrait for Device {
             );
         }
 
-        let audio_context =
+        let audio_context = CloseAudioContextOnDrop::new(
             web_sys::AudioContext::new_with_context_options(&stream_opts).map_err(|_| {
                 Error::with_message(
                     ErrorKind::UnsupportedConfig,
                     "Failed to create audio context",
                 )
-            })?;
+            })?,
+        );
 
         let destination = audio_context.destination();
         if output_channels > destination.max_channel_count() {
@@ -873,7 +870,7 @@ impl DeviceTrait for Device {
 
         let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
 
-        let ctx = audio_context.clone();
+        // The task captures the `audio_context` guard, which closes the AudioContext on exit.
         wasm_bindgen_futures::spawn_local(async move {
             let error_callback = Rc::new(RefCell::new(error_callback));
 
@@ -881,7 +878,6 @@ impl DeviceTrait for Device {
                 Ok(stream) => stream,
                 Err(js_err) => {
                     (error_callback.borrow_mut())(crate::host::get_user_media_error(&js_err));
-                    let _ = audio_context.close();
                     return;
                 }
             };
@@ -894,10 +890,12 @@ impl DeviceTrait for Device {
                 JsValue,
             > = async {
                 let mod_url = dependent_module!("audioworklet/worklet.js")?;
-                wasm_bindgen_futures::JsFuture::from(ctx.audio_worklet()?.add_module(&mod_url)?)
-                    .await?;
+                wasm_bindgen_futures::JsFuture::from(
+                    audio_context.audio_worklet()?.add_module(&mod_url)?,
+                )
+                .await?;
 
-                let source = ctx.create_media_stream_source(&media_stream)?;
+                let source = audio_context.create_media_stream_source(&media_stream)?;
 
                 let options = web_sys::AudioWorkletNodeOptions::new();
                 options.set_number_of_inputs(1);
@@ -973,7 +971,7 @@ impl DeviceTrait for Device {
                     .into(),
                 )));
                 let audio_worklet_node = web_sys::AudioWorkletNode::new_with_options(
-                    &ctx,
+                    &audio_context,
                     DUPLEX_PROCESSOR_NAME,
                     &options,
                 )?;
@@ -1013,7 +1011,6 @@ impl DeviceTrait for Device {
                     ));
 
                     crate::host::stop_tracks(&media_stream);
-                    let _ = audio_context.close();
                     return;
                 }
             };
@@ -1065,9 +1062,9 @@ impl DeviceTrait for Device {
                 }
             }
 
-            // Stream dropped: release the microphone and close the AudioContext.
+            // Stream dropped: release the microphone; the `audio_context` guard closes the
+            // AudioContext.
             crate::host::stop_tracks(&media_stream);
-            let _ = audio_context.close();
         });
 
         Ok(Self::Stream {

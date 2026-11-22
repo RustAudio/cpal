@@ -46,7 +46,7 @@ use crate::{
     DeviceDirection, DeviceId, DuplexCallbackInfo, DuplexStreamConfig, Error, ErrorKind,
     FrameCount, Sample, SampleFormat, SampleRate, StreamConfig, StreamInstant, StreamTimestamp,
     SupportedBufferSize, SupportedStreamConfig, SupportedStreamConfigRange,
-    host::ErrorCallbackArc,
+    host::{CloseAudioContextOnDrop, ErrorCallbackArc},
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -349,6 +349,11 @@ impl DeviceTrait for Device {
             let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
 
             wasm_bindgen_futures::spawn_local(async move {
+                // Under atomics the task is the sole owner of the context, so it must close it
+                // on every exit, including the early returns below.
+                #[cfg(target_feature = "atomics")]
+                let ctx_task = CloseAudioContextOnDrop::new(ctx_task);
+
                 let media_stream = match request_microphone().await {
                     Ok(stream) => stream,
                     Err(js_err) => {
@@ -527,9 +532,8 @@ impl DeviceTrait for Device {
                             }
                         }
                     }
-                    // Stream dropped: release the microphone and close the AudioContext.
+                    // Stream dropped: release the microphone; `ctx_task` closes the AudioContext.
                     stop_tracks(&media_stream);
-                    let _ = ctx_task.close();
                 }
             });
 
@@ -610,6 +614,13 @@ impl DeviceTrait for Device {
                 )
             })?;
 
+            // SAFETY: AudioContext and Closure are not Send/Sync. In the non-atomics path WASM is
+            // single-threaded so there are no thread boundaries to cross. In the atomics path these
+            // values are moved into a spawn_local future on the same local thread; they are never
+            // stored in Stream (which is Send+Sync) and therefore never escape to another thread.
+            #[allow(clippy::arc_with_non_send_sync)]
+            let ctx = CloseAudioContextOnDrop::new(Arc::new(ctx));
+
             let destination = ctx.destination();
 
             if config.channels as u32 > destination.max_channel_count() {
@@ -623,13 +634,6 @@ impl DeviceTrait for Device {
                 ));
             }
             destination.set_channel_count(config.channels as u32);
-
-            // SAFETY: AudioContext and Closure are not Send/Sync. In the non-atomics path WASM is
-            // single-threaded so there are no thread boundaries to cross. In the atomics path these
-            // values are moved into a spawn_local future on the same local thread; they are never
-            // stored in Stream (which is Send+Sync) and therefore never escape to another thread.
-            #[allow(clippy::arc_with_non_send_sync)]
-            let ctx = Arc::new(ctx);
 
             // A container for managing the lifecycle of the audio callbacks.
             let mut on_ended_closures: Vec<ClosureHandle> = Vec::new();
@@ -896,6 +900,11 @@ impl DeviceTrait for Device {
                 on_ended_closures.push(on_ended_closure);
             }
 
+            // Every fallible step is done: the stream now closes the context. Under atomics the
+            // guard moves into the task below instead.
+            #[cfg(not(target_feature = "atomics"))]
+            let ctx = ctx.into_inner();
+
             #[cfg(not(target_feature = "atomics"))]
             {
                 Ok(Self::Stream {
@@ -947,8 +956,6 @@ impl DeviceTrait for Device {
                             }
                         }
                     }
-                    // Stream dropped: close the AudioContext on the main thread.
-                    let _ = ctx.close();
                 });
                 Ok(Self::Stream {
                     command_tx,
@@ -1003,6 +1010,11 @@ impl DeviceTrait for Device {
                 )
             })?;
 
+            // SAFETY: see the SAFETY note in `build_output_stream_raw`; the same single-thread
+            // (or task-confined) reasoning applies here.
+            #[allow(clippy::arc_with_non_send_sync)]
+            let ctx = CloseAudioContextOnDrop::new(Arc::new(ctx));
+
             let destination = ctx.destination();
             if config.output_channels as u32 > destination.max_channel_count() {
                 return Err(Error::with_message(
@@ -1023,10 +1035,6 @@ impl DeviceTrait for Device {
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0);
 
-            // SAFETY: see the SAFETY note in `build_output_stream_raw`; the same single-thread
-            // (or task-confined) reasoning applies here.
-            #[allow(clippy::arc_with_non_send_sync)]
-            let ctx = Arc::new(ctx);
             let ctx_task = ctx.clone();
 
             #[cfg(not(target_feature = "atomics"))]
@@ -1050,6 +1058,11 @@ impl DeviceTrait for Device {
             let (command_tx, mut command_rx) = mpsc::unbounded::<Command>();
 
             wasm_bindgen_futures::spawn_local(async move {
+                // Under atomics the task is the sole owner of the context, so it must close it
+                // on every exit, including the early returns below.
+                #[cfg(target_feature = "atomics")]
+                let ctx_task = CloseAudioContextOnDrop::new(ctx_task);
+
                 let media_stream = match request_microphone().await {
                     Ok(stream) => stream,
                     Err(js_err) => {
@@ -1314,11 +1327,16 @@ impl DeviceTrait for Device {
                             }
                         }
                     }
-                    // Stream dropped: release the microphone and close the AudioContext.
+                    // Stream dropped: release the microphone; `ctx_task` closes the AudioContext.
                     stop_tracks(&media_stream);
-                    let _ = ctx_task.close();
                 }
             });
+
+            // The stream (or the task it owns) now closes the context.
+            #[cfg(not(target_feature = "atomics"))]
+            let ctx = ctx.into_inner();
+            #[cfg(target_feature = "atomics")]
+            drop(ctx.into_inner());
 
             #[cfg(not(target_feature = "atomics"))]
             {
@@ -1438,8 +1456,8 @@ impl Drop for Stream {
         let _ = self.ctx.close();
     }
 }
-// With atomics: dropping `command_tx` closes the channel, which signals the
-// spawn_local task to call ctx.close() on the main thread.
+// With atomics: dropping `command_tx` closes the channel, which ends the spawn_local
+// task; its `CloseAudioContextOnDrop` guard then closes the AudioContext on the main thread.
 
 impl Iterator for Devices {
     type Item = Device;
