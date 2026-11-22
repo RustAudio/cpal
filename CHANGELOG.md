@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Migrated to Rust 2024.
+- **ALSA**: `BufferSize::Fixed` rings three periods instead of two (start threshold unchanged), so snd-usb-audio in low-latency mode keeps up when the callback does work.
 - Bump minimum Windows version to 10 (since 0.17.2).
 - Bump `audio_thread_priority` dependency to 0.36.
 - Normalized thread and client naming across all backends.

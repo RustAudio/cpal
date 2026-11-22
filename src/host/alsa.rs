@@ -165,6 +165,10 @@ impl Drop for AlsaContext {
 const DEFAULT_DEVICE: &str = "default";
 const DEFAULT_PERIODS: alsa::pcm::Frames = 2;
 
+// Ring depth for `BufferSize::Fixed`; playback still starts at `DEFAULT_PERIODS`.
+// With two, snd-usb-audio's low-latency mode falls behind once the callback does work.
+const FIXED_BUFFER_PERIODS: alsa::pcm::Frames = 3;
+
 const POLL_INFINITE: i32 = -1; // "block until an event arrives"
 const TRIGGER_PAYLOAD_SIZE: libc::ssize_t = mem::size_of::<u64>() as libc::ssize_t;
 
