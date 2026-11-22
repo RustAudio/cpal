@@ -28,6 +28,9 @@ use crate::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
+mod aborting;
+use aborting::AbortOnPanic;
+
 mod dependent_module;
 use crate::dependent_module;
 
@@ -336,6 +339,11 @@ impl DeviceTrait for Device {
     /// and the error is delivered to `error_callback`.
     ///
     /// [`AudioContext`]: web_sys::AudioContext
+    ///
+    /// # Callback panics
+    ///
+    /// Audio data callbacks and JavaScript event handlers abort if they panic,
+    /// even when built with `panic=unwind`.
     fn build_input_stream_raw<D, E>(
         &self,
         config: StreamConfig,
@@ -466,13 +474,14 @@ impl DeviceTrait for Device {
                 )?;
 
                 let error_callback_setup = error_callback.clone();
-                let on_processor_error =
-                    Closure::<dyn FnMut(web_sys::Event)>::new(move |_event: web_sys::Event| {
+                let on_processor_error = Closure::<dyn FnMut(web_sys::Event)>::wrap_aborting(
+                    Box::new(move |_event: web_sys::Event| {
                         (error_callback_setup.borrow_mut())(Error::with_message(
                             ErrorKind::BackendError,
                             "AudioWorklet capture processor failed to initialize or crashed",
                         ));
-                    });
+                    }),
+                );
                 audio_worklet_node
                     .set_onprocessorerror(Some(on_processor_error.as_ref().unchecked_ref()));
                 on_processor_error.forget();
@@ -573,6 +582,11 @@ impl DeviceTrait for Device {
     /// [`AudioContext`]: web_sys::AudioContext
     /// [`AudioContext::current_time`]: https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/currentTime
     /// [`AudioWorkletNode`]: web_sys::AudioWorkletNode
+    ///
+    /// # Callback panics
+    ///
+    /// Audio data callbacks and JavaScript event handlers abort if they panic,
+    /// even when built with `panic=unwind`.
     fn build_output_stream_raw<D, E>(
         &self,
         config: StreamConfig,
@@ -698,13 +712,14 @@ impl DeviceTrait for Device {
                     &options,
                 )?;
 
-                let on_processor_error =
-                    Closure::<dyn FnMut(web_sys::Event)>::new(move |_event: web_sys::Event| {
+                let on_processor_error = Closure::<dyn FnMut(web_sys::Event)>::wrap_aborting(
+                    Box::new(move |_event: web_sys::Event| {
                         (error_callback_setup.borrow_mut())(Error::with_message(
                             ErrorKind::BackendError,
                             "AudioWorklet processor failed to initialize or crashed",
                         ));
-                    });
+                    }),
+                );
                 audio_worklet_node
                     .set_onprocessorerror(Some(on_processor_error.as_ref().unchecked_ref()));
                 on_processor_error.forget();
@@ -737,9 +752,9 @@ impl DeviceTrait for Device {
             let _latency_poller = web_sys::window().and_then(|window| {
                 let poll_ctx = audio_context.clone();
                 let poll_latency = latency_nanos.clone();
-                let closure = Closure::<dyn FnMut()>::new(move || {
+                let closure = Closure::<dyn FnMut()>::wrap_aborting(Box::new(move || {
                     poll_latency.store(total_latency_nanos(&poll_ctx), Ordering::Relaxed);
-                });
+                }));
                 window
                     .set_interval_with_callback_and_timeout_and_arguments_0(
                         closure.as_ref().unchecked_ref(),
@@ -798,6 +813,11 @@ impl DeviceTrait for Device {
     /// [`pause`](crate::traits::StreamTrait::pause) calls made in the meantime are queued.
     ///
     /// [`AudioContext`]: web_sys::AudioContext
+    ///
+    /// # Callback panics
+    ///
+    /// Audio data callbacks and JavaScript event handlers abort if they panic,
+    /// even when built with `panic=unwind`.
     fn build_duplex_stream_raw<D, E>(
         &self,
         config: DuplexStreamConfig,
@@ -979,13 +999,14 @@ impl DeviceTrait for Device {
                 )?;
 
                 let error_callback_setup = error_callback.clone();
-                let on_processor_error =
-                    Closure::<dyn FnMut(web_sys::Event)>::new(move |_event: web_sys::Event| {
+                let on_processor_error = Closure::<dyn FnMut(web_sys::Event)>::wrap_aborting(
+                    Box::new(move |_event: web_sys::Event| {
                         (error_callback_setup.borrow_mut())(Error::with_message(
                             ErrorKind::BackendError,
                             "AudioWorklet duplex processor failed to initialize or crashed",
                         ));
-                    });
+                    }),
+                );
                 audio_worklet_node
                     .set_onprocessorerror(Some(on_processor_error.as_ref().unchecked_ref()));
                 on_processor_error.forget();
@@ -1026,9 +1047,9 @@ impl DeviceTrait for Device {
             let _latency_poller = web_sys::window().and_then(|window| {
                 let poll_ctx = audio_context.clone();
                 let poll_latency = latency_nanos.clone();
-                let closure = Closure::<dyn FnMut()>::new(move || {
+                let closure = Closure::<dyn FnMut()>::wrap_aborting(Box::new(move || {
                     poll_latency.store(total_latency_nanos(&poll_ctx), Ordering::Relaxed);
-                });
+                }));
                 window
                     .set_interval_with_callback_and_timeout_and_arguments_0(
                         closure.as_ref().unchecked_ref(),
@@ -1142,14 +1163,14 @@ type AudioProcessorCallback = Box<dyn FnMut(&mut [f32], u32, u32, f64)>;
 pub struct WasmAudioProcessor {
     interleaved_buffer: Vec<f32>,
     // Passes in an interleaved scratch buffer, frame size, sample rate, and current time.
-    callback: AudioProcessorCallback,
+    callback: AbortOnPanic<AudioProcessorCallback>,
 }
 
 impl WasmAudioProcessor {
     pub fn new(callback: AudioProcessorCallback) -> Self {
         Self {
             interleaved_buffer: Vec::new(),
-            callback,
+            callback: AbortOnPanic::new(callback),
         }
     }
 }
@@ -1167,12 +1188,14 @@ impl WasmAudioProcessor {
             resize_interleaved(&mut self.interleaved_buffer, channels, frame_size);
         self.interleaved_buffer[..interleaved_buffer_size].fill(f32::EQUILIBRIUM);
 
-        (self.callback)(
-            &mut self.interleaved_buffer[..interleaved_buffer_size],
-            frame_size,
-            sample_rate,
-            current_time,
-        );
+        self.callback.with_mut(|callback| {
+            callback(
+                &mut self.interleaved_buffer[..interleaved_buffer_size],
+                frame_size,
+                sample_rate,
+                current_time,
+            )
+        });
 
         // Returns a pointer to the raw interleaved buffer to Javascript so
         // it can deinterleave it into the output buffers.
@@ -1208,14 +1231,14 @@ type AudioCaptureCallback = Box<dyn FnMut(&[f32], u32, u32, f64)>;
 pub struct WasmAudioCaptureProcessor {
     interleaved_buffer: Vec<f32>,
     // Receives the interleaved captured buffer, frame size, sample rate, and current time.
-    callback: AudioCaptureCallback,
+    callback: AbortOnPanic<AudioCaptureCallback>,
 }
 
 impl WasmAudioCaptureProcessor {
     pub fn new(callback: AudioCaptureCallback) -> Self {
         Self {
             interleaved_buffer: Vec::new(),
-            callback,
+            callback: AbortOnPanic::new(callback),
         }
     }
 }
@@ -1239,12 +1262,14 @@ impl WasmAudioCaptureProcessor {
         current_time: f64,
     ) {
         let interleaved_buffer_size = channels as usize * frame_size as usize;
-        (self.callback)(
-            &self.interleaved_buffer[..interleaved_buffer_size],
-            frame_size,
-            sample_rate,
-            current_time,
-        );
+        self.callback.with_mut(|callback| {
+            callback(
+                &self.interleaved_buffer[..interleaved_buffer_size],
+                frame_size,
+                sample_rate,
+                current_time,
+            )
+        });
     }
 
     pub fn pack(self) -> usize {
@@ -1273,7 +1298,7 @@ pub struct WasmAudioDuplexProcessor {
     /// The input channel count from the stream configuration. The graph reports none until the
     /// capture source connects, so its count cannot stand in for this one.
     input_channels: u32,
-    callback: AudioDuplexCallback,
+    callback: AbortOnPanic<AudioDuplexCallback>,
 }
 
 impl WasmAudioDuplexProcessor {
@@ -1282,7 +1307,7 @@ impl WasmAudioDuplexProcessor {
             input_buffer: Vec::new(),
             output_buffer: Vec::new(),
             input_channels,
-            callback,
+            callback: AbortOnPanic::new(callback),
         }
     }
 }
@@ -1324,13 +1349,15 @@ impl WasmAudioDuplexProcessor {
             ..
         } = self;
         output_buffer[..output_len].fill(f32::EQUILIBRIUM);
-        callback(
-            &input_buffer[..input_len],
-            &mut output_buffer[..output_len],
-            frame_size,
-            sample_rate,
-            current_time,
-        );
+        callback.with_mut(|callback| {
+            callback(
+                &input_buffer[..input_len],
+                &mut output_buffer[..output_len],
+                frame_size,
+                sample_rate,
+                current_time,
+            )
+        });
     }
 
     pub fn pack(self) -> usize {
