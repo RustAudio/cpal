@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CoreAudio**: A `None` timeout now waits indefinitely for sample rate and format changes, instead of giving up after 1 or 2 seconds.
 - **Linux**: `realtime` can now promote threads without requiring `realtime-dbus`.
 - **PipeWire**: Set `node.rate` property so that `default.clock.allowed-rates` PipeWire config works.
+- Document the interleaved sample layout in stream callbacks.
 
 ### Deprecated
 

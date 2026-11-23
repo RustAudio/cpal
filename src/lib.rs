@@ -531,6 +531,23 @@ pub struct SupportedStreamConfig {
 /// A buffer of dynamically typed audio data, passed to raw stream callbacks.
 ///
 /// Raw input stream callbacks receive `&Data`, while raw output stream callbacks expect `&mut Data`.
+///
+/// # Sample layout
+///
+/// Samples are interleaved by frame: each frame contains one sample per channel,
+/// and all samples of a frame appear before those of the next frame. Interleaving
+/// does not specify which speaker or input corresponds to each channel index.
+///
+/// Use the stream's channel count ([`StreamConfig::channels`]) as the chunk size
+/// to iterate over frames in a sample slice. For example, a two-channel stream's
+/// sample slice can be split like this:
+///
+/// ```
+/// let samples = [0.1_f32, 0.2, 0.3, 0.4];
+/// let mut frames = samples.chunks_exact(2);
+/// assert_eq!(frames.next(), Some(&[0.1, 0.2][..]));
+/// assert_eq!(frames.next(), Some(&[0.3, 0.4][..]));
+/// ```
 #[derive(Debug)]
 pub struct Data {
     data: *mut (),
