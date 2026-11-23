@@ -365,8 +365,9 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// * `config` - The stream configuration including sample rate, channels, and buffer size.
     /// * `data_callback` - Called periodically with captured audio data. The callback receives
-    ///   a slice of samples in the format `T` and timing information. It is real-time code: see
-    ///   the [crate documentation](crate) for what you must not do in it.
+    ///   a slice of [interleaved samples](Data#sample-layout) in the format `T` and timing
+    ///   information. It is real-time code: see the [crate documentation](crate) for what you
+    ///   must not do in it.
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
@@ -421,10 +422,11 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     ///
     /// * `config` - The stream configuration including sample rate, channels, and buffer size.
     /// * `data_callback` - Called periodically to fill the output buffer. The callback receives
-    ///   a mutable slice of samples in the format `T` to be filled with audio data, along with
-    ///   timing information. The slice is pre-filled with silence, so a callback that writes
-    ///   fewer samples than the slice holds leaves the remainder silent rather than stale. It is
-    ///   real-time code: see the [crate documentation](crate) for what you must not do in it.
+    ///   a mutable slice of [interleaved samples](Data#sample-layout) in the format `T` to be
+    ///   filled with audio data, along with timing information. The slice is pre-filled with
+    ///   silence, so a callback that writes fewer samples than the slice holds leaves the
+    ///   remainder silent rather than stale. It is real-time code: see the
+    ///   [crate documentation](crate) for what you must not do in it.
     /// * `error_callback` - Called when a stream error occurs (e.g., device disconnected).
     /// * `timeout` - Time to wait for the backend to initialize the stream. `None` waits
     ///   indefinitely; `Some(duration)` limits how long to wait. Note: not all backends honor
@@ -569,7 +571,8 @@ pub trait DeviceTrait: PartialEq + Eq + Hash + Debug + Display + Send + Sync {
     /// callback.
     ///
     /// cpal does not compensate for drift between the two directions, and does not mix or remap
-    /// channels between them.
+    /// channels between them. Each buffer contains [interleaved samples](Data#sample-layout)
+    /// grouped by its own channel count.
     ///
     /// # Parameters
     ///
