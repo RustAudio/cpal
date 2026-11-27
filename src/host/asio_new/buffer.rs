@@ -6,7 +6,8 @@ use azo::driver::Driver;
 use azo::dto::ChannelId;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::{ptr, slice};
+use std::ptr::NonNull;
+use std::slice;
 use tap::Pipe;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -127,7 +128,7 @@ impl<Marker: DirectionMarker> Buffer<Marker> {
 
     pub fn data(&mut self, side: usize) -> Data {
         let ptr = match self.head.channel_count() {
-            0   => ptr::null_mut(),
+            0   => NonNull::dangling().as_ptr(), // this allows creating empty slices
             1   => self.head.get_buf_ptr(0, side).cast(),
             2.. => self.scratch.as_mut_ptr().cast(),
         };
