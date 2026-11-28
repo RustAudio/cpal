@@ -8,3 +8,4 @@ rls*.log
 !/examples/audioworklet-beep/.cargo/
 /.vscode
 /.idea
+/.zed
