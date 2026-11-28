@@ -26,6 +26,10 @@ pub(crate) mod alsa;
 #[cfg(all(windows, feature = "asio"))]
 pub(crate) mod asio;
 
+#[rustfmt::skip]
+#[cfg(all(windows, feature = "asio-new"))]
+pub(crate) mod asio_new;
+
 #[cfg(all(
     target_arch = "wasm32",
     target_os = "unknown",

@@ -961,10 +961,13 @@ mod platform_impl {
     use super::JackHost;
     #[cfg(feature = "asio")]
     use crate::host::asio::Host as AsioHost;
+    #[cfg(feature = "asio-new")]
+    use crate::host::asio_new::Host as AsioNewHost;
     use crate::host::wasapi::Host as WasapiHost;
 
     impl_platform_host!(
         #[cfg(feature = "asio")] Asio "ASIO" => AsioHost,
+        #[cfg(feature = "asio-new")] AsioNew "ASIOnew" => AsioNewHost,
         Wasapi "WASAPI" => WasapiHost,
         #[cfg(feature = "jack")] Jack "JACK" => JackHost,
         #[cfg(feature = "custom")] Custom => super::CustomHost,
